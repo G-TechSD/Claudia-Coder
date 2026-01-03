@@ -5,8 +5,10 @@
  */
 
 export * from "./prompts"
-export * from "./apply-code"
-export * from "./repo-context"
+export { parseCodeOutput, applyToGitLab, applyWithMergeRequest, createCommit } from "./apply-code"
+export type { FileChange, ParsedOutput, CommitResult, ApplyResult } from "./apply-code"
+export { getRepoContext, getMinimalContext, getGitLabFileTree, detectTechStack, findRelevantFiles, getKeyFileSummaries } from "./repo-context"
+export type { RepoContext, TreeItem } from "./repo-context"
 
 import type { WorkPacket, PacketTask } from "@/lib/ai/build-plan"
 import type { LinkedRepo } from "@/lib/data/types"
@@ -227,7 +229,7 @@ export async function executePacket(
   }
 
   const duration = Date.now() - startTime
-  const success = allFiles.length > 0 && errors.length === 0 && appliedResult?.success
+  const success = allFiles.length > 0 && errors.length === 0 && (appliedResult?.success === true)
 
   log(success ? "success" : "error", `Execution ${success ? "completed" : "failed"} in ${duration}ms`)
 

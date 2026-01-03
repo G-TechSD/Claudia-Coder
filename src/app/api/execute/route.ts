@@ -49,6 +49,8 @@ interface Project {
 interface ExecutionRequest {
   packetId: string
   projectId: string
+  packet?: WorkPacket
+  project?: Project
   options?: {
     preferredServer?: string
     temperature?: number

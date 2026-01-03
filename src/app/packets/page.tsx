@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -21,15 +21,21 @@ import {
   GitBranch,
   User,
   Calendar,
-  Hash
+  Hash,
+  ExternalLink,
+  Terminal,
+  Zap
 } from "lucide-react"
-import { getAllPackets, type WorkPacket } from "@/lib/ai/build-plan"
+import { getAllPackets, getPacketsForProject, type WorkPacket } from "@/lib/ai/build-plan"
+import { getProjects } from "@/lib/data/projects"
+import { usePacketExecution, type ExecutionLog } from "@/hooks/usePacketExecution"
 
 type PacketStatus = "queued" | "running" | "blocked" | "completed" | "failed"
 type PacketPriority = "high" | "normal" | "low"
 
 interface Packet {
   id: string
+  projectId: string
   title: string
   description: string
   status: PacketStatus
@@ -45,10 +51,11 @@ interface Packet {
   actualCost: number | null
   blockedReason?: string
   errorMessage?: string
+  acceptanceCriteria?: string[]
 }
 
 // Convert WorkPacket from build-plan to Packet for display
-function workPacketToPacket(wp: WorkPacket): Packet {
+function workPacketToPacket(wp: WorkPacket, projectId: string): Packet {
   const completedTasks = wp.tasks.filter(t => t.completed).length
 
   // Map work packet status to display status
@@ -65,6 +72,7 @@ function workPacketToPacket(wp: WorkPacket): Packet {
 
   return {
     id: wp.id,
+    projectId,
     title: wp.title,
     description: wp.description,
     status,
@@ -74,11 +82,12 @@ function workPacketToPacket(wp: WorkPacket): Packet {
     startedAt: wp.status === "in_progress" ? new Date() : null,
     completedAt: wp.status === "completed" ? new Date() : null,
     source: "Linear",
-    branch: `feature/${wp.id.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`,
+    branch: `claudia/${wp.id.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`,
     tasks: { total: wp.tasks.length, completed: completedTasks },
     estimatedCost: wp.estimatedTokens / 1000 * 0.002, // Rough estimate
     actualCost: wp.status === "completed" ? wp.estimatedTokens / 1000 * 0.002 : null,
     blockedReason: wp.blockedBy?.length > 0 ? `Depends on: ${wp.blockedBy.join(", ")}` : undefined,
+    acceptanceCriteria: wp.acceptanceCriteria,
   }
 }
 
@@ -134,138 +143,8 @@ const priorityConfig = {
   low: { label: "Low", color: "text-muted-foreground", bg: "bg-muted/50" }
 }
 
-const mockPackets: Packet[] = [
-  {
-    id: "PKT-001",
-    title: "Implement user authentication flow",
-    description: "Add login, signup, and password reset functionality with JWT tokens",
-    status: "running",
-    priority: "high",
-    agent: "BEAST",
-    createdAt: new Date(Date.now() - 3600000),
-    startedAt: new Date(Date.now() - 1800000),
-    completedAt: null,
-    source: "Linear",
-    branch: "feature/auth-flow",
-    tasks: { total: 8, completed: 5 },
-    estimatedCost: 2.40,
-    actualCost: 1.85
-  },
-  {
-    id: "PKT-002",
-    title: "Dashboard metrics visualization",
-    description: "Create charts and graphs for the admin dashboard KPIs",
-    status: "running",
-    priority: "normal",
-    agent: "BEDROOM",
-    createdAt: new Date(Date.now() - 7200000),
-    startedAt: new Date(Date.now() - 3600000),
-    completedAt: null,
-    source: "Manual",
-    branch: "feature/dashboard-charts",
-    tasks: { total: 5, completed: 2 },
-    estimatedCost: 1.80,
-    actualCost: 0.95
-  },
-  {
-    id: "PKT-003",
-    title: "API rate limiting middleware",
-    description: "Implement rate limiting for all public API endpoints",
-    status: "blocked",
-    priority: "high",
-    agent: null,
-    createdAt: new Date(Date.now() - 10800000),
-    startedAt: null,
-    completedAt: null,
-    source: "Linear",
-    branch: "feature/rate-limiting",
-    tasks: { total: 4, completed: 0 },
-    estimatedCost: 1.20,
-    actualCost: null,
-    blockedReason: "Awaiting approval for Redis integration costs"
-  },
-  {
-    id: "PKT-004",
-    title: "Fix login form validation",
-    description: "Email validation not working correctly on mobile browsers",
-    status: "queued",
-    priority: "normal",
-    agent: null,
-    createdAt: new Date(Date.now() - 14400000),
-    startedAt: null,
-    completedAt: null,
-    source: "Linear",
-    branch: "fix/login-validation",
-    tasks: { total: 2, completed: 0 },
-    estimatedCost: 0.45,
-    actualCost: null
-  },
-  {
-    id: "PKT-005",
-    title: "Add dark mode toggle",
-    description: "Implement theme switching with system preference detection",
-    status: "completed",
-    priority: "low",
-    agent: "Claude",
-    createdAt: new Date(Date.now() - 86400000),
-    startedAt: new Date(Date.now() - 82800000),
-    completedAt: new Date(Date.now() - 79200000),
-    source: "Manual",
-    branch: "feature/dark-mode",
-    tasks: { total: 3, completed: 3 },
-    estimatedCost: 0.90,
-    actualCost: 0.72
-  },
-  {
-    id: "PKT-006",
-    title: "Migrate to TypeScript 5.3",
-    description: "Update TypeScript and fix any breaking changes",
-    status: "failed",
-    priority: "normal",
-    agent: "BEAST",
-    createdAt: new Date(Date.now() - 172800000),
-    startedAt: new Date(Date.now() - 169200000),
-    completedAt: new Date(Date.now() - 165600000),
-    source: "Linear",
-    branch: "chore/ts-upgrade",
-    tasks: { total: 6, completed: 4 },
-    estimatedCost: 1.50,
-    actualCost: 1.35,
-    errorMessage: "Build failed: Incompatible types in src/utils/helpers.ts"
-  },
-  {
-    id: "PKT-007",
-    title: "Implement WebSocket connection",
-    description: "Real-time updates for activity feed using WebSockets",
-    status: "queued",
-    priority: "high",
-    agent: null,
-    createdAt: new Date(Date.now() - 1800000),
-    startedAt: null,
-    completedAt: null,
-    source: "Linear",
-    branch: "feature/websocket",
-    tasks: { total: 5, completed: 0 },
-    estimatedCost: 2.10,
-    actualCost: null
-  },
-  {
-    id: "PKT-008",
-    title: "Add E2E tests for checkout flow",
-    description: "Playwright tests for the complete checkout process",
-    status: "queued",
-    priority: "normal",
-    agent: null,
-    createdAt: new Date(Date.now() - 900000),
-    startedAt: null,
-    completedAt: null,
-    source: "Manual",
-    branch: "test/checkout-e2e",
-    tasks: { total: 4, completed: 0 },
-    estimatedCost: 0.80,
-    actualCost: null
-  }
-]
+// Mock packets are now empty - real packets come from storage
+const mockPackets: Packet[] = []
 
 function formatDate(date: Date | null): string {
   if (!date) return "-"
@@ -289,21 +168,62 @@ function formatDuration(start: Date | null, end: Date | null): string {
 
 export default function PacketsPage() {
   const [packets, setPackets] = useState<Packet[]>(mockPackets)
-  const [selectedPacket, setSelectedPacket] = useState<Packet | null>(mockPackets[0])
+  const [selectedPacket, setSelectedPacket] = useState<Packet | null>(null)
   const [filter, setFilter] = useState<PacketStatus | "all">("all")
   const [search, setSearch] = useState("")
+  const [showExecutionLogs, setShowExecutionLogs] = useState(false)
+
+  // Execution hook
+  const {
+    execute,
+    isExecuting,
+    currentPacketId,
+    lastResult,
+    logs,
+    error: executionError,
+    checkServerStatus
+  } = usePacketExecution()
+
+  const [serverStatus, setServerStatus] = useState<{ servers: unknown[]; available: boolean } | null>(null)
 
   // Load real packets from storage on mount
-  useEffect(() => {
-    const storedPackets = getAllPackets()
-    if (storedPackets.length > 0) {
-      const convertedPackets = storedPackets.map(workPacketToPacket)
-      setPackets(convertedPackets)
-      if (convertedPackets.length > 0) {
-        setSelectedPacket(convertedPackets[0])
+  const loadPackets = useCallback(() => {
+    const projects = getProjects()
+    const allPackets: Packet[] = []
+
+    for (const project of projects) {
+      const projectPackets = getPacketsForProject(project.id)
+      for (const wp of projectPackets) {
+        allPackets.push(workPacketToPacket(wp, project.id))
       }
     }
-  }, [])
+
+    if (allPackets.length > 0) {
+      setPackets(allPackets)
+      if (!selectedPacket) {
+        setSelectedPacket(allPackets[0])
+      }
+    }
+  }, [selectedPacket])
+
+  useEffect(() => {
+    loadPackets()
+    // Check server status
+    checkServerStatus().then(setServerStatus)
+  }, [loadPackets, checkServerStatus])
+
+  // Refresh packets after execution
+  useEffect(() => {
+    if (lastResult) {
+      loadPackets()
+    }
+  }, [lastResult, loadPackets])
+
+  // Handle packet execution
+  const handleExecute = async (packet: Packet) => {
+    setShowExecutionLogs(true)
+    await execute(packet.id, packet.projectId)
+  }
 
   const filteredPackets = packets.filter(packet => {
     const matchesFilter = filter === "all" || packet.status === filter
@@ -332,13 +252,40 @@ export default function PacketsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2">
-            <Play className="h-4 w-4" />
+          {/* Server Status */}
+          <div className={cn(
+            "flex items-center gap-1.5 px-2 py-1 rounded text-xs",
+            serverStatus?.available ? "bg-green-400/10 text-green-400" : "bg-red-400/10 text-red-400"
+          )}>
+            <span className={cn(
+              "h-2 w-2 rounded-full",
+              serverStatus?.available ? "bg-green-400" : "bg-red-400"
+            )} />
+            <span className="hidden sm:inline">
+              {serverStatus?.available ? "LLM Online" : "LLM Offline"}
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => {
+              const nextQueued = packets.find(p => p.status === "queued")
+              if (nextQueued) handleExecute(nextQueued)
+            }}
+            disabled={isExecuting || !packets.some(p => p.status === "queued")}
+          >
+            {isExecuting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             <span className="hidden sm:inline">Start Next</span>
           </Button>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Pause className="h-4 w-4" />
-            <span className="hidden sm:inline">Pause Queue</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setShowExecutionLogs(!showExecutionLogs)}
+          >
+            <Terminal className="h-4 w-4" />
+            <span className="hidden sm:inline">Logs</span>
           </Button>
           <Button size="sm" className="gap-2">
             <Package className="h-4 w-4" />
@@ -584,28 +531,94 @@ export default function PacketsPage() {
                   </div>
                 </div>
 
+                {/* Execution Result */}
+                {lastResult && selectedPacket && lastResult.packetId === selectedPacket.id && (
+                  <div className={cn(
+                    "rounded-lg border p-3 space-y-2",
+                    lastResult.success ? "border-green-400/50 bg-green-400/10" : "border-red-400/50 bg-red-400/10"
+                  )}>
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      {lastResult.success ? (
+                        <>
+                          <CheckCircle className="h-4 w-4 text-green-400" />
+                          <span className="text-green-400">Execution Successful</span>
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="h-4 w-4 text-red-400" />
+                          <span className="text-red-400">Execution Failed</span>
+                        </>
+                      )}
+                    </div>
+                    {lastResult.files.length > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        {lastResult.files.length} files generated
+                      </div>
+                    )}
+                    {lastResult.commitUrl && (
+                      <a
+                        href={lastResult.commitUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-blue-400 hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        View Commit
+                      </a>
+                    )}
+                    {lastResult.errors.length > 0 && (
+                      <div className="text-xs text-red-400">
+                        {lastResult.errors[0]}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Actions */}
                 <div className="space-y-2 pt-2">
-                  {selectedPacket.status === "running" && (
-                    <Button variant="outline" className="w-full gap-2">
+                  {selectedPacket.status === "running" && currentPacketId === selectedPacket.id && (
+                    <div className="flex items-center gap-2 text-sm text-blue-400">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Executing...
+                    </div>
+                  )}
+                  {selectedPacket.status === "running" && currentPacketId !== selectedPacket.id && (
+                    <Button variant="outline" className="w-full gap-2" disabled>
                       <Pause className="h-4 w-4" />
                       Pause Packet
                     </Button>
                   )}
                   {selectedPacket.status === "queued" && (
-                    <Button className="w-full gap-2">
-                      <Play className="h-4 w-4" />
-                      Start Now
+                    <Button
+                      className="w-full gap-2"
+                      onClick={() => handleExecute(selectedPacket)}
+                      disabled={isExecuting || !serverStatus?.available}
+                    >
+                      {isExecuting && currentPacketId === selectedPacket.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Zap className="h-4 w-4" />
+                      )}
+                      Execute Now
                     </Button>
                   )}
                   {selectedPacket.status === "blocked" && (
-                    <Button className="w-full gap-2">
+                    <Button
+                      className="w-full gap-2"
+                      onClick={() => handleExecute(selectedPacket)}
+                      disabled={isExecuting || !serverStatus?.available}
+                    >
                       <CheckCircle className="h-4 w-4" />
-                      Approve & Continue
+                      Retry Execution
                     </Button>
                   )}
                   {selectedPacket.status === "failed" && (
-                    <Button variant="outline" className="w-full gap-2">
+                    <Button
+                      variant="outline"
+                      className="w-full gap-2"
+                      onClick={() => handleExecute(selectedPacket)}
+                      disabled={isExecuting || !serverStatus?.available}
+                    >
                       <RotateCcw className="h-4 w-4" />
                       Retry Packet
                     </Button>
@@ -626,6 +639,50 @@ export default function PacketsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Execution Logs Panel */}
+      {showExecutionLogs && (
+        <Card className="flex-none">
+          <CardHeader className="py-3 flex flex-row items-center justify-between">
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Terminal className="h-4 w-4" />
+              Execution Logs
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowExecutionLogs(false)}
+            >
+              <XCircle className="h-4 w-4" />
+            </Button>
+          </CardHeader>
+          <CardContent className="py-2">
+            <div className="rounded-lg bg-zinc-950 p-3 font-mono text-xs max-h-48 overflow-auto">
+              {logs.length === 0 ? (
+                <p className="text-zinc-500">No execution logs yet. Start a packet to see output.</p>
+              ) : (
+                logs.map((log, i) => (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-zinc-500 w-20 flex-none">
+                      {new Date(log.timestamp).toLocaleTimeString()}
+                    </span>
+                    <span className={cn(
+                      "w-12 flex-none uppercase",
+                      log.level === "success" && "text-green-400",
+                      log.level === "error" && "text-red-400",
+                      log.level === "warn" && "text-yellow-400",
+                      log.level === "info" && "text-blue-400"
+                    )}>
+                      {log.level}
+                    </span>
+                    <span className="text-zinc-300">{log.message}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
