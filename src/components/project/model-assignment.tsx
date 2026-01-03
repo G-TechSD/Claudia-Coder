@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
   SelectContent,
@@ -17,23 +18,24 @@ import { cn } from "@/lib/utils"
 import {
   Plus,
   Trash2,
-  GripVertical,
   Server,
   Cloud,
-  Cpu,
   Zap,
   Brain,
   ChevronDown,
   ChevronUp,
-  AlertCircle,
-  CheckCircle2
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  Key,
+  Star
 } from "lucide-react"
+import { Input } from "@/components/ui/input"
 import {
-  AI_PROVIDERS,
   TASK_TYPES,
-  type AIProvider,
   type ProviderName
 } from "@/lib/ai/providers"
+import { useAvailableModels, type AvailableModel } from "@/hooks/useAvailableModels"
 import {
   type ProjectModelConfig,
   type AssignedModel,
@@ -46,18 +48,122 @@ import {
   getProjectModelConfig,
   saveProjectModelConfig
 } from "@/lib/ai/project-models"
+import {
+  getGlobalSettings,
+  type LocalServerConfig
+} from "@/lib/settings/global-settings"
+
+// Known server from API
+interface DetectedServer {
+  name: string
+  displayName: string
+  type: "local" | "cloud"
+  status: "online" | "offline" | "checking" | "not-configured"
+  baseUrl?: string
+  model?: string
+  models?: string[]
+}
+
+// Enabled instance for local or cloud
+interface EnabledInstance {
+  id: string
+  type: "local" | "cloud"
+  provider: string
+  displayName: string
+  serverId?: string
+  serverName?: string
+  baseUrl?: string
+  modelId: string
+  modelName: string
+  maxConcurrent: number
+  costPer1kTokens?: number
+  isCustom?: boolean
+  apiKey?: string
+}
 
 interface ModelAssignmentProps {
   projectId: string
   onConfigChange?: (config: ProjectModelConfig) => void
 }
 
+// Cloud provider metadata
+const CLOUD_PROVIDERS = [
+  { id: "anthropic", name: "Anthropic", color: "text-orange-500" },
+  { id: "openai", name: "OpenAI", color: "text-emerald-500" },
+  { id: "google", name: "Google AI", color: "text-blue-500" }
+]
+
 export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentProps) {
   const [config, setConfig] = useState<ProjectModelConfig>(() =>
     getProjectModelConfig(projectId) || createDefaultModelConfig(projectId)
   )
-  const [showAddModel, setShowAddModel] = useState(false)
   const [expandedOverrides, setExpandedOverrides] = useState(false)
+  const [detectedServers, setDetectedServers] = useState<DetectedServer[]>([])
+  const [loadingServers, setLoadingServers] = useState(true)
+  const [enabledInstances, setEnabledInstances] = useState<EnabledInstance[]>([])
+
+  // Use dynamic model fetching
+  const { models: dynamicModels, loading: loadingModels, refresh: refreshModels } = useAvailableModels()
+
+  // Default model state
+  const [defaultInstance, setDefaultInstance] = useState<EnabledInstance | null>(null)
+
+  // Add new provider state
+  const [showAddProvider, setShowAddProvider] = useState(false)
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  const [selectedServer, setSelectedServer] = useState<string | null>(null)
+  const [selectedModel, setSelectedModel] = useState<string | null>(null)
+
+  // Custom server state
+  const [showCustomServer, setShowCustomServer] = useState(false)
+  const [customName, setCustomName] = useState("")
+  const [customUrl, setCustomUrl] = useState("")
+  const [customApiKey, setCustomApiKey] = useState("")
+
+  // Fetch detected servers on mount
+  useEffect(() => {
+    async function fetchServers() {
+      try {
+        const response = await fetch("/api/providers")
+        const data = await response.json()
+
+        if (data.providers) {
+          const servers: DetectedServer[] = data.providers.map((p: {
+            name: string
+            displayName: string
+            type: "local" | "cloud"
+            status: string
+            baseUrl?: string
+            model?: string
+            models?: string[]
+          }) => ({
+            name: p.name,
+            displayName: p.displayName,
+            type: p.type,
+            status: p.status,
+            baseUrl: p.baseUrl,
+            model: p.model,
+            models: p.models
+          }))
+          setDetectedServers(servers)
+        }
+      } catch (error) {
+        console.error("Failed to fetch servers:", error)
+      } finally {
+        setLoadingServers(false)
+      }
+    }
+
+    fetchServers()
+  }, [])
+
+  // Load global settings for initial default
+  useEffect(() => {
+    const settings = getGlobalSettings()
+    if (settings.defaultModel && enabledInstances.length === 0) {
+      // Initialize from global default
+    }
+  }, [])
 
   // Persist changes
   useEffect(() => {
@@ -65,188 +171,517 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
     onConfigChange?.(config)
   }, [config, onConfigChange])
 
-  const handleAddModel = (provider: ProviderName, modelId: string, name: string) => {
-    const provider_info = AI_PROVIDERS.find(p => p.id === provider)
-    const newConfig = addModelToProject(config, {
-      modelId,
-      provider,
-      name,
-      baseUrl: provider_info?.type === "local" ? getEnvUrl(provider) : undefined
-    })
-    setConfig(newConfig)
-    setShowAddModel(false)
+  const localServers = detectedServers.filter(s => s.type === "local" && s.status === "online")
+  const cloudModels = dynamicModels.filter(m => m.type === "cloud")
+
+  // Provider icons for compact grid
+  const providerIcons: Record<string, { icon: typeof Server; color: string }> = {
+    lmstudio: { icon: Server, color: "text-green-500" },
+    ollama: { icon: Server, color: "text-purple-500" },
+    anthropic: { icon: Cloud, color: "text-orange-500" },
+    openai: { icon: Cloud, color: "text-emerald-500" },
+    google: { icon: Cloud, color: "text-blue-500" }
   }
 
-  const handleRemoveModel = (assignedModelId: string) => {
-    setConfig(removeModelFromProject(config, assignedModelId))
-  }
+  const addInstance = () => {
+    if (!selectedProvider || !selectedModel) return
 
-  const handleToggleModel = (assignedModelId: string) => {
-    setConfig(toggleModel(config, assignedModelId))
-  }
+    const isLocal = ["lmstudio", "ollama", "custom"].includes(selectedProvider)
+    const server = detectedServers.find(s => s.name === selectedServer)
+    const cloudProviderInfo = CLOUD_PROVIDERS.find(p => p.id === selectedProvider)
+    const cloudModel = cloudModels.find(m => m.id === selectedModel && m.provider === selectedProvider)
 
-  const handleSetOverride = (taskType: string, modelId: string) => {
-    if (modelId === "auto") {
-      setConfig(removeTaskOverride(config, taskType))
-    } else {
-      setConfig(setTaskOverride(config, taskType, modelId))
+    const instance: EnabledInstance = {
+      id: `instance-${Date.now()}`,
+      type: isLocal ? "local" : "cloud",
+      provider: selectedProvider,
+      displayName: isLocal
+        ? `${server?.displayName || selectedProvider} - ${selectedModel === "loaded" ? "Loaded Model" : selectedModel}`
+        : `${cloudProviderInfo?.name} - ${cloudModel?.name || selectedModel}`,
+      serverId: selectedServer || undefined,
+      serverName: server?.displayName,
+      baseUrl: server?.baseUrl,
+      modelId: selectedModel,
+      modelName: selectedModel === "loaded" ? "Currently Loaded" : (cloudModel?.name || selectedModel),
+      maxConcurrent: 1
     }
+
+    setEnabledInstances(prev => [...prev, instance])
+
+    // Set as default if first one
+    if (enabledInstances.length === 0) {
+      setDefaultInstance(instance)
+    }
+
+    // Reset selection
+    setSelectedProvider(null)
+    setSelectedServer(null)
+    setSelectedModel(null)
+    setShowAddProvider(false)
   }
 
-  const localProviders = AI_PROVIDERS.filter(p => p.type === "local")
-  const cloudProviders = AI_PROVIDERS.filter(p => p.type === "cloud")
+  const addCustomServer = () => {
+    if (!customName || !customUrl) return
+
+    const instance: EnabledInstance = {
+      id: `custom-${Date.now()}`,
+      type: "local",
+      provider: "custom",
+      displayName: `${customName} - Loaded Model`,
+      baseUrl: customUrl,
+      apiKey: customApiKey || undefined,
+      modelId: "loaded",
+      modelName: "Currently Loaded",
+      maxConcurrent: 1,
+      isCustom: true
+    }
+
+    setEnabledInstances(prev => [...prev, instance])
+
+    if (enabledInstances.length === 0) {
+      setDefaultInstance(instance)
+    }
+
+    setCustomName("")
+    setCustomUrl("")
+    setCustomApiKey("")
+    setShowCustomServer(false)
+  }
+
+  const removeInstance = (id: string) => {
+    setEnabledInstances(prev => {
+      const filtered = prev.filter(i => i.id !== id)
+      // If removing default, set new default
+      if (defaultInstance?.id === id && filtered.length > 0) {
+        setDefaultInstance(filtered[0])
+      } else if (filtered.length === 0) {
+        setDefaultInstance(null)
+      }
+      return filtered
+    })
+  }
+
+  const updateConcurrency = (id: string, maxConcurrent: number) => {
+    setEnabledInstances(prev => prev.map(i =>
+      i.id === id ? { ...i, maxConcurrent } : i
+    ))
+  }
+
+  const setAsDefault = (instance: EnabledInstance) => {
+    setDefaultInstance(instance)
+  }
+
+  // Check for overload warning
+  const hasOverloadRisk = enabledInstances
+    .filter(i => i.type === "local")
+    .some(i => i.maxConcurrent > 1) ||
+    enabledInstances.filter(i => i.type === "local" && i.serverId === enabledInstances[0]?.serverId).length > 1
 
   return (
-    <div className="space-y-6">
-      {/* Assigned Models */}
+    <div className="space-y-4">
+      {/* Default Model - Always Visible */}
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Star className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Default Model</Label>
+                {defaultInstance ? (
+                  <p className="font-medium">{defaultInstance.displayName}</p>
+                ) : (
+                  <p className="text-muted-foreground text-sm">No model selected</p>
+                )}
+              </div>
+            </div>
+            {enabledInstances.length > 1 && (
+              <Select
+                value={defaultInstance?.id || ""}
+                onValueChange={(id) => {
+                  const instance = enabledInstances.find(i => i.id === id)
+                  if (instance) setDefaultInstance(instance)
+                }}
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Select default..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {enabledInstances.map(i => (
+                    <SelectItem key={i.id} value={i.id}>
+                      <span className="flex items-center gap-2">
+                        {i.type === "local" ? <Server className="h-3 w-3" /> : <Cloud className="h-3 w-3" />}
+                        {i.displayName}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Enabled Models */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Brain className="h-4 w-4" />
-                Assigned AI Models
-              </CardTitle>
-              <CardDescription>
-                Models available for this project (drag to reorder priority)
-              </CardDescription>
-            </div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Brain className="h-4 w-4" />
+              Enabled Models
+            </CardTitle>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setShowAddModel(!showAddModel)}
+              onClick={() => setShowAddProvider(!showAddProvider)}
             >
               <Plus className="h-4 w-4 mr-1" />
-              Add Model
+              Add
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {config.assignedModels.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
-              <Cpu className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">No models assigned yet</p>
-              <p className="text-xs">Add models to enable AI features for this project</p>
+          {loadingServers ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Detecting servers...</span>
             </div>
           ) : (
-            <div className="space-y-2">
-              {config.assignedModels
-                .sort((a, b) => a.priority - b.priority)
-                .map((model, index) => (
-                  <ModelRow
-                    key={model.id}
-                    model={model}
-                    index={index}
-                    onToggle={() => handleToggleModel(model.id)}
-                    onRemove={() => handleRemoveModel(model.id)}
-                  />
-                ))}
-            </div>
-          )}
+            <>
+              {/* Add Provider Panel */}
+              {showAddProvider && (
+                <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+                  {/* Provider Grid - Compact */}
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase mb-2 block">Select Provider</Label>
+                    <div className="grid grid-cols-5 gap-2">
+                      {/* Local Servers */}
+                      {localServers.map(server => {
+                        const icon = providerIcons[server.name.split("-")[0]] || { icon: Server, color: "text-green-500" }
+                        const Icon = icon.icon
+                        return (
+                          <button
+                            key={server.name}
+                            onClick={() => {
+                              setSelectedProvider(server.name.split("-")[0])
+                              setSelectedServer(server.name)
+                              setSelectedModel(null)
+                            }}
+                            className={cn(
+                              "flex flex-col items-center gap-1 p-3 rounded-lg border text-center transition-all",
+                              selectedServer === server.name
+                                ? "border-primary bg-primary/5"
+                                : "hover:bg-accent"
+                            )}
+                          >
+                            <Icon className={cn("h-5 w-5", icon.color)} />
+                            <span className="text-xs font-medium truncate w-full">{server.displayName}</span>
+                            <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-600">Free</Badge>
+                          </button>
+                        )
+                      })}
 
-          {/* Add Model Panel */}
-          {showAddModel && (
-            <AddModelPanel
-              localProviders={localProviders}
-              cloudProviders={cloudProviders}
-              existingModels={config.assignedModels}
-              onAdd={handleAddModel}
-              onCancel={() => setShowAddModel(false)}
-            />
+                      {/* Cloud Providers */}
+                      {CLOUD_PROVIDERS.map(provider => {
+                        const providerModelCount = cloudModels.filter(m => m.provider === provider.id).length
+                        return (
+                          <button
+                            key={provider.id}
+                            onClick={() => {
+                              setSelectedProvider(provider.id)
+                              setSelectedServer(null)
+                              setSelectedModel(null)
+                            }}
+                            className={cn(
+                              "flex flex-col items-center gap-1 p-3 rounded-lg border text-center transition-all",
+                              selectedProvider === provider.id && !selectedServer
+                                ? "border-primary bg-primary/5"
+                                : "hover:bg-accent"
+                            )}
+                          >
+                            <Cloud className={cn("h-5 w-5", provider.color)} />
+                            <span className="text-xs font-medium">{provider.name}</span>
+                            <Badge variant="outline" className="text-[10px]">
+                              {providerModelCount > 0 ? `${providerModelCount} models` : "Paid"}
+                            </Badge>
+                          </button>
+                        )
+                      })}
+
+                      {/* Custom */}
+                      <button
+                        onClick={() => setShowCustomServer(true)}
+                        className="flex flex-col items-center gap-1 p-3 rounded-lg border border-dashed text-center hover:bg-accent"
+                      >
+                        <Plus className="h-5 w-5 text-muted-foreground" />
+                        <span className="text-xs font-medium text-muted-foreground">Custom</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Model Selection */}
+                  {(selectedServer || (selectedProvider && CLOUD_PROVIDERS.some((p: { id: string }) => p.id === selectedProvider))) && (
+                    <div>
+                      <Label className="text-xs text-muted-foreground uppercase mb-2 block">Select Model</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {/* Local server models */}
+                        {selectedServer && (
+                          <>
+                            <Button
+                              variant={selectedModel === "loaded" ? "default" : "outline"}
+                              size="sm"
+                              className="h-8"
+                              onClick={() => setSelectedModel("loaded")}
+                            >
+                              <Zap className="h-3 w-3 mr-1" />
+                              Currently Loaded
+                            </Button>
+                            {detectedServers.find(s => s.name === selectedServer)?.models?.map(model => (
+                              <Button
+                                key={model}
+                                variant={selectedModel === model ? "default" : "outline"}
+                                size="sm"
+                                className="h-8"
+                                onClick={() => setSelectedModel(model)}
+                              >
+                                {model}
+                              </Button>
+                            ))}
+                          </>
+                        )}
+
+                        {/* Cloud provider models */}
+                        {!selectedServer && selectedProvider && (
+                          cloudModels
+                            .filter(m => m.provider === selectedProvider)
+                            .map(model => {
+                              const alreadyAdded = enabledInstances.some(
+                                i => i.provider === selectedProvider && i.modelId === model.id
+                              )
+                              return (
+                                <Button
+                                  key={model.id}
+                                  variant={selectedModel === model.id ? "default" : "outline"}
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={alreadyAdded}
+                                  onClick={() => setSelectedModel(model.id)}
+                                >
+                                  {model.name}
+                                  {alreadyAdded && <CheckCircle2 className="h-3 w-3 ml-1 text-green-500" />}
+                                </Button>
+                              )
+                            })
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Custom Server Form */}
+                  {showCustomServer && (
+                    <div className="p-3 border rounded-lg space-y-2 bg-background">
+                      <Label className="text-sm">Custom Server</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          placeholder="Name (e.g., Gaming PC)"
+                          value={customName}
+                          onChange={(e) => setCustomName(e.target.value)}
+                        />
+                        <Input
+                          placeholder="URL (e.g., http://192.168.1.100:1234)"
+                          value={customUrl}
+                          onChange={(e) => setCustomUrl(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Key className="h-4 w-4 text-muted-foreground" />
+                        <Input
+                          type="password"
+                          placeholder="API Key (optional)"
+                          value={customApiKey}
+                          onChange={(e) => setCustomApiKey(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" disabled={!customName || !customUrl} onClick={addCustomServer}>
+                          Add Custom Server
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setShowCustomServer(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add Button */}
+                  {!showCustomServer && (
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => setShowAddProvider(false)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={!selectedModel}
+                        onClick={addInstance}
+                      >
+                        Add Model
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Enabled Instances List */}
+              {enabledInstances.length > 0 ? (
+                <div className="space-y-2">
+                  {enabledInstances.map(instance => (
+                    <div
+                      key={instance.id}
+                      className={cn(
+                        "flex items-center justify-between p-3 rounded-lg border",
+                        instance.id === defaultInstance?.id && "border-primary/30 bg-primary/5"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        {instance.type === "local" ? (
+                          <Server className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <Cloud className="h-4 w-4 text-blue-500" />
+                        )}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{instance.displayName}</span>
+                            {instance.id === defaultInstance?.id && (
+                              <Badge variant="outline" className="text-xs bg-primary/10 text-primary">
+                                Default
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            {instance.type === "local" ? "Free" : (
+                              instance.costPer1kTokens && `$${instance.costPer1kTokens}/1k tokens`
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={instance.maxConcurrent.toString()}
+                          onValueChange={(v) => updateConcurrency(instance.id, parseInt(v))}
+                        >
+                          <SelectTrigger className="w-[70px] h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[1, 2, 3, 4, 5, 6, 8, 10, 15, 20].map(n => (
+                              <SelectItem key={n} value={n.toString()}>{n}x</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {instance.id !== defaultInstance?.id && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="Set as default"
+                            onClick={() => setAsDefault(instance)}
+                          >
+                            <Star className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => removeInstance(instance.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : !showAddProvider && (
+                <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
+                  <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No models enabled</p>
+                  <p className="text-xs">Click "Add" to configure AI models</p>
+                </div>
+              )}
+
+              {/* Overload Warning */}
+              {hasOverloadRisk && (
+                <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                  <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm">
+                    <p className="font-medium text-yellow-600">Potential Overload</p>
+                    <p className="text-yellow-600/80 text-xs">
+                      Multiple concurrent sessions on local servers may slow responses.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
 
       {/* Routing Settings */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Zap className="h-4 w-4" />
-            Routing Settings
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="p-4">
           <div className="flex items-center justify-between">
-            <div>
-              <Label>Auto-route by task type</Label>
-              <p className="text-xs text-muted-foreground">
-                Automatically select best model for each task
-              </p>
+            <div className="flex items-center gap-3">
+              <Zap className="h-4 w-4 text-primary" />
+              <div>
+                <Label>Auto-route by task type</Label>
+                <p className="text-xs text-muted-foreground">Best model per task</p>
+              </div>
             </div>
             <Switch
               checked={config.autoRoute}
-              onCheckedChange={(checked) =>
-                setConfig({ ...config, autoRoute: checked })
-              }
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Prefer local models</Label>
-              <p className="text-xs text-muted-foreground">
-                Always try local models before paid APIs
-              </p>
-            </div>
-            <Switch
-              checked={config.preferLocal}
-              onCheckedChange={(checked) =>
-                setConfig({ ...config, preferLocal: checked })
-              }
+              onCheckedChange={(checked) => setConfig({ ...config, autoRoute: checked })}
             />
           </div>
         </CardContent>
       </Card>
 
-      {/* Task Overrides */}
+      {/* Task Overrides - Collapsed */}
       <Card>
         <CardHeader
           className="pb-3 cursor-pointer"
           onClick={() => setExpandedOverrides(!expandedOverrides)}
         >
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base">Task Overrides</CardTitle>
-              <CardDescription>
-                Assign specific models to task types
-              </CardDescription>
-            </div>
-            {expandedOverrides ? (
-              <ChevronUp className="h-4 w-4" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
+            <CardTitle className="text-sm">Task Overrides</CardTitle>
+            {expandedOverrides ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </div>
         </CardHeader>
         {expandedOverrides && (
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-2 pt-0">
             {TASK_TYPES.map(taskType => {
               const override = config.taskOverrides.find(o => o.taskType === taskType.id)
               return (
-                <div key={taskType.id} className="flex items-center justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">{taskType.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {taskType.description}
-                    </p>
-                  </div>
+                <div key={taskType.id} className="flex items-center justify-between gap-2">
+                  <span className="text-sm">{taskType.name}</span>
                   <Select
                     value={override?.modelId || "auto"}
-                    onValueChange={(value) => handleSetOverride(taskType.id, value)}
+                    onValueChange={(value) => {
+                      if (value === "auto") {
+                        setConfig(removeTaskOverride(config, taskType.id))
+                      } else {
+                        setConfig(setTaskOverride(config, taskType.id, value))
+                      }
+                    }}
                   >
-                    <SelectTrigger className="w-[180px]">
+                    <SelectTrigger className="w-[160px] h-8">
                       <SelectValue placeholder="Auto" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auto">
-                        <span className="flex items-center gap-2">
-                          <Zap className="h-3 w-3" />
-                          Auto-route
-                        </span>
-                      </SelectItem>
-                      {config.assignedModels.map(model => (
-                        <SelectItem key={model.id} value={model.modelId}>
-                          {model.name}
+                      <SelectItem value="auto">Auto</SelectItem>
+                      {enabledInstances.map(i => (
+                        <SelectItem key={i.id} value={i.modelId}>
+                          {i.displayName}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -259,252 +694,4 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
       </Card>
     </div>
   )
-}
-
-function ModelRow({
-  model,
-  index,
-  onToggle,
-  onRemove
-}: {
-  model: AssignedModel
-  index: number
-  onToggle: () => void
-  onRemove: () => void
-}) {
-  const provider = AI_PROVIDERS.find(p => p.id === model.provider)
-  const isLocal = provider?.type === "local"
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-3 p-3 rounded-lg border",
-        model.enabled ? "bg-background" : "bg-muted/50 opacity-60"
-      )}
-    >
-      <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-
-      <div className="flex items-center gap-2">
-        <div
-          className={cn(
-            "h-2 w-2 rounded-full",
-            model.enabled ? "bg-green-500" : "bg-gray-400"
-          )}
-        />
-        <Badge variant={isLocal ? "secondary" : "outline"} className="text-xs">
-          {index + 1}
-        </Badge>
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          {isLocal ? (
-            <Server className="h-4 w-4 text-green-500" />
-          ) : (
-            <Cloud className="h-4 w-4 text-blue-500" />
-          )}
-          <span className="font-medium text-sm">{model.name}</span>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {provider?.name} • {isLocal ? "Free" : "Paid"}
-        </p>
-      </div>
-
-      <Switch checked={model.enabled} onCheckedChange={onToggle} />
-
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-        onClick={onRemove}
-      >
-        <Trash2 className="h-4 w-4" />
-      </Button>
-    </div>
-  )
-}
-
-function AddModelPanel({
-  localProviders,
-  cloudProviders,
-  existingModels,
-  onAdd,
-  onCancel
-}: {
-  localProviders: AIProvider[]
-  cloudProviders: AIProvider[]
-  existingModels: AssignedModel[]
-  onAdd: (provider: ProviderName, modelId: string, name: string) => void
-  onCancel: () => void
-}) {
-  const [selectedProvider, setSelectedProvider] = useState<ProviderName | null>(null)
-  const [selectedModel, setSelectedModel] = useState<string | null>(null)
-
-  const provider = AI_PROVIDERS.find(p => p.id === selectedProvider)
-  const existingModelIds = new Set(existingModels.map(m => m.modelId))
-
-  return (
-    <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
-      <div className="flex items-center justify-between">
-        <h4 className="font-medium text-sm">Add Model</h4>
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-
-      {/* Local Providers */}
-      <div>
-        <Label className="text-xs text-muted-foreground uppercase">
-          Local (Free)
-        </Label>
-        <div className="grid grid-cols-2 gap-2 mt-2">
-          {localProviders.map(p => (
-            <button
-              key={p.id}
-              onClick={() => {
-                setSelectedProvider(p.id)
-                setSelectedModel(p.defaultModel || null)
-              }}
-              className={cn(
-                "flex items-center gap-2 p-3 rounded-lg border text-left transition-colors",
-                selectedProvider === p.id
-                  ? "border-primary bg-primary/5"
-                  : "hover:bg-accent"
-              )}
-            >
-              <Server className="h-5 w-5 text-green-500" />
-              <div>
-                <p className="font-medium text-sm">{p.name}</p>
-                <p className="text-xs text-muted-foreground">{p.description}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Cloud Providers */}
-      <div>
-        <Label className="text-xs text-muted-foreground uppercase">
-          Cloud (Paid)
-        </Label>
-        <div className="grid grid-cols-2 gap-2 mt-2">
-          {cloudProviders.map(p => (
-            <button
-              key={p.id}
-              onClick={() => {
-                setSelectedProvider(p.id)
-                setSelectedModel(null)
-              }}
-              className={cn(
-                "flex items-center gap-2 p-3 rounded-lg border text-left transition-colors",
-                selectedProvider === p.id
-                  ? "border-primary bg-primary/5"
-                  : "hover:bg-accent"
-              )}
-            >
-              <Cloud className="h-5 w-5 text-blue-500" />
-              <div>
-                <p className="font-medium text-sm">{p.name}</p>
-                <p className="text-xs text-muted-foreground">{p.description}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Model Selection */}
-      {provider && provider.models.length > 0 && (
-        <div>
-          <Label className="text-xs text-muted-foreground uppercase">
-            Select Model
-          </Label>
-          <div className="space-y-2 mt-2">
-            {provider.models.map(model => {
-              const alreadyAdded = existingModelIds.has(model.id)
-              return (
-                <button
-                  key={model.id}
-                  disabled={alreadyAdded}
-                  onClick={() => setSelectedModel(model.id)}
-                  className={cn(
-                    "w-full flex items-center justify-between p-3 rounded-lg border text-left transition-colors",
-                    selectedModel === model.id
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-accent",
-                    alreadyAdded && "opacity-50 cursor-not-allowed"
-                  )}
-                >
-                  <div>
-                    <p className="font-medium text-sm">{model.name}</p>
-                    <div className="flex gap-2 mt-1">
-                      <Badge variant="outline" className="text-xs">
-                        {model.quality}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {model.speed}
-                      </Badge>
-                      {model.costPer1kTokens && (
-                        <Badge variant="outline" className="text-xs">
-                          ${model.costPer1kTokens}/1k
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  {alreadyAdded ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  ) : selectedModel === model.id ? (
-                    <CheckCircle2 className="h-4 w-4 text-primary" />
-                  ) : null}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Local model - just needs the base URL */}
-      {provider && provider.type === "local" && (
-        <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30">
-          <div className="flex items-start gap-2">
-            <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium">Uses currently loaded model</p>
-              <p className="text-xs text-muted-foreground">
-                Will use whatever model is loaded in {provider.name}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Button */}
-      <Button
-        className="w-full"
-        disabled={!selectedProvider || (provider?.models.length !== undefined && provider.models.length > 0 && !selectedModel)}
-        onClick={() => {
-          if (selectedProvider) {
-            const modelId = selectedModel || `${selectedProvider}-loaded`
-            const modelName = provider?.models.find(m => m.id === selectedModel)?.name
-              || `${provider?.name} (loaded model)`
-            onAdd(selectedProvider, modelId, modelName)
-          }
-        }}
-      >
-        Add Model
-      </Button>
-    </div>
-  )
-}
-
-function getEnvUrl(provider: ProviderName): string | undefined {
-  if (typeof window === "undefined") return undefined
-
-  switch (provider) {
-    case "lmstudio":
-      return process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
-    case "ollama":
-      return process.env.NEXT_PUBLIC_OLLAMA_URL
-    default:
-      return undefined
-  }
 }

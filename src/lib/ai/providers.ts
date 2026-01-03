@@ -48,100 +48,289 @@ export interface AIProvider {
   baseUrlEnvVar?: string
 }
 
-// Known models and their capabilities
-export const KNOWN_MODELS: Record<string, Partial<AIModel>> = {
-  // Local models (capabilities vary by specific model loaded)
-  "local-general": {
-    strengths: ["coding", "reasoning", "analysis"],
-    speed: "medium",
-    quality: "standard"
+/**
+ * Known model patterns and their capabilities
+ * Used to enrich dynamically fetched models with capability metadata
+ * Patterns are matched against model IDs (case-insensitive)
+ */
+export const KNOWN_MODEL_PATTERNS: Array<{
+  pattern: RegExp
+  capabilities: Partial<AIModel>
+}> = [
+  // === Anthropic ===
+  // Opus models - frontier reasoning
+  {
+    pattern: /claude.*opus.*4\.5|claude-opus-4-5/i,
+    capabilities: {
+      strengths: ["coding", "reasoning", "analysis", "planning", "long-context"],
+      costPer1kTokens: 0.015,
+      speed: "slow",
+      quality: "frontier"
+    }
+  },
+  {
+    pattern: /claude.*opus.*4|claude-opus-4/i,
+    capabilities: {
+      strengths: ["coding", "reasoning", "analysis", "planning", "long-context"],
+      costPer1kTokens: 0.015,
+      speed: "slow",
+      quality: "frontier"
+    }
+  },
+  // Sonnet models - balanced
+  {
+    pattern: /claude.*sonnet.*4|claude-sonnet-4/i,
+    capabilities: {
+      strengths: ["coding", "reasoning", "fast-iteration"],
+      costPer1kTokens: 0.003,
+      speed: "medium",
+      quality: "high"
+    }
+  },
+  {
+    pattern: /claude.*sonnet.*3\.5|claude-3-5-sonnet/i,
+    capabilities: {
+      strengths: ["coding", "reasoning", "fast-iteration"],
+      costPer1kTokens: 0.003,
+      speed: "medium",
+      quality: "high"
+    }
+  },
+  // Haiku models - fast
+  {
+    pattern: /claude.*haiku/i,
+    capabilities: {
+      strengths: ["fast-iteration", "documentation"],
+      costPer1kTokens: 0.00025,
+      speed: "fast",
+      quality: "standard"
+    }
   },
 
-  // Anthropic
-  "claude-opus-4": {
-    name: "Claude Opus 4",
-    contextWindow: 200000,
-    maxOutput: 32000,
-    strengths: ["coding", "reasoning", "analysis", "planning", "long-context"],
-    costPer1kTokens: 0.015,
-    speed: "slow",
-    quality: "frontier"
+  // === OpenAI ===
+  // GPT-5 series
+  {
+    pattern: /gpt-?5/i,
+    capabilities: {
+      strengths: ["coding", "reasoning", "creative", "analysis", "planning"],
+      costPer1kTokens: 0.01,
+      speed: "medium",
+      quality: "frontier"
+    }
   },
-  "claude-sonnet-4": {
-    name: "Claude Sonnet 4",
-    contextWindow: 200000,
-    maxOutput: 16000,
-    strengths: ["coding", "reasoning", "fast-iteration"],
-    costPer1kTokens: 0.003,
-    speed: "medium",
-    quality: "high"
+  // GPT-4o series
+  {
+    pattern: /gpt-?4o-?mini/i,
+    capabilities: {
+      strengths: ["fast-iteration", "coding"],
+      costPer1kTokens: 0.00015,
+      speed: "fast",
+      quality: "standard"
+    }
   },
-  "claude-haiku-3.5": {
-    name: "Claude Haiku 3.5",
-    contextWindow: 200000,
-    maxOutput: 8000,
-    strengths: ["fast-iteration", "documentation"],
-    costPer1kTokens: 0.00025,
-    speed: "fast",
-    quality: "standard"
+  {
+    pattern: /gpt-?4o/i,
+    capabilities: {
+      strengths: ["coding", "reasoning", "creative"],
+      costPer1kTokens: 0.005,
+      speed: "medium",
+      quality: "high"
+    }
+  },
+  // o-series reasoning models
+  {
+    pattern: /^o4/i,
+    capabilities: {
+      strengths: ["reasoning", "planning", "analysis", "coding"],
+      costPer1kTokens: 0.02,
+      speed: "slow",
+      quality: "frontier"
+    }
+  },
+  {
+    pattern: /^o3(?!-mini)/i,
+    capabilities: {
+      strengths: ["reasoning", "planning", "analysis"],
+      costPer1kTokens: 0.015,
+      speed: "slow",
+      quality: "frontier"
+    }
+  },
+  {
+    pattern: /^o3-mini/i,
+    capabilities: {
+      strengths: ["reasoning", "coding", "fast-iteration"],
+      costPer1kTokens: 0.0011,
+      speed: "medium",
+      quality: "high"
+    }
+  },
+  {
+    pattern: /^o1(?!-mini)/i,
+    capabilities: {
+      strengths: ["reasoning", "planning", "analysis"],
+      costPer1kTokens: 0.015,
+      speed: "slow",
+      quality: "frontier"
+    }
+  },
+  {
+    pattern: /^o1-mini/i,
+    capabilities: {
+      strengths: ["reasoning", "coding"],
+      costPer1kTokens: 0.003,
+      speed: "medium",
+      quality: "high"
+    }
   },
 
-  // OpenAI
-  "gpt-4o": {
-    name: "GPT-4o",
-    contextWindow: 128000,
-    maxOutput: 16384,
-    strengths: ["coding", "reasoning", "creative"],
-    costPer1kTokens: 0.005,
-    speed: "medium",
-    quality: "high"
+  // === Google ===
+  // Gemini 3 series
+  {
+    pattern: /gemini.*3.*ultra/i,
+    capabilities: {
+      strengths: ["long-context", "reasoning", "coding", "analysis"],
+      costPer1kTokens: 0.005,
+      speed: "slow",
+      quality: "frontier"
+    }
   },
-  "gpt-4o-mini": {
-    name: "GPT-4o Mini",
-    contextWindow: 128000,
-    maxOutput: 16384,
-    strengths: ["fast-iteration", "coding"],
-    costPer1kTokens: 0.00015,
-    speed: "fast",
-    quality: "standard"
+  {
+    pattern: /gemini.*3.*pro/i,
+    capabilities: {
+      strengths: ["long-context", "reasoning", "coding"],
+      costPer1kTokens: 0.002,
+      speed: "medium",
+      quality: "high"
+    }
   },
-  "o1": {
-    name: "o1",
-    contextWindow: 200000,
-    maxOutput: 100000,
-    strengths: ["reasoning", "planning", "analysis"],
-    costPer1kTokens: 0.015,
-    speed: "slow",
-    quality: "frontier"
+  {
+    pattern: /gemini.*3.*flash/i,
+    capabilities: {
+      strengths: ["long-context", "fast-iteration", "analysis"],
+      costPer1kTokens: 0.0002,
+      speed: "fast",
+      quality: "standard"
+    }
   },
-  "o3-mini": {
-    name: "o3-mini",
-    contextWindow: 200000,
-    maxOutput: 100000,
-    strengths: ["reasoning", "coding", "fast-iteration"],
-    costPer1kTokens: 0.0011,
-    speed: "medium",
-    quality: "high"
+  // Gemini 2 series
+  {
+    pattern: /gemini.*2.*pro/i,
+    capabilities: {
+      strengths: ["long-context", "reasoning", "coding"],
+      costPer1kTokens: 0.00125,
+      speed: "medium",
+      quality: "high"
+    }
+  },
+  {
+    pattern: /gemini.*2.*flash/i,
+    capabilities: {
+      strengths: ["long-context", "fast-iteration", "analysis"],
+      costPer1kTokens: 0.0001,
+      speed: "fast",
+      quality: "standard"
+    }
+  },
+  // Gemini 1.5 series
+  {
+    pattern: /gemini.*1\.5/i,
+    capabilities: {
+      strengths: ["long-context", "analysis"],
+      costPer1kTokens: 0.001,
+      speed: "medium",
+      quality: "high"
+    }
   },
 
-  // Google
-  "gemini-2.0-flash": {
-    name: "Gemini 2.0 Flash",
-    contextWindow: 1000000,
-    maxOutput: 8192,
-    strengths: ["long-context", "fast-iteration", "analysis"],
-    costPer1kTokens: 0.0001,
-    speed: "fast",
-    quality: "standard"
+  // === Local models ===
+  {
+    pattern: /llama.*3.*70b/i,
+    capabilities: {
+      strengths: ["coding", "reasoning", "analysis"],
+      speed: "slow",
+      quality: "high"
+    }
   },
-  "gemini-2.0-pro": {
-    name: "Gemini 2.0 Pro",
-    contextWindow: 2000000,
-    maxOutput: 8192,
-    strengths: ["long-context", "reasoning", "coding"],
-    costPer1kTokens: 0.00125,
-    speed: "medium",
-    quality: "high"
+  {
+    pattern: /llama.*3/i,
+    capabilities: {
+      strengths: ["coding", "reasoning"],
+      speed: "medium",
+      quality: "standard"
+    }
+  },
+  {
+    pattern: /qwen.*coder/i,
+    capabilities: {
+      strengths: ["coding", "fast-iteration"],
+      speed: "fast",
+      quality: "standard"
+    }
+  },
+  {
+    pattern: /deepseek.*coder/i,
+    capabilities: {
+      strengths: ["coding", "reasoning"],
+      speed: "medium",
+      quality: "high"
+    }
+  },
+  {
+    pattern: /codellama/i,
+    capabilities: {
+      strengths: ["coding", "fast-iteration"],
+      speed: "fast",
+      quality: "standard"
+    }
+  },
+  {
+    pattern: /mistral/i,
+    capabilities: {
+      strengths: ["coding", "reasoning"],
+      speed: "medium",
+      quality: "standard"
+    }
+  }
+]
+
+// Default capabilities for unknown models
+const DEFAULT_CAPABILITIES: Partial<AIModel> = {
+  strengths: ["coding", "reasoning"],
+  speed: "medium",
+  quality: "standard"
+}
+
+/**
+ * Get capabilities for a model ID by matching against known patterns
+ */
+export function getModelCapabilities(modelId: string): Partial<AIModel> {
+  for (const { pattern, capabilities } of KNOWN_MODEL_PATTERNS) {
+    if (pattern.test(modelId)) {
+      return capabilities
+    }
+  }
+  return DEFAULT_CAPABILITIES
+}
+
+/**
+ * Enrich a dynamically fetched model with capability metadata
+ */
+export function enrichModelWithCapabilities(
+  model: { id: string; name: string; provider: string; type: "local" | "cloud"; contextWindow?: number; maxOutput?: number }
+): AIModel {
+  const capabilities = getModelCapabilities(model.id)
+  return {
+    id: model.id,
+    name: model.name,
+    provider: model.provider as ProviderName,
+    type: model.type,
+    contextWindow: model.contextWindow || 128000,
+    maxOutput: model.maxOutput || 8192,
+    strengths: capabilities.strengths || ["coding", "reasoning"],
+    costPer1kTokens: capabilities.costPer1kTokens,
+    speed: capabilities.speed || "medium",
+    quality: capabilities.quality || "standard"
   }
 }
 
@@ -174,27 +363,7 @@ export const AI_PROVIDERS: AIProvider[] = [
     description: "Claude models - Best for coding and reasoning",
     configurable: true,
     apiKeyEnvVar: "ANTHROPIC_API_KEY",
-    models: [
-      {
-        id: "claude-opus-4-20250514",
-        provider: "anthropic",
-        type: "cloud",
-        ...KNOWN_MODELS["claude-opus-4"]
-      } as AIModel,
-      {
-        id: "claude-sonnet-4-20250514",
-        provider: "anthropic",
-        type: "cloud",
-        ...KNOWN_MODELS["claude-sonnet-4"]
-      } as AIModel,
-      {
-        id: "claude-3-5-haiku-20241022",
-        provider: "anthropic",
-        type: "cloud",
-        ...KNOWN_MODELS["claude-haiku-3.5"]
-      } as AIModel
-    ],
-    defaultModel: "claude-sonnet-4-20250514"
+    models: [] // Populated dynamically via /api/models
   },
   {
     id: "openai",
@@ -203,33 +372,7 @@ export const AI_PROVIDERS: AIProvider[] = [
     description: "GPT and o-series models",
     configurable: true,
     apiKeyEnvVar: "OPENAI_API_KEY",
-    models: [
-      {
-        id: "gpt-4o",
-        provider: "openai",
-        type: "cloud",
-        ...KNOWN_MODELS["gpt-4o"]
-      } as AIModel,
-      {
-        id: "gpt-4o-mini",
-        provider: "openai",
-        type: "cloud",
-        ...KNOWN_MODELS["gpt-4o-mini"]
-      } as AIModel,
-      {
-        id: "o1",
-        provider: "openai",
-        type: "cloud",
-        ...KNOWN_MODELS["o1"]
-      } as AIModel,
-      {
-        id: "o3-mini",
-        provider: "openai",
-        type: "cloud",
-        ...KNOWN_MODELS["o3-mini"]
-      } as AIModel
-    ],
-    defaultModel: "gpt-4o"
+    models: [] // Populated dynamically via /api/models
   },
   {
     id: "google",
@@ -238,21 +381,7 @@ export const AI_PROVIDERS: AIProvider[] = [
     description: "Gemini models - Best for long context",
     configurable: true,
     apiKeyEnvVar: "GOOGLE_AI_API_KEY",
-    models: [
-      {
-        id: "gemini-2.0-flash",
-        provider: "google",
-        type: "cloud",
-        ...KNOWN_MODELS["gemini-2.0-flash"]
-      } as AIModel,
-      {
-        id: "gemini-2.0-pro",
-        provider: "google",
-        type: "cloud",
-        ...KNOWN_MODELS["gemini-2.0-pro"]
-      } as AIModel
-    ],
-    defaultModel: "gemini-2.0-flash"
+    models: [] // Populated dynamically via /api/models
   }
 ]
 
@@ -415,4 +544,96 @@ export function getLocalProviders(): AIProvider[] {
  */
 export function getCloudProviders(): AIProvider[] {
   return AI_PROVIDERS.filter(p => p.type === "cloud")
+}
+
+/**
+ * Model preference patterns for selecting recommended defaults
+ * Higher index = higher priority within same provider
+ */
+const MODEL_PREFERENCE_ORDER: Record<string, RegExp[]> = {
+  anthropic: [
+    /claude.*opus.*4\.5/i,      // Opus 4.5 (latest flagship)
+    /claude.*opus.*4/i,         // Opus 4
+    /claude.*sonnet.*4/i,       // Sonnet 4
+    /claude.*sonnet.*3\.5/i,    // Sonnet 3.5
+    /claude.*opus/i,            // Any Opus
+    /claude.*sonnet/i,          // Any Sonnet
+  ],
+  openai: [
+    /gpt-?5\.2/i,               // GPT 5.2 (latest)
+    /gpt-?5\.1/i,               // GPT 5.1
+    /gpt-?5/i,                  // GPT 5.x
+    /^o4(?!-mini)/i,            // o4 (reasoning flagship)
+    /^o3(?!-mini)/i,            // o3 (reasoning)
+    /gpt-?4o(?!-mini)/i,        // GPT-4o (not mini)
+    /^o3-mini/i,                // o3-mini
+    /gpt-?4o-mini/i,            // GPT-4o-mini
+  ],
+  google: [
+    /gemini.*3.*ultra/i,        // Gemini 3 Ultra (flagship)
+    /gemini.*3.*pro/i,          // Gemini 3 Pro
+    /gemini.*3.*flash/i,        // Gemini 3 Flash
+    /gemini.*2\.5.*pro/i,       // Gemini 2.5 Pro
+    /gemini.*2\.5.*flash/i,     // Gemini 2.5 Flash
+    /gemini.*2.*pro/i,          // Gemini 2.x Pro
+    /gemini.*2.*flash/i,        // Gemini 2.x Flash
+    /gemini.*pro/i,             // Any Gemini Pro
+  ],
+  lmstudio: [
+    /qwen.*coder.*32b/i,        // Large coding models
+    /deepseek.*coder.*33b/i,
+    /llama.*3.*70b/i,
+    /mistral.*large/i,
+    /./,                        // Any model (just pick first available)
+  ],
+  ollama: [
+    /llama.*3.*70b/i,
+    /qwen.*coder/i,
+    /deepseek.*coder/i,
+    /codellama/i,
+    /./,                        // Any model
+  ]
+}
+
+/**
+ * Select the recommended default model from a list of fetched models for a provider
+ * Returns the best match based on model preference order
+ */
+export function getRecommendedModel(
+  models: Array<{ id: string; name: string; provider: string }>,
+  provider: string
+): { id: string; name: string; provider: string } | undefined {
+  const providerModels = models.filter(m => m.provider === provider)
+  if (providerModels.length === 0) return undefined
+
+  const preferences = MODEL_PREFERENCE_ORDER[provider]
+  if (!preferences) {
+    // No preference defined, return first model
+    return providerModels[0]
+  }
+
+  // Find first matching model in preference order
+  for (const pattern of preferences) {
+    const match = providerModels.find(m => pattern.test(m.id))
+    if (match) return match
+  }
+
+  // Fallback to first model if no preference matches
+  return providerModels[0]
+}
+
+/**
+ * Get recommended models for all providers from a fetched model list
+ */
+export function getRecommendedModels(
+  models: Array<{ id: string; name: string; provider: string }>
+): Record<string, { id: string; name: string; provider: string } | undefined> {
+  const providers = ["anthropic", "openai", "google", "lmstudio", "ollama"]
+  const recommendations: Record<string, { id: string; name: string; provider: string } | undefined> = {}
+
+  for (const provider of providers) {
+    recommendations[provider] = getRecommendedModel(models, provider)
+  }
+
+  return recommendations
 }

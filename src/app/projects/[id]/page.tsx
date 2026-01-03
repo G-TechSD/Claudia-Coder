@@ -40,13 +40,15 @@ import {
   Server
 } from "lucide-react"
 import { getProject, updateProject, deleteProject } from "@/lib/data/projects"
-import { getResourcesForProject } from "@/lib/data/resources"
+import { getResourcesForProject, getBrainDumpsForProject } from "@/lib/data/resources"
 import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
 import { ResourceUpload } from "@/components/project/resource-upload"
 import { RepoBrowser } from "@/components/project/repo-browser"
 import { BuildPlanEditor } from "@/components/project/build-plan-editor"
-import { SecurityEval } from "@/components/security/security-eval"
+import { ProjectTimeline } from "@/components/project/project-timeline"
+import { BrainDumpList } from "@/components/brain-dump/brain-dump-list"
+import { AudioRecorder } from "@/components/brain-dump/audio-recorder"
 import {
   Select,
   SelectContent,
@@ -85,6 +87,8 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
   const [resourceCount, setResourceCount] = useState(0)
+  const [brainDumpCount, setBrainDumpCount] = useState(0)
+  const [isRecordingBrainDump, setIsRecordingBrainDump] = useState(false)
   const [repoBrowserOpen, setRepoBrowserOpen] = useState(false)
   const [providers, setProviders] = useState<ProviderOption[]>([])
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
@@ -98,6 +102,10 @@ export default function ProjectDetailPage() {
     // Load resource count
     const resources = getResourcesForProject(projectId)
     setResourceCount(resources.length)
+
+    // Load brain dump count
+    const brainDumps = getBrainDumpsForProject(projectId)
+    setBrainDumpCount(brainDumps.length)
   }, [params.id])
 
   // Check available providers on mount
@@ -141,6 +149,19 @@ export default function ProjectDetailPage() {
   const refreshResourceCount = () => {
     const resources = getResourcesForProject(params.id as string)
     setResourceCount(resources.length)
+  }
+
+  const refreshBrainDumpCount = () => {
+    const brainDumps = getBrainDumpsForProject(params.id as string)
+    setBrainDumpCount(brainDumps.length)
+  }
+
+  const handleBrainDumpRecorded = (resourceId: string, brainDumpId: string) => {
+    setIsRecordingBrainDump(false)
+    refreshResourceCount()
+    refreshBrainDumpCount()
+    // TODO: Could navigate to the brain dump review
+    console.log("Brain dump created:", brainDumpId, "from resource:", resourceId)
   }
 
   const refreshProject = () => {
@@ -258,12 +279,14 @@ export default function ProjectDetailPage() {
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="resources">
+            User Uploads
+            <Badge variant="secondary" className="ml-1 text-xs">
+              {resourceCount}
+            </Badge>
+          </TabsTrigger>
           <TabsTrigger value="plan">
             Build Plan
-          </TabsTrigger>
-          <TabsTrigger value="models">
-            AI Models
-            <Brain className="h-3 w-3 ml-1" />
           </TabsTrigger>
           <TabsTrigger value="repos">
             Repos
@@ -277,11 +300,9 @@ export default function ProjectDetailPage() {
               {project.packetIds.length}
             </Badge>
           </TabsTrigger>
-          <TabsTrigger value="resources">
-            Resources
-            <Badge variant="secondary" className="ml-1 text-xs">
-              {resourceCount}
-            </Badge>
+          <TabsTrigger value="models">
+            AI Models
+            <Brain className="h-3 w-3 ml-1" />
           </TabsTrigger>
           <TabsTrigger value="interview">
             Interview
@@ -297,6 +318,12 @@ export default function ProjectDetailPage() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
+          {/* Project Timeline */}
+          <ProjectTimeline
+            projectId={project.id}
+            projectStatus={project.status}
+          />
+
           <div className="grid grid-cols-3 gap-4">
             <Card>
               <CardHeader className="pb-2">
@@ -519,16 +546,55 @@ export default function ProjectDetailPage() {
         </TabsContent>
 
         {/* Resources Tab */}
-        <TabsContent value="resources" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium">Project Resources</h3>
-          </div>
-
+        <TabsContent value="resources" className="space-y-6">
+          {/* File Uploads Section */}
           <ResourceUpload
             projectId={project.id}
             onUploadComplete={() => refreshResourceCount()}
           />
 
+          {/* Brain Dumps Section - between upload and list */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">
+                Voice Brain Dumps
+              </span>
+            </div>
+          </div>
+
+          {isRecordingBrainDump ? (
+            <AudioRecorder
+              projectId={project.id}
+              onRecordingComplete={handleBrainDumpRecorded}
+              onCancel={() => setIsRecordingBrainDump(false)}
+            />
+          ) : (
+            <BrainDumpList
+              projectId={project.id}
+              onSelect={(brainDumpId) => {
+                // TODO: Open brain dump review modal
+                console.log("View brain dump:", brainDumpId)
+              }}
+              onStartNew={() => setIsRecordingBrainDump(true)}
+            />
+          )}
+
+          {/* Divider */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">
+                Uploaded Files
+              </span>
+            </div>
+          </div>
+
+          {/* Resource List */}
           <ResourceList
             projectId={project.id}
             onTranscribe={(resource) => {
@@ -630,14 +696,19 @@ export default function ProjectDetailPage() {
 
         {/* Security Tab */}
         <TabsContent value="security" className="space-y-4">
-          <SecurityEval
-            projectId={project.id}
-            projectName={project.name}
-            projectDescription={project.description}
-            providers={providers}
-            selectedProvider={selectedProvider}
-            onProviderChange={setSelectedProvider}
-          />
+          <Card>
+            <CardContent className="p-12 text-center">
+              <Shield className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
+              <h3 className="text-xl font-semibold mb-2">Red Team Security Scanner</h3>
+              <p className="text-muted-foreground mb-4 max-w-md mx-auto">
+                Automated security scanning of all project files and scripts.
+                Identifies vulnerabilities, code smells, and security risks.
+              </p>
+              <Badge variant="secondary" className="text-base px-4 py-1">
+                Coming Soon
+              </Badge>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

@@ -25,7 +25,9 @@ import {
   Pause,
   PlayCircle,
   Archive,
-  AlertCircle
+  AlertCircle,
+  LayoutGrid,
+  LayoutList
 } from "lucide-react"
 import {
   getAllProjects,
@@ -68,12 +70,31 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString()
 }
 
+type ViewMode = "list" | "grid"
+
+const VIEW_MODE_KEY = "claudia_projects_view"
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [filter, setFilter] = useState<ProjectFilter>({})
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all")
   const [search, setSearch] = useState("")
   const [isLoading, setIsLoading] = useState(true)
+  const [viewMode, setViewMode] = useState<ViewMode>("list")
+
+  // Load view preference
+  useEffect(() => {
+    const saved = localStorage.getItem(VIEW_MODE_KEY)
+    if (saved === "list" || saved === "grid") {
+      setViewMode(saved)
+    }
+  }, [])
+
+  // Save view preference
+  const handleViewChange = (mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem(VIEW_MODE_KEY, mode)
+  }
 
   // Load projects
   useEffect(() => {
@@ -121,44 +142,81 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6 h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="flex flex-col gap-4 p-6 h-full">
+      {/* Header with inline stats on larger screens */}
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-4">
           <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
-          <p className="text-sm text-muted-foreground">
-            {stats.total} projects, {stats.byStatus.active} active
-          </p>
+
+          {/* Inline stats - visible on larger screens */}
+          <div className="hidden xl:flex items-center gap-1">
+            {[
+              { label: "Total", value: stats.total, color: "text-foreground" },
+              { label: "Active", value: stats.byStatus.active, color: "text-green-500" },
+              { label: "Planning", value: stats.byStatus.planning, color: "text-blue-500" },
+              { label: "Paused", value: stats.byStatus.paused, color: "text-yellow-500" },
+              { label: "Done", value: stats.byStatus.completed, color: "text-purple-500" }
+            ].map(stat => (
+              <div
+                key={stat.label}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50 text-xs"
+              >
+                <span className="text-muted-foreground">{stat.label}</span>
+                <span className={cn("font-semibold", stat.color)}>{stat.value}</span>
+              </div>
+            ))}
+          </div>
         </div>
+
+        <div className="flex-1" />
+
         <div className="flex items-center gap-2">
+          {/* View Toggle */}
+          <div className="flex items-center border rounded-md">
+            <Button
+              variant={viewMode === "list" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-8 px-2 rounded-r-none"
+              onClick={() => handleViewChange("list")}
+            >
+              <LayoutList className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === "grid" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-8 px-2 rounded-l-none"
+              onClick={() => handleViewChange("grid")}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+          </div>
+
           <Button variant="outline" size="sm" onClick={loadProjects} className="gap-2">
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
           <Button size="sm" className="gap-2" asChild>
             <Link href="/projects/new">
               <Plus className="h-4 w-4" />
-              New Project
+              <span className="hidden sm:inline">New Project</span>
             </Link>
           </Button>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-5 gap-4">
+      {/* Stats Cards - visible on smaller screens */}
+      <div className="grid grid-cols-5 gap-2 xl:hidden">
         {[
           { label: "Total", value: stats.total, color: "text-foreground" },
           { label: "Active", value: stats.byStatus.active, color: "text-green-400" },
           { label: "Planning", value: stats.byStatus.planning, color: "text-blue-400" },
           { label: "Paused", value: stats.byStatus.paused, color: "text-yellow-400" },
-          { label: "Completed", value: stats.byStatus.completed, color: "text-purple-400" }
+          { label: "Done", value: stats.byStatus.completed, color: "text-purple-400" }
         ].map(stat => (
-          <Card key={stat.label} className="p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">{stat.label}</span>
-              <span className={cn("text-lg font-semibold", stat.color)}>{stat.value}</span>
-            </div>
-          </Card>
+          <div key={stat.label} className="p-2 rounded-md border bg-card text-center">
+            <div className={cn("text-lg font-semibold", stat.color)}>{stat.value}</div>
+            <div className="text-xs text-muted-foreground">{stat.label}</div>
+          </div>
         ))}
       </div>
 
@@ -190,7 +248,7 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {/* Projects Grid */}
+      {/* Projects List/Grid */}
       <div className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
@@ -208,7 +266,97 @@ export default function ProjectsPage() {
               </Link>
             </Button>
           </div>
+        ) : viewMode === "list" ? (
+          /* List View */
+          <div className="border rounded-lg divide-y">
+            {filteredProjects.map(project => {
+              const statusConf = statusConfig[project.status]
+              const StatusIcon = statusConf.icon
+              const priorityConf = priorityConfig[project.priority]
+
+              return (
+                <div
+                  key={project.id}
+                  className="flex items-center gap-4 p-3 hover:bg-muted/50 transition-colors group"
+                >
+                  {/* Status Icon */}
+                  <div className={cn(
+                    "flex-none w-8 h-8 rounded-full flex items-center justify-center",
+                    statusConf.color,
+                    "bg-current/10"
+                  )}>
+                    <StatusIcon className="h-4 w-4" />
+                  </div>
+
+                  {/* Name & Description */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/projects/${project.id}`}
+                        className="font-medium hover:text-primary truncate"
+                      >
+                        {project.name}
+                      </Link>
+                      {project.linearSync?.mode === "two_way" && (
+                        <Badge variant="outline" className="text-xs flex-none">
+                          Linear
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {project.description}
+                    </p>
+                  </div>
+
+                  {/* Status & Priority Badges */}
+                  <div className="hidden md:flex items-center gap-2 flex-none">
+                    <Badge variant="secondary" className={cn("gap-1 text-xs", statusConf.color)}>
+                      {statusConf.label}
+                    </Badge>
+                    <Badge variant="outline" className={cn("text-xs", priorityConf.color)}>
+                      {priorityConf.label}
+                    </Badge>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="hidden lg:flex items-center gap-4 text-sm text-muted-foreground flex-none">
+                    <div className="flex items-center gap-1">
+                      <GitBranch className="h-3.5 w-3.5" />
+                      <span>{project.repos.length}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Package className="h-3.5 w-3.5" />
+                      <span>{project.packetIds.length}</span>
+                    </div>
+                  </div>
+
+                  {/* Updated */}
+                  <div className="hidden sm:block text-xs text-muted-foreground flex-none w-24 text-right">
+                    {formatDate(project.updatedAt)}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 flex-none opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                      <Link href={`/projects/${project.id}`}>
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-red-400 hover:text-red-400 hover:bg-red-400/10"
+                      onClick={() => handleDelete(project.id, project.name)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         ) : (
+          /* Grid View */
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filteredProjects.map(project => {
               const statusConf = statusConfig[project.status]
@@ -334,24 +482,26 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* New Project CTA */}
-      <Card className="border-dashed">
-        <CardContent className="flex items-center justify-center py-8">
-          <div className="text-center">
-            <Mic className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
-            <h3 className="font-medium mb-1">Start a Voice Interview</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Describe what you want to build and let Claudia ask the right questions
-            </p>
-            <Button className="gap-2" asChild>
-              <Link href="/projects/new">
-                <Plus className="h-4 w-4" />
-                New Project
-              </Link>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* New Project CTA - only show when no projects exist */}
+      {projects.length === 0 && (
+        <Card className="border-dashed">
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <Mic className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+              <h3 className="font-medium mb-1">Start a Voice Interview</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Describe what you want to build and let Claudia ask the right questions
+              </p>
+              <Button className="gap-2" asChild>
+                <Link href="/projects/new">
+                  <Plus className="h-4 w-4" />
+                  New Project
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

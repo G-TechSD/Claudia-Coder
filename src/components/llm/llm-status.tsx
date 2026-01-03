@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -15,7 +16,8 @@ import {
   RefreshCw,
   Loader2,
   Zap,
-  DollarSign
+  DollarSign,
+  Plus
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -154,17 +156,17 @@ export function LLMStatus({ compact = false }: { compact?: boolean }) {
           )}
         </div>
 
-        {/* Paid API Toggle */}
+        {/* Paid Services Toggle */}
         <div className="space-y-3 pt-2 border-t">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-yellow-500" />
               <div>
                 <Label htmlFor="paid-llm" className="text-sm font-medium">
-                  Enable Paid APIs
+                  Enable Paid Services
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Use Claude/OpenAI when local unavailable
+                  Use Claude/OpenAI/Gemini when local unavailable
                 </p>
               </div>
             </div>
@@ -179,7 +181,7 @@ export function LLMStatus({ compact = false }: { compact?: boolean }) {
             <div className="p-3 rounded-lg bg-yellow-500/10 text-yellow-600 text-xs flex items-start gap-2">
               <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
               <span>
-                Paid API usage will be billed to your configured accounts.
+                Paid service usage will be billed to your configured accounts.
                 Local LLMs are always tried first when available.
               </span>
             </div>
@@ -188,11 +190,17 @@ export function LLMStatus({ compact = false }: { compact?: boolean }) {
           {status?.hasPaidConfigured ? (
             <Badge variant="secondary" className="text-xs">
               <Cloud className="h-3 w-3 mr-1" />
-              Anthropic API configured
+              Cloud services connected
             </Badge>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No paid API keys configured in environment
+              No paid services connected.{" "}
+              <Link
+                href="/settings?tab=connections"
+                className="text-primary hover:underline"
+              >
+                Connect a service
+              </Link>
             </p>
           )}
         </div>

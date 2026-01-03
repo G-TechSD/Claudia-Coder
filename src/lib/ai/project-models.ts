@@ -21,6 +21,23 @@ export interface ProjectModelConfig {
   autoRoute: boolean
   preferLocal: boolean // Always try local first
   maxCostPerTask?: number // Budget limit per task
+
+  // Concurrency settings per provider
+  concurrencySettings?: ProviderConcurrency[]
+}
+
+export interface ProviderConcurrency {
+  provider: ProviderName
+  maxConcurrent: number
+  // For local providers with multiple instances (e.g., 2 LM Studio servers)
+  instances?: ProviderInstance[]
+}
+
+export interface ProviderInstance {
+  id: string
+  name: string
+  baseUrl: string
+  enabled: boolean
 }
 
 export interface AssignedModel {
@@ -87,8 +104,95 @@ export function createDefaultModelConfig(projectId: string): ProjectModelConfig 
     assignedModels: [],
     taskOverrides: [],
     autoRoute: true,
-    preferLocal: true
+    preferLocal: true,
+    concurrencySettings: []
   }
+}
+
+/**
+ * Update concurrency settings for a provider
+ */
+export function updateProviderConcurrency(
+  config: ProjectModelConfig,
+  provider: ProviderName,
+  maxConcurrent: number,
+  instances?: ProviderInstance[]
+): ProjectModelConfig {
+  const existing = config.concurrencySettings?.filter(c => c.provider !== provider) || []
+
+  return {
+    ...config,
+    concurrencySettings: [
+      ...existing,
+      { provider, maxConcurrent, instances }
+    ]
+  }
+}
+
+/**
+ * Add an instance to a provider's concurrency settings
+ */
+export function addProviderInstance(
+  config: ProjectModelConfig,
+  provider: ProviderName,
+  instance: Omit<ProviderInstance, "id">
+): ProjectModelConfig {
+  const settings = config.concurrencySettings || []
+  const providerSettings = settings.find(c => c.provider === provider)
+
+  const newInstance: ProviderInstance = {
+    ...instance,
+    id: crypto.randomUUID()
+  }
+
+  if (providerSettings) {
+    return {
+      ...config,
+      concurrencySettings: settings.map(c =>
+        c.provider === provider
+          ? { ...c, instances: [...(c.instances || []), newInstance] }
+          : c
+      )
+    }
+  }
+
+  return {
+    ...config,
+    concurrencySettings: [
+      ...settings,
+      { provider, maxConcurrent: 1, instances: [newInstance] }
+    ]
+  }
+}
+
+/**
+ * Remove an instance from a provider's concurrency settings
+ */
+export function removeProviderInstance(
+  config: ProjectModelConfig,
+  provider: ProviderName,
+  instanceId: string
+): ProjectModelConfig {
+  const settings = config.concurrencySettings || []
+
+  return {
+    ...config,
+    concurrencySettings: settings.map(c =>
+      c.provider === provider
+        ? { ...c, instances: c.instances?.filter(i => i.id !== instanceId) }
+        : c
+    )
+  }
+}
+
+/**
+ * Get concurrency settings for a provider
+ */
+export function getProviderConcurrency(
+  config: ProjectModelConfig,
+  provider: ProviderName
+): ProviderConcurrency | null {
+  return config.concurrencySettings?.find(c => c.provider === provider) || null
 }
 
 /**

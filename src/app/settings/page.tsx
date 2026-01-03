@@ -1,14 +1,31 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useSettings } from "@/hooks/useSettings"
 import { LLMStatus } from "@/components/llm/llm-status"
+import {
+  resetSetup,
+  addLocalServer,
+  getGlobalSettings,
+  saveGlobalSettings,
+  type LocalServerConfig
+} from "@/lib/settings/global-settings"
 import {
   Settings,
   Server,
@@ -29,7 +46,13 @@ import {
   Zap,
   Brain,
   ImageIcon,
-  AlertCircle
+  AlertCircle,
+  Plus,
+  Eye,
+  EyeOff,
+  Loader2,
+  Trash2,
+  RotateCcw
 } from "lucide-react"
 
 interface ServiceStatus {
@@ -61,10 +84,196 @@ const statusConfig = {
   error: { label: "Error", color: "text-red-400", bg: "bg-red-400" }
 }
 
-export default function SettingsPage() {
-  const [services] = useState<ServiceStatus[]>(mockServices)
+function SettingsPageContent() {
+  const searchParams = useSearchParams()
+  const [services, setServices] = useState<ServiceStatus[]>(mockServices)
   const [activeTab, setActiveTab] = useState<string>("ai-services")
   const { settings, update } = useSettings()
+
+  // Handle tab query parameter
+  useEffect(() => {
+    const tab = searchParams.get("tab")
+    if (tab && ["ai-services", "connections", "api-keys", "notifications", "automation", "security", "appearance"].includes(tab)) {
+      setActiveTab(tab)
+    }
+  }, [searchParams])
+
+  // Dialog states
+  const [addServerDialog, setAddServerDialog] = useState(false)
+  const [addApiDialog, setAddApiDialog] = useState(false)
+  const [addGitDialog, setAddGitDialog] = useState(false)
+
+  // Form states for Add Local Server
+  const [newServerName, setNewServerName] = useState("")
+  const [newServerUrl, setNewServerUrl] = useState("")
+  const [newServerType, setNewServerType] = useState<"lmstudio" | "ollama" | "custom">("lmstudio")
+  const [testingConnection, setTestingConnection] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle")
+  const [serverModels, setServerModels] = useState<string[]>([])
+  const [selectedServerModel, setSelectedServerModel] = useState<string>("")
+
+  // Form states for Add API Service
+  const [newApiProvider, setNewApiProvider] = useState<"anthropic" | "openai" | "google">("anthropic")
+  const [newApiKey, setNewApiKey] = useState("")
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [testingApiKey, setTestingApiKey] = useState(false)
+  const [apiKeyStatus, setApiKeyStatus] = useState<"idle" | "success" | "error">("idle")
+  const [apiKeyError, setApiKeyError] = useState("")
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false)
+
+  // Form states for Add Git Remote
+  const [newGitUrl, setNewGitUrl] = useState("")
+  const [newGitName, setNewGitName] = useState("")
+
+  async function handleTestConnection() {
+    if (!newServerUrl) return
+    setTestingConnection(true)
+    setConnectionStatus("idle")
+    setServerModels([])
+    setSelectedServerModel("")
+
+    try {
+      const response = await fetch(`${newServerUrl}/v1/models`, {
+        signal: AbortSignal.timeout(5000)
+      })
+
+      if (response.ok) {
+        setConnectionStatus("success")
+        const data = await response.json()
+        // Extract model IDs
+        const models = (data.data || []).map((m: { id: string }) => m.id)
+        setServerModels(models)
+        // Don't auto-select - let user choose
+      } else {
+        setConnectionStatus("error")
+      }
+    } catch {
+      setConnectionStatus("error")
+    } finally {
+      setTestingConnection(false)
+    }
+  }
+
+  async function handleAddServer() {
+    if (!newServerName || !newServerUrl) return
+    if (serverModels.length > 0 && !selectedServerModel) {
+      // Don't allow adding without selecting a model if models are available
+      return
+    }
+
+    addLocalServer({
+      name: newServerName,
+      type: newServerType,
+      baseUrl: newServerUrl,
+      enabled: true,
+      defaultModel: selectedServerModel || undefined
+    })
+
+    // Add to services list
+    setServices(prev => [...prev, {
+      name: newServerName,
+      url: newServerUrl,
+      status: connectionStatus === "success" ? "connected" : "disconnected"
+    }])
+
+    // Reset form
+    setNewServerName("")
+    setNewServerUrl("")
+    setConnectionStatus("idle")
+    setServerModels([])
+    setSelectedServerModel("")
+    setAddServerDialog(false)
+  }
+
+  async function handleTestApiKey() {
+    if (!newApiKey) return
+    setTestingApiKey(true)
+    setApiKeyStatus("idle")
+    setApiKeyError("")
+
+    try {
+      const response = await fetch("/api/providers/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: newApiProvider, apiKey: newApiKey })
+      })
+      const data = await response.json()
+
+      if (data.valid) {
+        setApiKeyStatus("success")
+      } else {
+        setApiKeyStatus("error")
+        setApiKeyError(data.error || "Invalid API key")
+      }
+    } catch {
+      setApiKeyStatus("error")
+      setApiKeyError("Connection failed")
+    } finally {
+      setTestingApiKey(false)
+    }
+  }
+
+  async function handleAddApiService() {
+    if (!newApiKey || apiKeyStatus !== "success") return
+
+    // Save to global settings
+    const globalSettings = getGlobalSettings()
+    const existingIndex = globalSettings.cloudProviders.findIndex(p => p.provider === newApiProvider)
+
+    if (existingIndex >= 0) {
+      globalSettings.cloudProviders[existingIndex].apiKey = newApiKey
+      globalSettings.cloudProviders[existingIndex].enabled = true
+    } else {
+      globalSettings.cloudProviders.push({
+        provider: newApiProvider,
+        enabled: true,
+        apiKey: newApiKey,
+        enabledModels: []
+      })
+    }
+    saveGlobalSettings(globalSettings)
+
+    // Add to services list
+    const providerNames = {
+      anthropic: "Claude API",
+      openai: "OpenAI API",
+      google: "Google AI"
+    }
+    setServices(prev => {
+      const filtered = prev.filter(s => !s.name.includes(providerNames[newApiProvider]))
+      return [...filtered, {
+        name: providerNames[newApiProvider],
+        url: `api.${newApiProvider}.com`,
+        status: "connected"
+      }]
+    })
+
+    // Reset form
+    setNewApiKey("")
+    setApiKeyStatus("idle")
+    setShowApiKey(false)
+    setAddApiDialog(false)
+  }
+
+  function handleAddGitRemote() {
+    if (!newGitUrl || !newGitName) return
+
+    setServices(prev => [...prev, {
+      name: newGitName,
+      url: newGitUrl,
+      status: "connected"
+    }])
+
+    setNewGitUrl("")
+    setNewGitName("")
+    setAddGitDialog(false)
+  }
+
+  function handleResetSetup() {
+    if (confirm("This will reset all settings and show the setup wizard again. Continue?")) {
+      resetSetup()
+    }
+  }
 
   const [notifications, setNotifications] = useState<SettingToggle[]>([
     { id: "n1", label: "Approval Requests", description: "Get notified when human approval is needed", enabled: true },
@@ -279,25 +488,54 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-3 gap-4">
-                    {[
-                      { icon: Cpu, label: "LM Studio", desc: "Local AI model" },
-                      { icon: Cloud, label: "API Service", desc: "External API" },
-                      { icon: GitBranch, label: "Git Remote", desc: "Repository" }
-                    ].map(item => {
-                      const Icon = item.icon
-                      return (
-                        <button
-                          key={item.label}
-                          className="flex flex-col items-center gap-2 p-4 rounded-lg border border-dashed hover:border-primary hover:bg-accent/50 transition-colors"
-                        >
-                          <Icon className="h-8 w-8 text-muted-foreground" />
-                          <div className="text-center">
-                            <p className="font-medium text-sm">{item.label}</p>
-                            <p className="text-xs text-muted-foreground">{item.desc}</p>
-                          </div>
-                        </button>
-                      )
-                    })}
+                    <button
+                      onClick={() => setAddServerDialog(true)}
+                      className="flex flex-col items-center gap-2 p-4 rounded-lg border border-dashed hover:border-primary hover:bg-accent/50 transition-colors"
+                    >
+                      <Cpu className="h-8 w-8 text-muted-foreground" />
+                      <div className="text-center">
+                        <p className="font-medium text-sm">LM Studio</p>
+                        <p className="text-xs text-muted-foreground">Local AI model</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setAddApiDialog(true)}
+                      className="flex flex-col items-center gap-2 p-4 rounded-lg border border-dashed hover:border-primary hover:bg-accent/50 transition-colors"
+                    >
+                      <Cloud className="h-8 w-8 text-muted-foreground" />
+                      <div className="text-center">
+                        <p className="font-medium text-sm">API Service</p>
+                        <p className="text-xs text-muted-foreground">External API</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setAddGitDialog(true)}
+                      className="flex flex-col items-center gap-2 p-4 rounded-lg border border-dashed hover:border-primary hover:bg-accent/50 transition-colors"
+                    >
+                      <GitBranch className="h-8 w-8 text-muted-foreground" />
+                      <div className="text-center">
+                        <p className="font-medium text-sm">Git Remote</p>
+                        <p className="text-xs text-muted-foreground">Repository</p>
+                      </div>
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Reset Setup */}
+              <Card className="border-destructive/30">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Reset Setup Wizard</p>
+                      <p className="text-sm text-muted-foreground">
+                        Clear all settings and run the setup wizard again
+                      </p>
+                    </div>
+                    <Button variant="outline" onClick={handleResetSetup} className="gap-2">
+                      <RotateCcw className="h-4 w-4" />
+                      Reset Setup
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -573,6 +811,317 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+
+      {/* Add Local Server Dialog */}
+      <Dialog open={addServerDialog} onOpenChange={setAddServerDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Cpu className="h-5 w-5" />
+              Add Local AI Server
+            </DialogTitle>
+            <DialogDescription>
+              Connect to an LM Studio or Ollama server on your network
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="serverName">Server Name</Label>
+              <Input
+                id="serverName"
+                placeholder="e.g., LM Studio Beast"
+                value={newServerName}
+                onChange={(e) => setNewServerName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="serverUrl">Server URL</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="serverUrl"
+                  placeholder="http://192.168.1.100:1234"
+                  value={newServerUrl}
+                  onChange={(e) => setNewServerUrl(e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  onClick={handleTestConnection}
+                  disabled={!newServerUrl || testingConnection}
+                >
+                  {testingConnection ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Test"
+                  )}
+                </Button>
+              </div>
+              {connectionStatus === "success" && (
+                <p className="text-xs text-green-500 flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" />
+                  Connection successful
+                </p>
+              )}
+              {connectionStatus === "error" && (
+                <p className="text-xs text-red-500 flex items-center gap-1">
+                  <XCircle className="h-3 w-3" />
+                  Connection failed
+                </p>
+              )}
+            </div>
+
+            {/* Model Selection - only show after successful connection */}
+            {connectionStatus === "success" && serverModels.length > 0 && (
+              <div className="space-y-2">
+                <Label>Select Default Model</Label>
+                <p className="text-xs text-muted-foreground">
+                  Choose which model to use by default on this server
+                </p>
+                <div className="max-h-48 overflow-y-auto space-y-2 border rounded-lg p-2">
+                  {serverModels.map(model => (
+                    <button
+                      key={model}
+                      onClick={() => setSelectedServerModel(model)}
+                      className={cn(
+                        "w-full text-left p-2 rounded text-sm transition-colors",
+                        selectedServerModel === model
+                          ? "bg-primary text-primary-foreground"
+                          : "hover:bg-accent"
+                      )}
+                    >
+                      {model}
+                    </button>
+                  ))}
+                </div>
+                {!selectedServerModel && (
+                  <p className="text-xs text-amber-500">
+                    Please select a model before adding
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddServerDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddServer}
+              disabled={!newServerName || !newServerUrl || (serverModels.length > 0 && !selectedServerModel)}
+            >
+              Add Server
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add API Service Dialog */}
+      <Dialog open={addApiDialog} onOpenChange={(open) => {
+        setAddApiDialog(open)
+        if (!open) {
+          // Reset state when closing
+          setNewApiProvider("anthropic")
+          setNewApiKey("")
+          setApiKeyStatus("idle")
+          setShowApiKey(false)
+          setShowApiKeyInput(false)
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Cloud className="h-5 w-5" />
+              Add Cloud API Service
+            </DialogTitle>
+            <DialogDescription>
+              Select a provider to connect
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Provider Selection */}
+            <div className="space-y-2">
+              <Label>Select Provider</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: "anthropic" as const, name: "Anthropic", sub: "Claude", color: "text-orange-500" },
+                  { id: "openai" as const, name: "OpenAI", sub: "ChatGPT", color: "text-emerald-500" },
+                  { id: "google" as const, name: "Google", sub: "Gemini", color: "text-blue-500" }
+                ].map(provider => (
+                  <button
+                    key={provider.id}
+                    onClick={() => {
+                      setNewApiProvider(provider.id)
+                      setApiKeyStatus("idle")
+                      setApiKeyError("")
+                      setNewApiKey("")
+                      setShowApiKeyInput(false)
+                    }}
+                    className={cn(
+                      "p-3 rounded-lg border text-center transition-colors",
+                      newApiProvider === provider.id
+                        ? "border-primary bg-primary/5"
+                        : "hover:bg-accent"
+                    )}
+                  >
+                    <span className={cn("font-medium text-sm block", provider.color)}>
+                      {provider.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{provider.sub}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Sign in with Google - shown after provider selection */}
+            {newApiProvider && (
+              <div className="space-y-3 pt-2 border-t">
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 h-11"
+                  onClick={() => {
+                    setAddApiDialog(false)
+                    window.location.href = `/api/auth/oauth/${newApiProvider}`
+                  }}
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  Sign in to {newApiProvider === "anthropic" ? "Anthropic" : newApiProvider === "openai" ? "OpenAI" : "Google AI"}
+                </Button>
+                <p className="text-xs text-center text-muted-foreground">
+                  Uses your {newApiProvider === "anthropic" ? "Claude" : newApiProvider === "openai" ? "ChatGPT Plus" : "Google AI"} subscription
+                </p>
+
+                {/* Use API Key Instead link */}
+                {!showApiKeyInput ? (
+                  <button
+                    onClick={() => setShowApiKeyInput(true)}
+                    className="w-full text-xs text-muted-foreground hover:text-primary text-center py-2"
+                  >
+                    Use API key instead
+                  </button>
+                ) : (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          id="apiKey"
+                          type={showApiKey ? "text" : "password"}
+                          placeholder="Enter API key..."
+                          value={newApiKey}
+                          onChange={(e) => {
+                            setNewApiKey(e.target.value)
+                            setApiKeyStatus("idle")
+                          }}
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={handleTestApiKey}
+                        disabled={!newApiKey || testingApiKey}
+                      >
+                        {testingApiKey ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "Test"
+                        )}
+                      </Button>
+                    </div>
+                    {apiKeyStatus === "success" && (
+                      <p className="text-xs text-green-500 flex items-center gap-1">
+                        <CheckCircle className="h-3 w-3" />
+                        API key valid
+                      </p>
+                    )}
+                    {apiKeyStatus === "error" && (
+                      <p className="text-xs text-red-500 flex items-center gap-1">
+                        <XCircle className="h-3 w-3" />
+                        {apiKeyError}
+                      </p>
+                    )}
+                    <Button
+                      className="w-full"
+                      onClick={handleAddApiService}
+                      disabled={!newApiKey || apiKeyStatus !== "success"}
+                    >
+                      Connect with API Key
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddApiDialog(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Git Remote Dialog */}
+      <Dialog open={addGitDialog} onOpenChange={setAddGitDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitBranch className="h-5 w-5" />
+              Add Git Remote
+            </DialogTitle>
+            <DialogDescription>
+              Connect to a Git repository
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="gitName">Repository Name</Label>
+              <Input
+                id="gitName"
+                placeholder="e.g., My Project"
+                value={newGitName}
+                onChange={(e) => setNewGitName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="gitUrl">Repository URL</Label>
+              <Input
+                id="gitUrl"
+                placeholder="https://gitlab.com/user/repo.git"
+                value={newGitUrl}
+                onChange={(e) => setNewGitUrl(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddGitDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddGitRemote}
+              disabled={!newGitName || !newGitUrl}
+            >
+              Add Remote
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  )
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
+      <SettingsPageContent />
+    </Suspense>
   )
 }

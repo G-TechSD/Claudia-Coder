@@ -247,6 +247,124 @@ Generate the build plan as JSON with this structure:
 }
 
 /**
+ * Extract JSON from LLM response that may contain extra text
+ */
+function extractJSON(text: string): string | null {
+  // Try to find JSON object in the response
+  const jsonPatterns = [
+    // Match JSON wrapped in markdown code blocks
+    /```(?:json)?\s*(\{[\s\S]*?\})\s*```/,
+    // Match standalone JSON object (greedy, finds largest match)
+    /(\{[\s\S]*\})/,
+  ]
+
+  for (const pattern of jsonPatterns) {
+    const match = text.match(pattern)
+    if (match && match[1]) {
+      return match[1]
+    }
+  }
+
+  return null
+}
+
+/**
+ * Clean and fix common JSON issues from LLM output
+ */
+function cleanJSON(jsonStr: string): string {
+  let cleaned = jsonStr
+
+  // Remove trailing commas before } or ]
+  cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1')
+
+  // Remove JavaScript-style comments
+  cleaned = cleaned.replace(/\/\/[^\n]*/g, '')
+  cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '')
+
+  // Fix unquoted keys (simple cases)
+  cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+
+  // Remove control characters except newlines and tabs
+  cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+
+  // Fix escaped newlines that should be actual newlines in strings
+  // This handles cases where LLM outputs literal \n instead of actual newlines
+
+  return cleaned
+}
+
+/**
+ * Try multiple parsing strategies to extract a valid build plan
+ */
+function tryParseJSON(content: string): Record<string, unknown> | null {
+  // Strategy 1: Direct parse
+  try {
+    return JSON.parse(content)
+  } catch {
+    // Continue to next strategy
+  }
+
+  // Strategy 2: Extract JSON from surrounding text
+  const extracted = extractJSON(content)
+  if (extracted) {
+    try {
+      return JSON.parse(extracted)
+    } catch {
+      // Continue to next strategy
+    }
+
+    // Strategy 3: Clean extracted JSON and parse
+    try {
+      const cleaned = cleanJSON(extracted)
+      return JSON.parse(cleaned)
+    } catch {
+      // Continue to next strategy
+    }
+  }
+
+  // Strategy 4: Try to find and parse just the spec, phases, packets separately
+  try {
+    const specMatch = content.match(/"spec"\s*:\s*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})/)
+    const phasesMatch = content.match(/"phases"\s*:\s*(\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\])/)
+    const packetsMatch = content.match(/"packets"\s*:\s*(\[[\s\S]*?\])(?=\s*,?\s*(?:"|\}|$))/)
+
+    if (specMatch || phasesMatch || packetsMatch) {
+      const reconstructed: Record<string, unknown> = {}
+
+      if (specMatch) {
+        try {
+          reconstructed.spec = JSON.parse(cleanJSON(specMatch[1]))
+        } catch {
+          // Skip
+        }
+      }
+      if (phasesMatch) {
+        try {
+          reconstructed.phases = JSON.parse(cleanJSON(phasesMatch[1]))
+        } catch {
+          // Skip
+        }
+      }
+      if (packetsMatch) {
+        try {
+          reconstructed.packets = JSON.parse(cleanJSON(packetsMatch[1]))
+        } catch {
+          // Skip
+        }
+      }
+
+      if (Object.keys(reconstructed).length > 0) {
+        return reconstructed
+      }
+    }
+  } catch {
+    // Final fallback failed
+  }
+
+  return null
+}
+
+/**
  * Parse LLM response into BuildPlan
  */
 export function parseBuildPlanResponse(
@@ -255,18 +373,107 @@ export function parseBuildPlanResponse(
   generatedBy: string
 ): BuildPlan | null {
   try {
-    // Clean up response
+    // Clean up response - remove markdown code blocks wrapper
     let content = response.trim()
     if (content.startsWith("```")) {
-      content = content.replace(/^```json?\n?/, "").replace(/\n?```$/, "")
+      content = content.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "")
     }
 
-    const parsed = JSON.parse(content)
+    const parsed = tryParseJSON(content)
 
-    // Validate required fields
-    if (!parsed.spec || !parsed.phases || !parsed.packets) {
-      console.error("Missing required fields in build plan")
+    if (!parsed) {
+      console.error("Failed to extract valid JSON from LLM response")
+      console.error("Response preview:", content.substring(0, 500))
       return null
+    }
+
+    // Validate required fields - be flexible about structure
+    const spec = parsed.spec as Record<string, unknown> || {}
+    const phases = (parsed.phases as unknown[]) || []
+    const packets = (parsed.packets as unknown[]) || []
+
+    // Build spec with defaults for missing fields
+    const buildSpec: BuildPlan["spec"] = {
+      name: (spec.name as string) || "Untitled Plan",
+      description: (spec.description as string) || "",
+      objectives: Array.isArray(spec.objectives) ? spec.objectives as string[] : [],
+      nonGoals: Array.isArray(spec.nonGoals) ? spec.nonGoals as string[] : [],
+      assumptions: Array.isArray(spec.assumptions) ? spec.assumptions as string[] : [],
+      risks: Array.isArray(spec.risks) ? spec.risks as string[] : [],
+      techStack: Array.isArray(spec.techStack) ? spec.techStack as string[] : []
+    }
+
+    // Ensure we have at least minimal content
+    if (buildSpec.objectives.length === 0 && packets.length === 0) {
+      console.error("Build plan has no objectives and no packets")
+      return null
+    }
+
+    // Build phases with defaults
+    const buildPhases: BuildPlan["phases"] = phases.map((p: unknown, i: number) => {
+      const phase = p as Record<string, unknown>
+      return {
+        id: (phase.id as string) || `phase-${i + 1}`,
+        name: (phase.name as string) || `Phase ${i + 1}`,
+        description: (phase.description as string) || "",
+        order: (phase.order as number) || i + 1,
+        packetIds: Array.isArray(phase.packetIds) ? phase.packetIds as string[] : [],
+        dependencies: Array.isArray(phase.dependencies) ? phase.dependencies as string[] : [],
+        estimatedEffort: {
+          optimistic: 8,
+          realistic: 16,
+          pessimistic: 32,
+          confidence: "medium" as const
+        },
+        successCriteria: Array.isArray(phase.successCriteria) ? phase.successCriteria as string[] : []
+      }
+    })
+
+    // Build packets with defaults
+    const buildPackets: BuildPlan["packets"] = packets.map((p: unknown, i: number) => {
+      const packet = p as Record<string, unknown>
+      const tasks = Array.isArray(packet.tasks) ? packet.tasks : []
+
+      return {
+        id: (packet.id as string) || `packet-${i + 1}`,
+        phaseId: (packet.phaseId as string) || (buildPhases[0]?.id || "phase-1"),
+        title: (packet.title as string) || `Task ${i + 1}`,
+        description: (packet.description as string) || "",
+        type: ((packet.type as string) || "feature") as PacketType,
+        priority: ((packet.priority as string) || "medium") as "critical" | "high" | "medium" | "low",
+        status: "queued" as const,
+        tasks: tasks.map((t: unknown, j: number) => {
+          if (typeof t === "string") {
+            return { id: `task-${i}-${j}`, description: t, completed: false, order: j }
+          }
+          const task = t as Record<string, unknown>
+          return {
+            id: (task.id as string) || `task-${i}-${j}`,
+            description: (task.description as string) || (task.title as string) || "",
+            completed: Boolean(task.completed),
+            order: (task.order as number) || j
+          }
+        }),
+        suggestedTaskType: (packet.suggestedTaskType as string) || "coding",
+        blockedBy: Array.isArray(packet.blockedBy) ? packet.blockedBy as string[] : [],
+        blocks: Array.isArray(packet.blocks) ? packet.blocks as string[] : [],
+        estimatedTokens: (packet.estimatedTokens as number) || 1000,
+        acceptanceCriteria: Array.isArray(packet.acceptanceCriteria) ? packet.acceptanceCriteria as string[] : []
+      }
+    })
+
+    // If no phases but we have packets, create a default phase
+    if (buildPhases.length === 0 && buildPackets.length > 0) {
+      buildPhases.push({
+        id: "phase-1",
+        name: "Implementation",
+        description: "Main implementation phase",
+        order: 1,
+        packetIds: buildPackets.map(p => p.id),
+        dependencies: [],
+        estimatedEffort: { optimistic: 8, realistic: 16, pessimistic: 32, confidence: "medium" },
+        successCriteria: ["All packets completed"]
+      })
     }
 
     return {
@@ -274,10 +481,10 @@ export function parseBuildPlanResponse(
       projectId,
       createdAt: new Date().toISOString(),
       status: "draft",
-      spec: parsed.spec,
-      phases: parsed.phases,
-      packets: parsed.packets,
-      modelAssignments: parsed.modelAssignments || [],
+      spec: buildSpec,
+      phases: buildPhases,
+      packets: buildPackets,
+      modelAssignments: (parsed.modelAssignments as ModelAssignment[]) || [],
       constraints: {
         requireLocalFirst: true,
         requireHumanApproval: ["planning", "deployment"],
