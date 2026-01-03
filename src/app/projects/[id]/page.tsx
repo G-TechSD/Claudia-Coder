@@ -411,6 +411,7 @@ export default function ProjectDetailPage() {
             projectId={project.id}
             projectName={project.name}
             projectDescription={project.description}
+            projectStatus={project.status}
             providers={providers}
             selectedProvider={selectedProvider}
             onProviderChange={setSelectedProvider}

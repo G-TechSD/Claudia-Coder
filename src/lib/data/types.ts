@@ -329,3 +329,93 @@ export interface SecurityScan {
   error?: string
   warnings?: string[]
 }
+
+// ============ Stored Build Plans ============
+
+export type StoredBuildPlanStatus = "draft" | "approved" | "locked"
+
+export interface PacketFeedback {
+  packetId: string
+  approved: boolean | null  // null = no vote, true = thumbs up, false = thumbs down
+  priority: "low" | "medium" | "high" | "critical"
+  comment: string
+}
+
+export interface EditedObjective {
+  id: string
+  text: string
+  isOriginal: boolean      // Was this in the original plan?
+  isDeleted: boolean       // Soft delete
+}
+
+export interface EditedNonGoal {
+  id: string
+  text: string
+  isOriginal: boolean
+  isDeleted: boolean
+}
+
+export interface SectionComment {
+  sectionId: string        // "tech-stack", "assumptions", "risks", etc.
+  comment: string
+  createdAt: string
+}
+
+export interface StoredBuildPlan {
+  id: string
+  projectId: string
+  status: StoredBuildPlanStatus
+  createdAt: string
+  updatedAt: string
+
+  // The original generated plan
+  originalPlan: {
+    spec: {
+      name: string
+      description: string
+      objectives: string[]
+      nonGoals: string[]
+      assumptions: string[]
+      risks: string[]
+      techStack: string[]
+    }
+    phases: Array<{
+      id: string
+      name: string
+      description: string
+      order: number
+    }>
+    packets: Array<{
+      id: string
+      phaseId: string
+      title: string
+      description: string
+      type: string
+      priority: string
+      tasks: Array<{ id: string; description: string; completed: boolean; order: number }>
+      acceptanceCriteria: string[]
+    }>
+  }
+
+  // User edits and feedback
+  editedObjectives: EditedObjective[]
+  editedNonGoals: EditedNonGoal[]
+  packetFeedback: PacketFeedback[]
+  sectionComments: SectionComment[]
+
+  // Generation metadata
+  generatedBy: {
+    server: string
+    model: string
+  }
+
+  // Revision history
+  revisionNumber: number
+  previousVersionId?: string  // Link to previous version if revised
+  revisionNotes?: string      // Why this was revised
+
+  // Approval
+  approvedAt?: string
+  approvedBy?: string         // User who approved
+  lockedAt?: string           // When project started
+}
