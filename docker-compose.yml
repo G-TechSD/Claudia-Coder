@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+  claudia:
+    build: .
+    container_name: claudia-admin
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # LM Studio / Ollama endpoints (adjust to your setup)
+      - NEXT_PUBLIC_LMSTUDIO_BEAST=http://host.docker.internal:1234
+      - NEXT_PUBLIC_LMSTUDIO_BEDROOM=http://host.docker.internal:1235
+      - NEXT_PUBLIC_OLLAMA_URL=http://host.docker.internal:11434
+      # GitLab (self-hosted)
+      - NEXT_PUBLIC_GITLAB_URL=https://your-gitlab-instance
+      # Linear API
+      - LINEAR_API_KEY=${LINEAR_API_KEY:-}
+      # Auth
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-change-me-in-production}
+    volumes:
+      # Persist data
+      - claudia-data:/app/data
+    extra_hosts:
+      # Allow container to access host network services
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/execute"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: n8n for workflow automation
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: claudia-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678
+      - GENERIC_TIMEZONE=UTC
+    volumes:
+      - n8n-data:/home/node/.n8n
+    profiles:
+      - automation
+
+volumes:
+  claudia-data:
+    driver: local
+  n8n-data:
+    driver: local
+
+networks:
+  default:
+    name: claudia-network

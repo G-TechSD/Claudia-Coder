@@ -11,6 +11,8 @@ export { getRepoContext, getMinimalContext, getGitLabFileTree, detectTechStack, 
 export type { RepoContext, TreeItem } from "./repo-context"
 export { runIterationLoop, executeWithIteration } from "./iteration-loop"
 export type { IterationConfig, IterationUpdate, IterationResult } from "./iteration-loop"
+export { validateSyntax, validateFiles, checkImports, formatValidationResult } from "./validator"
+export type { ValidationResult, SyntaxError as ValidationSyntaxError, LintWarning } from "./validator"
 
 import type { WorkPacket, PacketTask } from "@/lib/ai/build-plan"
 import type { LinkedRepo } from "@/lib/data/types"
