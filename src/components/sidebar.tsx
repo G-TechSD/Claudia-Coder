@@ -1,0 +1,174 @@
+"use client"
+
+import * as React from "react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import {
+  LayoutDashboard,
+  Activity,
+  Package,
+  GitBranch,
+  Shield,
+  CheckCircle,
+  DollarSign,
+  Settings,
+  Mic,
+  ChevronLeft,
+  Command,
+  Sparkles,
+  FolderGit2,
+  Layers,
+} from "lucide-react"
+
+interface NavItem {
+  title: string
+  href: string
+  icon: React.ElementType
+  badge?: number
+}
+
+const navItems: NavItem[] = [
+  { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  { title: "Projects", href: "/projects", icon: Layers },
+  { title: "Activity", href: "/activity", icon: Activity },
+  { title: "Packets", href: "/packets", icon: Package },
+  { title: "Files", href: "/files", icon: FolderGit2 },
+  { title: "Timeline", href: "/timeline", icon: GitBranch },
+  { title: "Quality", href: "/quality", icon: Shield },
+  { title: "Approvals", href: "/approvals", icon: CheckCircle, badge: 3 },
+  { title: "Costs", href: "/costs", icon: DollarSign },
+]
+
+const bottomNavItems: NavItem[] = [
+  { title: "Settings", href: "/settings", icon: Settings },
+  { title: "Voice", href: "/voice", icon: Mic },
+]
+
+export function Sidebar() {
+  const pathname = usePathname()
+  const [collapsed, setCollapsed] = React.useState(false)
+
+  return (
+    <aside
+      className={cn(
+        "flex h-screen flex-col border-r bg-card transition-all duration-300",
+        collapsed ? "w-16" : "w-60"
+      )}
+    >
+      {/* Logo */}
+      <div className="flex h-14 items-center border-b px-4">
+        <Link href="/" className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <Sparkles className="h-4 w-4 text-primary-foreground" />
+          </div>
+          {!collapsed && (
+            <span className="font-semibold tracking-tight">Claudia</span>
+          )}
+        </Link>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("ml-auto h-8 w-8", collapsed && "hidden")}
+          onClick={() => setCollapsed(true)}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Main Navigation */}
+      <nav className="flex-1 space-y-1 p-2">
+        {navItems.map((item) => {
+          const isActive = pathname === item.href
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                collapsed && "justify-center px-2"
+              )}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="flex-1">{item.title}</span>
+                  {item.badge && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+                      {item.badge}
+                    </span>
+                  )}
+                </>
+              )}
+            </Link>
+          )
+        })}
+      </nav>
+
+      {/* Divider */}
+      <div className="mx-4 border-t" />
+
+      {/* Bottom Navigation */}
+      <nav className="space-y-1 p-2">
+        {bottomNavItems.map((item) => {
+          const isActive = pathname === item.href
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                collapsed && "justify-center px-2"
+              )}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {!collapsed && <span>{item.title}</span>}
+            </Link>
+          )
+        })}
+      </nav>
+
+      {/* Command Palette Hint */}
+      <div className="border-t p-2">
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full justify-start gap-2 text-muted-foreground",
+            collapsed && "justify-center px-2"
+          )}
+        >
+          <Command className="h-4 w-4" />
+          {!collapsed && (
+            <>
+              <span className="flex-1 text-left text-xs">Search</span>
+              <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100 sm:flex">
+                <span className="text-xs">⌘</span>K
+              </kbd>
+            </>
+          )}
+        </Button>
+      </div>
+
+      {/* Collapse Toggle (when collapsed) */}
+      {collapsed && (
+        <div className="border-t p-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="w-full"
+            onClick={() => setCollapsed(false)}
+          >
+            <ChevronLeft className="h-4 w-4 rotate-180" />
+          </Button>
+        </div>
+      )}
+    </aside>
+  )
+}

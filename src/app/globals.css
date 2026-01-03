@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/* Claudia Admin Panel Design System */
+:root {
+  /* Background Layers */
+  --bg-base: 0 0% 3.9%;
+  --bg-surface: 0 0% 7%;
+  --bg-elevated: 0 0% 10%;
+  --bg-overlay: 0 0% 14%;
+
+  /* Borders */
+  --border-subtle: 0 0% 15%;
+  --border-default: 0 0% 20%;
+  --border-strong: 0 0% 30%;
+
+  /* Text */
+  --text-primary: 0 0% 98%;
+  --text-secondary: 0 0% 64%;
+  --text-muted: 0 0% 45%;
+
+  /* Accent Colors */
+  --accent-blue: 217 91% 60%;
+  --accent-green: 142 71% 45%;
+  --accent-yellow: 38 92% 50%;
+  --accent-red: 0 84% 60%;
+  --accent-purple: 270 76% 60%;
+  --accent-cyan: 190 90% 50%;
+
+  /* Shadcn compatibility */
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--bg-overlay);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent-blue);
+  --primary-foreground: 0 0% 100%;
+  --secondary: var(--bg-elevated);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--bg-elevated);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--bg-elevated);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--accent-red);
+  --destructive-foreground: 0 0% 100%;
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: var(--accent-blue);
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 64px;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-border: hsl(var(--border));
+  --color-ring: hsl(var(--ring));
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), 'JetBrains Mono', monospace;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border-default));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--border-strong));
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+  background: hsl(var(--accent-blue) / 0.3);
+}
