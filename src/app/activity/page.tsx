@@ -12,9 +12,6 @@ import {
   Loader2,
   Filter,
   Search,
-  Pause,
-  Play,
-  Trash2,
   Download,
   GitCommit,
   GitPullRequest,
@@ -137,173 +134,6 @@ const categoryConfig = {
   test: { icon: CheckCircle }
 }
 
-// Mock activity generator for demo
-function generateMockActivity(): ActivityItem {
-  const types: ActivityType[] = ["success", "error", "pending", "running", "info"]
-  const sources = ["BEAST", "BEDROOM", "Claude", "n8n", "GitLab", "Linear"]
-  const repos = ["claudia-admin-panel", "claudia-backend", "n8n-workflows"]
-  const branches = ["main", "feature/auth-flow", "feature/dashboard-charts", "fix/login-validation"]
-
-  const messages = [
-    { type: "success", category: "commit", msgs: [
-      "Commit pushed: feat: implement user authentication",
-      "Commit pushed: fix: resolve sidebar collapse state",
-      "Commit pushed: test: add unit tests for auth"
-    ]},
-    { type: "success", category: "merge", msgs: [
-      "PR merged: Feature/dashboard-redesign",
-      "PR merged: Fix/login-validation",
-      "Branch merged: feature/auth-flow → main"
-    ]},
-    { type: "success", category: "deploy", msgs: [
-      "Deployment successful: Production v2.1.4",
-      "Deployed to staging: v2.1.5-beta"
-    ]},
-    { type: "success", category: "test", msgs: [
-      "Build passed: All 47 tests green",
-      "E2E tests passed: 12/12 scenarios"
-    ]},
-    { type: "error", category: "test", msgs: [
-      "Build failed: Type error in LoginForm.tsx",
-      "Test failed: API integration timeout",
-      "Lint error: Unused variable in utils.ts"
-    ]},
-    { type: "pending", category: "pr", msgs: [
-      "Awaiting approval: PR #142 needs review",
-      "PR ready for review: #145 Dashboard metrics"
-    ]},
-    { type: "running", category: "commit", msgs: [
-      "Generating: Dashboard component layout",
-      "Building: Production bundle"
-    ]},
-    { type: "info", category: "general", msgs: [
-      "Agent connected: BEAST online",
-      "Config updated: API rate limit increased",
-      "Cache cleared: Static assets refreshed"
-    ]}
-  ]
-
-  const type = types[Math.floor(Math.random() * types.length)]
-  const source = sources[Math.floor(Math.random() * sources.length)]
-  const msgGroup = messages.find(m => m.type === type)!
-  const message = msgGroup.msgs[Math.floor(Math.random() * msgGroup.msgs.length)]
-  const repo = repos[Math.floor(Math.random() * repos.length)]
-  const branch = branches[Math.floor(Math.random() * branches.length)]
-
-  // Generate a random short sha
-  const chars = "abcdef0123456789"
-  const shortSha = Array.from({ length: 7 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
-
-  const isGitActivity = ["commit", "pr", "merge", "branch"].includes(msgGroup.category as string)
-
-  return {
-    id: crypto.randomUUID(),
-    type,
-    category: (msgGroup.category || "general") as ActivityCategory,
-    source,
-    message,
-    timestamp: new Date(),
-    ...(isGitActivity && {
-      commitShortSha: shortSha,
-      branch,
-      repo,
-      filesChanged: Math.floor(Math.random() * 10) + 1,
-      additions: Math.floor(Math.random() * 200) + 10,
-      deletions: Math.floor(Math.random() * 50),
-      packetId: Math.random() > 0.5 ? `PKT-00${Math.floor(Math.random() * 9) + 1}` : undefined
-    })
-  }
-}
-
-// Initial mock data with git-related info
-const initialActivities: ActivityItem[] = [
-  {
-    id: "1",
-    type: "success",
-    category: "commit",
-    source: "BEAST",
-    message: "Commit pushed: feat: implement user authentication flow",
-    timestamp: new Date(Date.now() - 120000),
-    commitShortSha: "a1b2c3d",
-    branch: "feature/auth-flow",
-    repo: "claudia-admin-panel",
-    filesChanged: 8,
-    additions: 342,
-    deletions: 45,
-    packetId: "PKT-001"
-  },
-  {
-    id: "2",
-    type: "success",
-    category: "pr",
-    source: "Claude",
-    message: "Code review approved: PR #138",
-    timestamp: new Date(Date.now() - 300000),
-    prNumber: 138,
-    repo: "claudia-admin-panel",
-    branch: "feature/dashboard-charts"
-  },
-  {
-    id: "3",
-    type: "running",
-    category: "commit",
-    source: "BEAST",
-    message: "Generating: Dashboard metrics visualization",
-    timestamp: new Date(Date.now() - 420000),
-    branch: "feature/dashboard-charts",
-    repo: "claudia-admin-panel",
-    packetId: "PKT-002"
-  },
-  {
-    id: "4",
-    type: "pending",
-    category: "deploy",
-    source: "n8n",
-    message: "Awaiting approval: Deploy to staging",
-    timestamp: new Date(Date.now() - 600000),
-    branch: "main",
-    repo: "claudia-backend"
-  },
-  {
-    id: "5",
-    type: "error",
-    category: "test",
-    source: "BEDROOM",
-    message: "Build failed: Missing dependency @radix-ui/react-dialog",
-    timestamp: new Date(Date.now() - 720000),
-    commitShortSha: "f6e5d4c",
-    branch: "feature/voice-commands",
-    repo: "n8n-workflows"
-  },
-  {
-    id: "6",
-    type: "success",
-    category: "merge",
-    source: "GitLab",
-    message: "Branch merged: fix/login-validation → main",
-    timestamp: new Date(Date.now() - 900000),
-    branch: "main",
-    repo: "claudia-admin-panel",
-    prNumber: 135
-  },
-  {
-    id: "7",
-    type: "info",
-    category: "general",
-    source: "Linear",
-    message: "Issue CLU-42 status changed to In Progress",
-    timestamp: new Date(Date.now() - 1080000)
-  },
-  {
-    id: "8",
-    type: "running",
-    category: "commit",
-    source: "Claude",
-    message: "Analyzing: Codebase structure for refactoring",
-    timestamp: new Date(Date.now() - 1200000),
-    repo: "claudia-backend"
-  },
-]
 
 function formatTimestamp(date: Date): string {
   const now = new Date()
@@ -334,14 +164,12 @@ interface ActionModalState {
 }
 
 export default function ActivityPage() {
-  const [simulatedActivities, setSimulatedActivities] = useState<ActivityItem[]>(initialActivities)
-  const [isStreaming, setIsStreaming] = useState(true)
   const [filter, setFilter] = useState<ActivityType | "all">("all")
   const [search, setSearch] = useState("")
   const [selectedActivity, setSelectedActivity] = useState<ActivityItem | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Fetch real GitLab data
+  // Fetch real GitLab data only - no simulated activity
   const { projects, isLoading: projectsLoading, refresh: refreshProjects } = useGitLabProjects()
   const [gitLabActivities, setGitLabActivities] = useState<ActivityItem[]>([])
   const [loadingCommits, setLoadingCommits] = useState(false)
@@ -377,11 +205,10 @@ export default function ActivityPage() {
     fetchAllCommits()
   }, [projects])
 
-  // Merge simulated and real activities, sorted by timestamp
+  // Real activities only, sorted by timestamp
   const activities = useMemo(() => {
-    const all = [...simulatedActivities, ...gitLabActivities]
-    return all.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-  }, [simulatedActivities, gitLabActivities])
+    return gitLabActivities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+  }, [gitLabActivities])
 
   // Action modal state
   const [actionModal, setActionModal] = useState<ActionModalState | null>(null)
@@ -423,17 +250,14 @@ export default function ActivityPage() {
     }, data)
   }
 
-  // Simulate WebSocket streaming for non-git activities
+  // Auto-refresh real data every 30 seconds
   useEffect(() => {
-    if (!isStreaming) return
-
     const interval = setInterval(() => {
-      const newActivity = generateMockActivity()
-      setSimulatedActivities(prev => [newActivity, ...prev].slice(0, 50)) // Keep last 50 simulated
-    }, 5000 + Math.random() * 5000) // Random 5-10s interval
+      refreshProjects()
+    }, 30000)
 
     return () => clearInterval(interval)
-  }, [isStreaming])
+  }, [refreshProjects])
 
   const handleRefresh = () => {
     refreshProjects()
@@ -470,24 +294,6 @@ export default function ActivityPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setIsStreaming(!isStreaming)}
-            className="gap-2"
-          >
-            {isStreaming ? (
-              <>
-                <Pause className="h-4 w-4" />
-                Pause
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4" />
-                Resume
-              </>
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
             onClick={handleRefresh}
             className="gap-2"
             disabled={projectsLoading || loadingCommits}
@@ -498,15 +304,6 @@ export default function ActivityPage() {
           <Button variant="outline" size="sm" className="gap-2">
             <Download className="h-4 w-4" />
             Export
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSimulatedActivities([])}
-            className="gap-2"
-          >
-            <Trash2 className="h-4 w-4" />
-            Clear Simulated
           </Button>
         </div>
       </div>
@@ -563,15 +360,13 @@ export default function ActivityPage() {
         <Card className="lg:col-span-2 flex flex-col min-h-0">
           <CardHeader className="pb-2 flex-none flex flex-row items-center justify-between">
             <CardTitle className="text-base font-medium">
-              Live Stream
-              {isStreaming && (
-                <span className="ml-2 inline-flex items-center gap-1.5">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" />
-                  </span>
+              Activity Feed
+              <span className="ml-2 inline-flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" />
                 </span>
-              )}
+                <span className="text-xs font-normal text-muted-foreground">Real events only</span>
+              </span>
             </CardTitle>
             <span className="text-sm text-muted-foreground">
               {filteredActivities.length} items
