@@ -67,7 +67,7 @@ export function getConfiguredServers(): LLMServer[] {
 }
 
 // Check if a server is online and get loaded model
-export async function checkServerStatus(server: LLMServer): Promise<LLMServer> {
+export async function checkServerStatus(server: LLMServer, verifyModel = false): Promise<LLMServer> {
   try {
     const modelsUrl = server.type === "ollama"
       ? `${server.url}/api/tags`
@@ -94,6 +94,14 @@ export async function checkServerStatus(server: LLMServer): Promise<LLMServer> {
       currentModel = data.models[0].name
     }
 
+    // Optionally verify the model is actually loaded and ready
+    if (verifyModel && currentModel) {
+      const verified = await verifyModelLoaded(server, currentModel)
+      if (!verified) {
+        return { ...server, status: "busy", currentModel }
+      }
+    }
+
     return {
       ...server,
       status: "online",
@@ -101,6 +109,30 @@ export async function checkServerStatus(server: LLMServer): Promise<LLMServer> {
     }
   } catch {
     return { ...server, status: "offline" }
+  }
+}
+
+// Quick test to verify model is actually loaded (not just listed)
+async function verifyModelLoaded(server: LLMServer, _model: string): Promise<boolean> {
+  try {
+    const endpoint = server.type === "ollama"
+      ? `${server.url}/api/chat`
+      : `${server.url}/v1/chat/completions`
+
+    const body = server.type === "ollama"
+      ? { model: _model, messages: [{ role: "user", content: "Hi" }], stream: false, options: { num_predict: 1 } }
+      : { messages: [{ role: "user", content: "Hi" }], max_tokens: 1, stream: false }
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000)
+    })
+
+    return response.ok
+  } catch {
+    return false
   }
 }
 
@@ -156,7 +188,7 @@ export async function chatCompletion(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(60000) // 60 second timeout for generation
+      signal: AbortSignal.timeout(180000) // 180 second timeout for generation
     })
 
     if (!response.ok) {
@@ -212,7 +244,8 @@ export async function generateWithLocalLLM(
   }
 
   for (const server of serversToTry) {
-    const status = await checkServerStatus(server)
+    // Use verifyModel=true to skip servers with unloaded models
+    const status = await checkServerStatus(server, true)
     if (status.status !== "online") continue
 
     const response = await chatCompletion(status, {
