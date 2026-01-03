@@ -203,9 +203,11 @@ export async function generateWithLocalLLM(
   // Try preferred server first if specified
   let serversToTry = servers
   if (options?.preferredServer) {
-    const preferred = servers.find(s => s.name === options.preferredServer)
+    // Case-insensitive comparison (API uses lowercase, servers use capitalized)
+    const preferredLower = options.preferredServer.toLowerCase()
+    const preferred = servers.find(s => s.name.toLowerCase() === preferredLower)
     if (preferred) {
-      serversToTry = [preferred, ...servers.filter(s => s.name !== options.preferredServer)]
+      serversToTry = [preferred, ...servers.filter(s => s.name.toLowerCase() !== preferredLower)]
     }
   }
 
