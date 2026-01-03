@@ -37,6 +37,8 @@ import {
 
 interface BrainDumpReviewProps {
   brainDumpId: string
+  projectName?: string
+  projectDescription?: string
   onComplete?: () => void
   onConvertToPackets?: (items: ActionItem[]) => void
   className?: string
@@ -44,6 +46,8 @@ interface BrainDumpReviewProps {
 
 export function BrainDumpReview({
   brainDumpId,
+  projectName,
+  projectDescription,
   onComplete,
   onConvertToPackets,
   className
@@ -97,8 +101,8 @@ export function BrainDumpReview({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript: brainDump.transcription.text,
-          projectName: undefined, // TODO: Get from project
-          projectDescription: undefined
+          projectName,
+          projectDescription
         })
       })
 
