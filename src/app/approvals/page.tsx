@@ -213,7 +213,7 @@ export default function ApprovalsPage() {
   return (
     <div className="flex flex-col gap-6 p-6 h-full">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Approvals</h1>
           <p className="text-sm text-muted-foreground">
@@ -221,15 +221,15 @@ export default function ApprovalsPage() {
           </p>
         </div>
         {urgentCount > 0 && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-400/10 text-red-400">
-            <AlertTriangle className="h-4 w-4" />
-            <span className="text-sm font-medium">{urgentCount} urgent approval{urgentCount !== 1 ? 's' : ''} waiting</span>
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-400/10 text-red-400 shrink-0">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="text-xs sm:text-sm font-medium">{urgentCount} urgent{urgentCount !== 1 ? 's' : ''} waiting</span>
           </div>
         )}
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {(["pending", "approved", "rejected", "expired"] as const).map(status => {
           const config = statusConfig[status]
           const count = approvals.filter(a => a.status === status).length
@@ -238,24 +238,24 @@ export default function ApprovalsPage() {
               key={status}
               onClick={() => setStatusFilter(statusFilter === status ? "all" : status)}
               className={cn(
-                "p-4 rounded-lg border text-left transition-colors",
+                "p-3 sm:p-4 rounded-lg border text-left transition-colors",
                 statusFilter === status ? "border-primary bg-accent" : "hover:bg-accent/50"
               )}
             >
-              <div className="flex items-center justify-between mb-2">
-                <config.icon className={cn("h-5 w-5", config.color)} />
-                <span className={cn("text-2xl font-semibold", config.color)}>{count}</span>
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <config.icon className={cn("h-4 w-4 sm:h-5 sm:w-5", config.color)} />
+                <span className={cn("text-xl sm:text-2xl font-semibold", config.color)}>{count}</span>
               </div>
-              <p className="text-sm font-medium capitalize">{status}</p>
+              <p className="text-xs sm:text-sm font-medium capitalize">{status}</p>
             </button>
           )
         })}
       </div>
 
       {/* Main Content */}
-      <div className="grid gap-6 lg:grid-cols-5 flex-1 min-h-0">
+      <div className="grid gap-6 md:grid-cols-5 flex-1 min-h-0">
         {/* Approvals List */}
-        <Card className="lg:col-span-3 flex flex-col min-h-0">
+        <Card className="md:col-span-3 flex flex-col min-h-0">
           <CardHeader className="pb-2 flex-none">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base font-medium">
@@ -344,7 +344,7 @@ export default function ApprovalsPage() {
         </Card>
 
         {/* Detail Panel */}
-        <Card className="lg:col-span-2 flex flex-col min-h-0">
+        <Card className="md:col-span-2 flex flex-col min-h-0">
           <CardHeader className="pb-2 flex-none">
             <CardTitle className="text-base font-medium">Request Details</CardTitle>
           </CardHeader>

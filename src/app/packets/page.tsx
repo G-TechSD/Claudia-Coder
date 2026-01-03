@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -23,6 +23,7 @@ import {
   Calendar,
   Hash
 } from "lucide-react"
+import { getAllPackets, type WorkPacket } from "@/lib/ai/build-plan"
 
 type PacketStatus = "queued" | "running" | "blocked" | "completed" | "failed"
 type PacketPriority = "high" | "normal" | "low"
@@ -44,6 +45,41 @@ interface Packet {
   actualCost: number | null
   blockedReason?: string
   errorMessage?: string
+}
+
+// Convert WorkPacket from build-plan to Packet for display
+function workPacketToPacket(wp: WorkPacket): Packet {
+  const completedTasks = wp.tasks.filter(t => t.completed).length
+
+  // Map work packet status to display status
+  let status: PacketStatus = "queued"
+  if (wp.status === "completed") status = "completed"
+  else if (wp.status === "in_progress" || wp.status === "assigned") status = "running"
+  else if (wp.status === "blocked") status = "blocked"
+  else if (wp.status === "review") status = "running"
+
+  // Map priority
+  let priority: PacketPriority = "normal"
+  if (wp.priority === "critical" || wp.priority === "high") priority = "high"
+  else if (wp.priority === "low") priority = "low"
+
+  return {
+    id: wp.id,
+    title: wp.title,
+    description: wp.description,
+    status,
+    priority,
+    agent: wp.assignedModel || null,
+    createdAt: new Date(),
+    startedAt: wp.status === "in_progress" ? new Date() : null,
+    completedAt: wp.status === "completed" ? new Date() : null,
+    source: "Linear",
+    branch: `feature/${wp.id.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`,
+    tasks: { total: wp.tasks.length, completed: completedTasks },
+    estimatedCost: wp.estimatedTokens / 1000 * 0.002, // Rough estimate
+    actualCost: wp.status === "completed" ? wp.estimatedTokens / 1000 * 0.002 : null,
+    blockedReason: wp.blockedBy?.length > 0 ? `Depends on: ${wp.blockedBy.join(", ")}` : undefined,
+  }
 }
 
 const statusConfig: Record<PacketStatus, {
@@ -252,10 +288,22 @@ function formatDuration(start: Date | null, end: Date | null): string {
 }
 
 export default function PacketsPage() {
-  const [packets] = useState<Packet[]>(mockPackets)
+  const [packets, setPackets] = useState<Packet[]>(mockPackets)
   const [selectedPacket, setSelectedPacket] = useState<Packet | null>(mockPackets[0])
   const [filter, setFilter] = useState<PacketStatus | "all">("all")
   const [search, setSearch] = useState("")
+
+  // Load real packets from storage on mount
+  useEffect(() => {
+    const storedPackets = getAllPackets()
+    if (storedPackets.length > 0) {
+      const convertedPackets = storedPackets.map(workPacketToPacket)
+      setPackets(convertedPackets)
+      if (convertedPackets.length > 0) {
+        setSelectedPacket(convertedPackets[0])
+      }
+    }
+  }, [])
 
   const filteredPackets = packets.filter(packet => {
     const matchesFilter = filter === "all" || packet.status === filter
@@ -276,7 +324,7 @@ export default function PacketsPage() {
   return (
     <div className="flex flex-col gap-6 p-6 h-full">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Packet Queue</h1>
           <p className="text-sm text-muted-foreground">
@@ -286,21 +334,21 @@ export default function PacketsPage() {
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" className="gap-2">
             <Play className="h-4 w-4" />
-            Start Next
+            <span className="hidden sm:inline">Start Next</span>
           </Button>
           <Button variant="outline" size="sm" className="gap-2">
             <Pause className="h-4 w-4" />
-            Pause Queue
+            <span className="hidden sm:inline">Pause Queue</span>
           </Button>
           <Button size="sm" className="gap-2">
             <Package className="h-4 w-4" />
-            New Packet
+            <span className="hidden sm:inline">New Packet</span>
           </Button>
         </div>
       </div>
 
       {/* Stats Bar */}
-      <div className="flex gap-4">
+      <div className="flex flex-wrap gap-2 sm:gap-4">
         {(["queued", "running", "blocked", "completed", "failed"] as const).map(status => {
           const config = statusConfig[status]
           return (
@@ -308,13 +356,13 @@ export default function PacketsPage() {
               key={status}
               onClick={() => setFilter(filter === status ? "all" : status)}
               className={cn(
-                "flex items-center gap-2 rounded-lg border px-4 py-2 transition-colors",
+                "flex items-center gap-1.5 sm:gap-2 rounded-lg border px-2 sm:px-4 py-1.5 sm:py-2 transition-colors",
                 filter === status ? "border-primary bg-accent" : "hover:bg-accent/50"
               )}
             >
               <span className={cn("h-2 w-2 rounded-full", config.bg)} />
-              <span className="text-sm font-medium">{config.label}</span>
-              <span className={cn("text-lg font-semibold", config.color)}>
+              <span className="text-xs sm:text-sm font-medium hidden xs:inline">{config.label}</span>
+              <span className={cn("text-base sm:text-lg font-semibold", config.color)}>
                 {stats[status]}
               </span>
             </button>
@@ -342,9 +390,9 @@ export default function PacketsPage() {
       </div>
 
       {/* Main Content */}
-      <div className="grid gap-6 lg:grid-cols-5 flex-1 min-h-0">
+      <div className="grid gap-6 md:grid-cols-5 flex-1 min-h-0">
         {/* Packet List */}
-        <Card className="lg:col-span-3 flex flex-col min-h-0">
+        <Card className="md:col-span-3 flex flex-col min-h-0">
           <CardHeader className="pb-2 flex-none">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base font-medium">
@@ -415,7 +463,7 @@ export default function PacketsPage() {
         </Card>
 
         {/* Detail Panel */}
-        <Card className="lg:col-span-2 flex flex-col min-h-0">
+        <Card className="md:col-span-2 flex flex-col min-h-0">
           <CardHeader className="pb-2 flex-none">
             <CardTitle className="text-base font-medium">Packet Details</CardTitle>
           </CardHeader>

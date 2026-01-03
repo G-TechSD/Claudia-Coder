@@ -249,10 +249,10 @@ export default function QualityPage() {
         overallHealth === "warning" && "border-yellow-400/50 bg-yellow-400/5",
         overallHealth === "failing" && "border-red-400/50 bg-red-400/5"
       )}>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Shield className={cn(
-              "h-8 w-8",
+              "h-8 w-8 shrink-0",
               overallHealth === "healthy" && "text-green-400",
               overallHealth === "warning" && "text-yellow-400",
               overallHealth === "failing" && "text-red-400"
@@ -267,7 +267,7 @@ export default function QualityPage() {
               </p>
             </div>
           </div>
-          <div className="flex gap-8 text-center">
+          <div className="grid grid-cols-4 gap-4 sm:gap-6 md:gap-8 text-center w-full sm:w-auto">
             {[
               { label: "Total", value: stats.total },
               { label: "Passed", value: stats.passed, color: "text-green-400" },
@@ -275,7 +275,7 @@ export default function QualityPage() {
               { label: "Warnings", value: stats.warnings, color: "text-yellow-400" },
             ].map(stat => (
               <div key={stat.label}>
-                <p className={cn("text-2xl font-semibold", stat.color)}>{stat.value}</p>
+                <p className={cn("text-xl sm:text-2xl font-semibold", stat.color)}>{stat.value}</p>
                 <p className="text-xs text-muted-foreground">{stat.label}</p>
               </div>
             ))}
@@ -284,7 +284,7 @@ export default function QualityPage() {
       </Card>
 
       {/* Category Filter */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           variant={categoryFilter === "all" ? "secondary" : "ghost"}
           size="sm"
@@ -303,16 +303,16 @@ export default function QualityPage() {
               className="gap-1.5"
             >
               <Icon className={cn("h-4 w-4", config.color)} />
-              {config.label}
+              <span className="hidden sm:inline">{config.label}</span>
             </Button>
           )
         })}
       </div>
 
       {/* Main Content */}
-      <div className="grid gap-6 lg:grid-cols-3 flex-1 min-h-0">
+      <div className="grid gap-6 md:grid-cols-5 lg:grid-cols-3 flex-1 min-h-0">
         {/* Gates List */}
-        <Card className="lg:col-span-2 flex flex-col min-h-0">
+        <Card className="md:col-span-3 lg:col-span-2 flex flex-col min-h-0">
           <CardHeader className="pb-2 flex-none">
             <CardTitle className="text-base font-medium">Quality Gates</CardTitle>
           </CardHeader>
@@ -356,13 +356,13 @@ export default function QualityPage() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-4 text-sm">
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <div className="flex items-center gap-2 sm:gap-4 text-sm shrink-0">
+                      <div className="hidden sm:flex items-center gap-1.5 text-muted-foreground">
                         <CatIcon className={cn("h-4 w-4", catConfig.color)} />
                       </div>
-                      <div className="text-right min-w-[4rem]">
-                        <p className={cn("font-medium", config.color)}>{config.label}</p>
-                        <p className="text-xs text-muted-foreground">{formatTime(gate.lastRun)}</p>
+                      <div className="text-right">
+                        <p className={cn("font-medium text-xs sm:text-sm", config.color)}>{config.label}</p>
+                        <p className="text-xs text-muted-foreground hidden sm:block">{formatTime(gate.lastRun)}</p>
                       </div>
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </div>
@@ -374,7 +374,7 @@ export default function QualityPage() {
         </Card>
 
         {/* Detail Panel */}
-        <Card className="flex flex-col min-h-0">
+        <Card className="md:col-span-2 lg:col-span-1 flex flex-col min-h-0">
           <CardHeader className="pb-2 flex-none">
             <CardTitle className="text-base font-medium">Gate Details</CardTitle>
           </CardHeader>
@@ -487,16 +487,16 @@ export default function QualityPage() {
               return (
                 <div
                   key={run.id}
-                  className="flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors"
+                  className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors"
                 >
-                  <Icon className={cn("h-4 w-4", config.color)} />
+                  <Icon className={cn("h-4 w-4 shrink-0", config.color)} />
                   <Badge variant="outline" className="font-mono text-xs">{run.packetId}</Badge>
                   <span className="font-medium text-sm">{run.gateName}</span>
                   {run.message && (
-                    <span className="text-sm text-muted-foreground truncate flex-1">{run.message}</span>
+                    <span className="text-xs sm:text-sm text-muted-foreground truncate flex-1 basis-full sm:basis-auto order-last sm:order-none mt-1 sm:mt-0 pl-6 sm:pl-0">{run.message}</span>
                   )}
-                  <span className="text-xs text-muted-foreground">{run.duration}s</span>
-                  <span className="text-xs text-muted-foreground">{formatTime(run.timestamp)}</span>
+                  <span className="text-xs text-muted-foreground ml-auto sm:ml-0">{run.duration}s</span>
+                  <span className="text-xs text-muted-foreground hidden sm:inline">{formatTime(run.timestamp)}</span>
                 </div>
               )
             })}

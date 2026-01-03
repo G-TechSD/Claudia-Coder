@@ -608,3 +608,91 @@ export function estimatePlanCost(
     return total + (packet.estimatedTokens / 1000) * costPer1k
   }, 0)
 }
+
+/**
+ * Save packets to localStorage for a project
+ */
+const PACKETS_STORAGE_KEY = "claudia_packets"
+
+function getStoredPackets(): Record<string, WorkPacket[]> {
+  if (typeof window === "undefined") return {}
+  const stored = localStorage.getItem(PACKETS_STORAGE_KEY)
+  return stored ? JSON.parse(stored) : {}
+}
+
+function saveAllPackets(allPackets: Record<string, WorkPacket[]>): void {
+  if (typeof window === "undefined") return
+  localStorage.setItem(PACKETS_STORAGE_KEY, JSON.stringify(allPackets))
+}
+
+export function savePackets(projectId: string, packets: WorkPacket[]): void {
+  const allPackets = getStoredPackets()
+  allPackets[projectId] = packets
+  saveAllPackets(allPackets)
+}
+
+export function getPacketsForProject(projectId: string): WorkPacket[] {
+  const allPackets = getStoredPackets()
+  return allPackets[projectId] || []
+}
+
+export function getAllPackets(): WorkPacket[] {
+  const allPackets = getStoredPackets()
+  return Object.values(allPackets).flat()
+}
+
+export function updatePacket(projectId: string, packetId: string, updates: Partial<WorkPacket>): WorkPacket | null {
+  const allPackets = getStoredPackets()
+  const packets = allPackets[projectId] || []
+  const index = packets.findIndex(p => p.id === packetId)
+
+  if (index === -1) return null
+
+  packets[index] = { ...packets[index], ...updates }
+  allPackets[projectId] = packets
+  saveAllPackets(allPackets)
+
+  return packets[index]
+}
+
+export function deletePacket(projectId: string, packetId: string): boolean {
+  const allPackets = getStoredPackets()
+  const packets = allPackets[projectId] || []
+  const filtered = packets.filter(p => p.id !== packetId)
+
+  if (filtered.length === packets.length) return false
+
+  allPackets[projectId] = filtered
+  saveAllPackets(allPackets)
+  return true
+}
+
+/**
+ * Save a build plan to localStorage
+ */
+const BUILD_PLANS_STORAGE_KEY = "claudia_build_plans_raw"
+
+function getStoredBuildPlansRaw(): Record<string, BuildPlan> {
+  if (typeof window === "undefined") return {}
+  const stored = localStorage.getItem(BUILD_PLANS_STORAGE_KEY)
+  return stored ? JSON.parse(stored) : {}
+}
+
+function saveAllBuildPlansRaw(plans: Record<string, BuildPlan>): void {
+  if (typeof window === "undefined") return
+  localStorage.setItem(BUILD_PLANS_STORAGE_KEY, JSON.stringify(plans))
+}
+
+export function saveBuildPlan(projectId: string, plan: BuildPlan): void {
+  const allPlans = getStoredBuildPlansRaw()
+  allPlans[projectId] = plan
+  saveAllBuildPlansRaw(allPlans)
+
+  // Also save the packets from this plan
+  savePackets(projectId, plan.packets)
+}
+
+export function getBuildPlanRaw(projectId: string): BuildPlan | null {
+  const allPlans = getStoredBuildPlansRaw()
+  return allPlans[projectId] || null
+}

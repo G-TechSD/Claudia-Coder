@@ -58,6 +58,30 @@ interface LinearProjectPreview {
   teams: { nodes: Array<{ id: string; name: string; key: string }> }
 }
 
+interface LinearWorkPacket {
+  id: string
+  phaseId: string
+  title: string
+  description: string
+  type: "feature" | "bugfix" | "refactor" | "test" | "docs" | "config" | "research"
+  priority: "critical" | "high" | "medium" | "low"
+  status: "queued" | "in_progress" | "completed" | "blocked"
+  tasks: Array<{ id: string; description: string; completed: boolean; order: number }>
+  suggestedTaskType: string
+  acceptanceCriteria: string[]
+  estimatedTokens: number
+  dependencies: string[]
+  metadata: {
+    source: "linear"
+    linearId: string
+    linearIdentifier: string
+    linearState: string
+    linearLabels: string[]
+    linearAssignee?: string
+    linearParentId?: string
+  }
+}
+
 interface LinearImportData {
   project: {
     name: string
@@ -73,13 +97,7 @@ interface LinearImportData {
     order: number
     status: "not_started"
   }>
-  packets: Array<{
-    id: string
-    title: string
-    type: string
-    priority: string
-    status: string
-  }>
+  packets: LinearWorkPacket[]
   summary: {
     totalIssues: number
     byPriority: Record<string, number>
@@ -335,6 +353,9 @@ export default function NewProjectPage() {
           mode: "imported",
           projectId: linearImportData.project.linearProjectId,
           teamId: linearImportData.project.teamIds[0],
+          syncIssues: false,
+          syncComments: false,
+          syncStatus: false,
           importedAt: new Date().toISOString(),
           importedIssueCount: linearImportData.summary.totalIssues
         })
@@ -345,18 +366,45 @@ export default function NewProjectPage() {
           projectId: project.id,
           version: 1,
           status: "approved",
+          spec: {
+            name: projectName,
+            description: projectDescription,
+            objectives: [],
+            nonGoals: [],
+            assumptions: [],
+            risks: [],
+            techStack: []
+          },
           phases: linearImportData.phases.map(p => ({
             ...p,
             packetIds: linearImportData.packets
               .filter(pkt => pkt.status !== "completed")
-              .map(pkt => pkt.id)
+              .map(pkt => pkt.id),
+            dependencies: [],
+            estimatedEffort: { optimistic: 8, realistic: 16, pessimistic: 32, confidence: "medium" as const },
+            successCriteria: ["All packets completed"]
           })),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          packets: linearImportData.packets.map(pkt => ({
+            ...pkt,
+            blockedBy: pkt.dependencies || [],
+            blocks: []
+          })),
+          modelAssignments: [],
+          constraints: {
+            requireLocalFirst: true,
+            requireHumanApproval: ["planning", "deployment"],
+            maxParallelPackets: 2
+          },
+          generatedBy: "linear-import",
+          createdAt: new Date().toISOString()
         })
 
         // Save all the packets
-        savePackets(project.id, linearImportData.packets as never[])
+        savePackets(project.id, linearImportData.packets.map(pkt => ({
+          ...pkt,
+          blockedBy: pkt.dependencies || [],
+          blocks: []
+        })))
       }
 
       if (createRepo && hasToken) {
