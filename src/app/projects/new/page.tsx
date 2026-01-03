@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { InterviewPanel } from "@/components/interview/interview-panel"
 import { VoiceInput } from "@/components/voice/voice-input"
-import { createProject, linkRepoToProject } from "@/lib/data/projects"
+import { createProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
+import { savePackets, saveBuildPlan } from "@/lib/ai/build-plan"
 import { createGitLabRepo, hasGitLabToken, setGitLabToken, validateGitLabToken } from "@/lib/gitlab/api"
 import { useSettings } from "@/hooks/useSettings"
 import { LLMStatusBadge } from "@/components/llm/llm-status"
@@ -30,11 +31,15 @@ import {
   X,
   ThumbsUp,
   ThumbsDown,
-  RefreshCw
+  RefreshCw,
+  Download,
+  Search,
+  Package
 } from "lucide-react"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 
-type Mode = "choose" | "quick" | "interview" | "setup" | "complete"
+type Mode = "choose" | "quick" | "interview" | "linear" | "setup" | "complete"
 
 interface GeneratedPlan {
   name: string
@@ -42,6 +47,45 @@ interface GeneratedPlan {
   features: string[]
   techStack: string[]
   priority: "low" | "medium" | "high" | "critical"
+}
+
+interface LinearProjectPreview {
+  id: string
+  name: string
+  description?: string
+  state: string
+  progress: number
+  teams: { nodes: Array<{ id: string; name: string; key: string }> }
+}
+
+interface LinearImportData {
+  project: {
+    name: string
+    description: string
+    linearProjectId: string
+    teamIds: string[]
+    progress: number
+  }
+  phases: Array<{
+    id: string
+    name: string
+    description: string
+    order: number
+    status: "not_started"
+  }>
+  packets: Array<{
+    id: string
+    title: string
+    type: string
+    priority: string
+    status: string
+  }>
+  summary: {
+    totalIssues: number
+    byPriority: Record<string, number>
+    byStatus: Record<string, number>
+    byType: Record<string, number>
+  }
 }
 
 export default function NewProjectPage() {
@@ -82,10 +126,82 @@ export default function NewProjectPage() {
   const [submitError, setSubmitError] = useState("")
   const [createdProject, setCreatedProject] = useState<Project | null>(null)
 
+  // Linear import state
+  const [linearProjects, setLinearProjects] = useState<LinearProjectPreview[]>([])
+  const [linearSearch, setLinearSearch] = useState("")
+  const [linearLoading, setLinearLoading] = useState(false)
+  const [linearError, setLinearError] = useState("")
+  const [selectedLinearProject, setSelectedLinearProject] = useState<LinearProjectPreview | null>(null)
+  const [linearImportData, setLinearImportData] = useState<LinearImportData | null>(null)
+  const [isImporting, setIsImporting] = useState(false)
+
   // Check for GitLab token on mount
   useEffect(() => {
     setHasToken(hasGitLabToken())
   }, [])
+
+  // Load Linear projects when entering Linear mode
+  useEffect(() => {
+    if (mode === "linear") {
+      loadLinearProjects()
+    }
+  }, [mode])
+
+  const loadLinearProjects = async () => {
+    setLinearLoading(true)
+    setLinearError("")
+
+    try {
+      const response = await fetch("/api/linear/projects")
+      if (!response.ok) {
+        throw new Error("Failed to load Linear projects")
+      }
+      const data = await response.json()
+      setLinearProjects(data.projects || [])
+    } catch (err) {
+      setLinearError(err instanceof Error ? err.message : "Failed to load projects")
+    } finally {
+      setLinearLoading(false)
+    }
+  }
+
+  const handleLinearImport = async (project: LinearProjectPreview) => {
+    setSelectedLinearProject(project)
+    setIsImporting(true)
+    setLinearError("")
+
+    try {
+      const response = await fetch("/api/linear/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to import project")
+      }
+
+      const data = await response.json()
+      setLinearImportData(data)
+
+      // Pre-fill project details from import
+      setProjectName(data.project.name)
+      setProjectDescription(data.project.description || `Imported from Linear with ${data.summary.totalIssues} issues`)
+      setRepoName(toRepoName(data.project.name))
+      setPriority("medium")
+
+    } catch (err) {
+      setLinearError(err instanceof Error ? err.message : "Import failed")
+      setSelectedLinearProject(null)
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
+  const handleLinearConfirm = () => {
+    if (!linearImportData) return
+    setMode("setup")
+  }
 
   // Generate plan from quick description
   const handleFeelingLucky = async () => {
@@ -195,16 +311,53 @@ export default function NewProjectPage() {
     setSubmitError("")
 
     try {
+      // Determine tags based on source
+      let tags = generatedPlan?.techStack || (interviewSession?.extractedData?.techStack as string[]) || []
+      if (linearImportData) {
+        tags = ["imported-from-linear"]
+      }
+
       const project = createProject({
         name: projectName,
         description: projectDescription,
-        status: "planning",
+        status: linearImportData ? "active" : "planning",
         priority,
         repos: [],
         packetIds: [],
-        tags: generatedPlan?.techStack || (interviewSession?.extractedData?.techStack as string[]) || [],
+        tags,
         creationInterview: interviewSession || undefined
       })
+
+      // Handle Linear import data
+      if (linearImportData && selectedLinearProject) {
+        // Configure Linear sync
+        configureLinearSync(project.id, {
+          mode: "imported",
+          projectId: linearImportData.project.linearProjectId,
+          teamId: linearImportData.project.teamIds[0],
+          importedAt: new Date().toISOString(),
+          importedIssueCount: linearImportData.summary.totalIssues
+        })
+
+        // Save the build plan with phases
+        saveBuildPlan(project.id, {
+          id: `plan-${Date.now()}`,
+          projectId: project.id,
+          version: 1,
+          status: "approved",
+          phases: linearImportData.phases.map(p => ({
+            ...p,
+            packetIds: linearImportData.packets
+              .filter(pkt => pkt.status !== "completed")
+              .map(pkt => pkt.id)
+          })),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+
+        // Save all the packets
+        savePackets(project.id, linearImportData.packets as never[])
+      }
 
       if (createRepo && hasToken) {
         try {
@@ -333,12 +486,217 @@ export default function NewProjectPage() {
           </CardContent>
         </Card>
 
+        {/* Import from Linear */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-10 w-10 rounded-lg bg-[#5E6AD2]/10 flex items-center justify-center">
+                <Download className="h-5 w-5 text-[#5E6AD2]" />
+              </div>
+              <div className="flex-1">
+                <p className="font-medium">Import from Linear</p>
+                <p className="text-sm text-muted-foreground">
+                  Import an existing project with all its issues
+                </p>
+              </div>
+              <Button onClick={() => setMode("linear")}>
+                Import
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="text-center">
           <Button variant="ghost" onClick={() => router.push("/projects")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Projects
           </Button>
         </div>
+      </div>
+    )
+  }
+
+  // Mode: Linear - import from Linear
+  if (mode === "linear") {
+    const filteredProjects = linearSearch
+      ? linearProjects.filter(p =>
+          p.name.toLowerCase().includes(linearSearch.toLowerCase()) ||
+          p.description?.toLowerCase().includes(linearSearch.toLowerCase())
+        )
+      : linearProjects
+
+    return (
+      <div className="p-6 max-w-3xl mx-auto space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => {
+            setMode("choose")
+            setSelectedLinearProject(null)
+            setLinearImportData(null)
+          }}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-semibold">Import from Linear</h1>
+            <p className="text-sm text-muted-foreground">
+              Select a project to import with all its issues
+            </p>
+          </div>
+        </div>
+
+        {linearError && (
+          <div className="p-4 rounded-lg bg-red-500/10 text-red-600 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 flex-none mt-0.5" />
+            <p className="text-sm">{linearError}</p>
+          </div>
+        )}
+
+        {!selectedLinearProject ? (
+          /* Project Selection */
+          <Card>
+            <CardHeader>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search projects..."
+                  value={linearSearch}
+                  onChange={(e) => setLinearSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </CardHeader>
+            <CardContent>
+              {linearLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : filteredProjects.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  {linearSearch ? "No projects match your search" : "No projects found in Linear"}
+                </div>
+              ) : (
+                <ScrollArea className="h-[400px]">
+                  <div className="space-y-2">
+                    {filteredProjects.map((project) => (
+                      <div
+                        key={project.id}
+                        className="p-4 rounded-lg border hover:border-primary/50 cursor-pointer transition-colors"
+                        onClick={() => handleLinearImport(project)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{project.name}</p>
+                            {project.description && (
+                              <p className="text-sm text-muted-foreground line-clamp-1">
+                                {project.description}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2 mt-2">
+                              <Badge variant="outline" className="text-xs">
+                                {project.state}
+                              </Badge>
+                              {project.teams.nodes.map(team => (
+                                <Badge key={team.id} variant="secondary" className="text-xs">
+                                  {team.key}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="text-right ml-4">
+                            <div className="text-2xl font-bold text-primary">
+                              {Math.round(project.progress * 100)}%
+                            </div>
+                            <p className="text-xs text-muted-foreground">progress</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          /* Import Preview */
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-primary" />
+                {selectedLinearProject.name}
+              </CardTitle>
+              <CardDescription>
+                {selectedLinearProject.description || "No description"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isImporting ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+                    <p className="text-sm text-muted-foreground">Importing issues...</p>
+                  </div>
+                </div>
+              ) : linearImportData ? (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-lg bg-muted/50 text-center">
+                      <div className="text-3xl font-bold">{linearImportData.summary.totalIssues}</div>
+                      <p className="text-xs text-muted-foreground">Total Issues</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-muted/50 text-center">
+                      <div className="text-3xl font-bold text-red-500">
+                        {linearImportData.summary.byPriority.critical || 0}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Critical</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-muted/50 text-center">
+                      <div className="text-3xl font-bold text-orange-500">
+                        {linearImportData.summary.byPriority.high || 0}
+                      </div>
+                      <p className="text-xs text-muted-foreground">High Priority</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-muted/50 text-center">
+                      <div className="text-3xl font-bold text-green-500">
+                        {linearImportData.summary.byStatus.completed || 0}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Completed</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase">By Type</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(linearImportData.summary.byType).map(([type, count]) => (
+                        count > 0 && (
+                          <Badge key={type} variant="secondary">
+                            {type}: {count}
+                          </Badge>
+                        )
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        setSelectedLinearProject(null)
+                        setLinearImportData(null)
+                      }}
+                    >
+                      Choose Different
+                    </Button>
+                    <Button className="flex-1" onClick={handleLinearConfirm}>
+                      Continue
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+            </CardContent>
+          </Card>
+        )}
       </div>
     )
   }
