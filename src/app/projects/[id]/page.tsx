@@ -45,6 +45,7 @@ import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
 import { ResourceUpload } from "@/components/project/resource-upload"
 import { RepoBrowser } from "@/components/project/repo-browser"
+import { BuildPlanEditor } from "@/components/project/build-plan-editor"
 import { SecurityEval } from "@/components/security/security-eval"
 import {
   Select,
@@ -54,7 +55,6 @@ import {
   SelectValue
 } from "@/components/ui/select"
 import type { Project, ProjectStatus, InterviewMessage } from "@/lib/data/types"
-import type { BuildPlan } from "@/lib/ai/build-plan"
 
 interface ProviderOption {
   name: string
@@ -84,14 +84,10 @@ export default function ProjectDetailPage() {
   const router = useRouter()
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
-  const [buildPlan, setBuildPlan] = useState<BuildPlan | null>(null)
-  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false)
-  const [planError, setPlanError] = useState("")
   const [resourceCount, setResourceCount] = useState(0)
   const [repoBrowserOpen, setRepoBrowserOpen] = useState(false)
   const [providers, setProviders] = useState<ProviderOption[]>([])
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
-  const [planSource, setPlanSource] = useState<{ server?: string; model?: string } | null>(null)
 
   useEffect(() => {
     const projectId = params.id as string
@@ -150,47 +146,6 @@ export default function ProjectDetailPage() {
   const refreshProject = () => {
     const found = getProject(params.id as string)
     if (found) setProject(found)
-  }
-
-  const handleGenerateBuildPlan = async () => {
-    if (!project) return
-
-    setIsGeneratingPlan(true)
-    setPlanError("")
-    setPlanSource(null)
-
-    try {
-      const response = await fetch("/api/build-plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId: project.id,
-          projectName: project.name,
-          projectDescription: project.description,
-          preferredProvider: selectedProvider,
-          constraints: {
-            requireLocalFirst: true,
-            requireHumanApproval: ["planning", "deployment"]
-          }
-        })
-      })
-
-      const data = await response.json()
-
-      if (data.error) {
-        setPlanError(data.error)
-      } else if (data.plan) {
-        setBuildPlan(data.plan)
-        setPlanSource({
-          server: data.server,
-          model: data.model
-        })
-      }
-    } catch (error) {
-      setPlanError(error instanceof Error ? error.message : "Failed to generate plan")
-    } finally {
-      setIsGeneratingPlan(false)
-    }
   }
 
   const handleStatusChange = (newStatus: ProjectStatus) => {
@@ -260,73 +215,6 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Provider Selector */}
-          <Select
-            value={selectedProvider || ""}
-            onValueChange={setSelectedProvider}
-          >
-            <SelectTrigger className="w-[200px] h-8 text-xs">
-              <SelectValue placeholder="Select AI provider..." />
-            </SelectTrigger>
-            <SelectContent>
-              {/* Local providers first */}
-              {providers.filter(p => p.type === "local").length > 0 && (
-                <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Local</div>
-              )}
-              {providers.filter(p => p.type === "local").map(provider => (
-                <SelectItem
-                  key={provider.name}
-                  value={provider.name}
-                  disabled={provider.status !== "online"}
-                >
-                  <div className="flex items-center gap-2">
-                    <Server className="h-3 w-3 text-muted-foreground" />
-                    <span className={cn(
-                      "h-2 w-2 rounded-full",
-                      provider.status === "online" && "bg-green-500",
-                      provider.status === "offline" && "bg-red-500",
-                      provider.status === "checking" && "bg-yellow-500 animate-pulse"
-                    )} />
-                    <span>{provider.displayName}</span>
-                  </div>
-                </SelectItem>
-              ))}
-              {/* Cloud providers */}
-              {providers.filter(p => p.type === "cloud").length > 0 && (
-                <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud</div>
-              )}
-              {providers.filter(p => p.type === "cloud").map(provider => (
-                <SelectItem
-                  key={provider.name}
-                  value={provider.name}
-                  disabled={provider.status !== "online"}
-                >
-                  <div className="flex items-center gap-2">
-                    <Cloud className="h-3 w-3 text-blue-500" />
-                    <span className={cn(
-                      "h-2 w-2 rounded-full",
-                      provider.status === "online" && "bg-green-500",
-                      provider.status === "not-configured" && "bg-gray-400"
-                    )} />
-                    <span>{provider.displayName}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Button
-            size="sm"
-            onClick={handleGenerateBuildPlan}
-            disabled={isGeneratingPlan || !selectedProvider}
-          >
-            {isGeneratingPlan ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <Zap className="h-4 w-4 mr-1" />
-            )}
-            Build Plan
-          </Button>
           <Button variant="outline" size="sm">
             <Edit2 className="h-4 w-4 mr-1" />
             Edit
@@ -372,7 +260,6 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="plan">
             Build Plan
-            {buildPlan && <FileText className="h-3 w-3 ml-1 text-primary" />}
           </TabsTrigger>
           <TabsTrigger value="models">
             AI Models
@@ -520,231 +407,14 @@ export default function ProjectDetailPage() {
 
         {/* Build Plan Tab */}
         <TabsContent value="plan" className="space-y-4">
-          {planError && (
-            <Card className="bg-red-500/10 border-red-500/30">
-              <CardContent className="p-4 flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-red-500">Failed to generate plan</p>
-                  <p className="text-sm text-muted-foreground">{planError}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Make sure LM Studio or Ollama is running with a model loaded.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {!buildPlan && !planError && (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <Zap className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground mb-4">
-                  Generate a comprehensive build plan using AI. Select a provider and click generate.
-                </p>
-                <div className="flex items-center justify-center gap-3">
-                  <Select
-                    value={selectedProvider || ""}
-                    onValueChange={setSelectedProvider}
-                  >
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="Select AI provider..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {providers.filter(p => p.type === "local").length > 0 && (
-                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Local</div>
-                      )}
-                      {providers.filter(p => p.type === "local").map(provider => (
-                        <SelectItem
-                          key={provider.name}
-                          value={provider.name}
-                          disabled={provider.status !== "online"}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Server className="h-3 w-3 text-muted-foreground" />
-                            <span className={cn(
-                              "h-2 w-2 rounded-full",
-                              provider.status === "online" && "bg-green-500",
-                              provider.status === "offline" && "bg-red-500"
-                            )} />
-                            <span>{provider.displayName}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                      {providers.filter(p => p.type === "cloud").length > 0 && (
-                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud</div>
-                      )}
-                      {providers.filter(p => p.type === "cloud").map(provider => (
-                        <SelectItem
-                          key={provider.name}
-                          value={provider.name}
-                          disabled={provider.status !== "online"}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Cloud className="h-3 w-3 text-blue-500" />
-                            <span className="h-2 w-2 rounded-full bg-green-500" />
-                            <span>{provider.displayName}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button onClick={handleGenerateBuildPlan} disabled={isGeneratingPlan || !selectedProvider}>
-                    {isGeneratingPlan ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Zap className="h-4 w-4 mr-2" />
-                    )}
-                    Generate Build Plan
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {buildPlan && (
-            <div className="space-y-4">
-              {/* Plan Header */}
-              <Card className="bg-primary/5 border-primary/20">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2">
-                        <FileText className="h-5 w-5 text-primary" />
-                        {buildPlan.spec.name}
-                      </CardTitle>
-                      <CardDescription>{buildPlan.spec.description}</CardDescription>
-                      {planSource && (
-                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                          <Brain className="h-3 w-3" />
-                          <span>Generated by:</span>
-                          <Badge variant="outline" className="text-xs">
-                            {planSource.server || "Local"}
-                          </Badge>
-                          {planSource.model && (
-                            <span className="text-xs opacity-70">
-                              {planSource.model.split("/").pop()}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <Badge variant={buildPlan.status === "approved" ? "default" : "secondary"}>
-                      {buildPlan.status}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Objectives */}
-                  <div>
-                    <h4 className="text-xs text-muted-foreground uppercase mb-2">Objectives</h4>
-                    <ul className="space-y-1">
-                      {buildPlan.spec.objectives.map((obj, i) => (
-                        <li key={i} className="text-sm flex items-start gap-2">
-                          <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
-                          {obj}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Non-Goals */}
-                  {buildPlan.spec.nonGoals?.length > 0 && (
-                    <div>
-                      <h4 className="text-xs text-muted-foreground uppercase mb-2">Non-Goals (Out of Scope)</h4>
-                      <ul className="space-y-1">
-                        {buildPlan.spec.nonGoals.map((ng, i) => (
-                          <li key={i} className="text-sm flex items-start gap-2 text-muted-foreground">
-                            <span className="text-red-400">✗</span>
-                            {ng}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Tech Stack */}
-                  {buildPlan.spec.techStack?.length > 0 && (
-                    <div>
-                      <h4 className="text-xs text-muted-foreground uppercase mb-2">Tech Stack</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {buildPlan.spec.techStack.map((tech, i) => (
-                          <Badge key={i} variant="outline">{tech}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Phases */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Phases ({buildPlan.phases.length})</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {buildPlan.phases.map((phase, i) => (
-                    <div key={phase.id} className="p-3 border rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="secondary">{i + 1}</Badge>
-                        <span className="font-medium">{phase.name}</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-2">{phase.description}</p>
-                      <div className="flex gap-4 text-xs text-muted-foreground">
-                        <span>{phase.packetIds.length} packets</span>
-                        <span>Est: {phase.estimatedEffort?.realistic}h</span>
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              {/* Work Packets */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Work Packets ({buildPlan.packets.length})</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {buildPlan.packets.map((packet) => (
-                    <div key={packet.id} className="p-3 border rounded-lg">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-sm">{packet.title}</span>
-                        <div className="flex gap-2">
-                          <Badge variant="outline" className="text-xs capitalize">
-                            {packet.type}
-                          </Badge>
-                          <Badge
-                            className={cn(
-                              "text-xs capitalize",
-                              packet.priority === "critical" && "bg-red-500",
-                              packet.priority === "high" && "bg-orange-500"
-                            )}
-                          >
-                            {packet.priority}
-                          </Badge>
-                        </div>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{packet.description}</p>
-                      {packet.tasks?.length > 0 && (
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          {packet.tasks.length} tasks • {packet.estimatedTokens?.toLocaleString() || "?"} tokens
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              {/* Actions */}
-              <div className="flex gap-2">
-                <Button>Approve Plan</Button>
-                <Button variant="outline" onClick={handleGenerateBuildPlan}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Regenerate
-                </Button>
-              </div>
-            </div>
-          )}
+          <BuildPlanEditor
+            projectId={project.id}
+            projectName={project.name}
+            projectDescription={project.description}
+            providers={providers}
+            selectedProvider={selectedProvider}
+            onProviderChange={setSelectedProvider}
+          />
         </TabsContent>
 
         {/* AI Models Tab */}
