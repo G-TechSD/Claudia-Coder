@@ -1,9 +1,9 @@
 /**
  * GitLab API Service
- * Connects to the self-hosted GitLab at http://192.168.245.211:8929
+ * Connects to the self-hosted GitLab at https://bill-dev-linux-1
  */
 
-const GITLAB_BASE_URL = process.env.NEXT_PUBLIC_GITLAB_URL || "http://192.168.245.211:8929"
+const GITLAB_BASE_URL = process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1"
 
 export interface GitLabProject {
   id: number

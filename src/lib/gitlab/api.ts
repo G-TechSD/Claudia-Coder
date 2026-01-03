@@ -3,7 +3,7 @@
  * Handles GitLab operations including repo creation
  */
 
-const GITLAB_URL = process.env.NEXT_PUBLIC_GITLAB_URL || "http://192.168.245.211:8929"
+const GITLAB_URL = process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1"
 
 export interface GitLabProject {
   id: number

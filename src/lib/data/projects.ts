@@ -342,7 +342,7 @@ export function seedSampleProjects(): void {
       status: "active",
       priority: "high",
       repos: [
-        { provider: "gitlab", id: 2, name: "GoldenEye", path: "goldeneye", url: "http://192.168.245.211:8929/gtechsd/goldeneye" }
+        { provider: "gitlab", id: 2, name: "GoldenEye", path: "goldeneye", url: "https://bill-dev-linux-1/gtechsd/goldeneye" }
       ],
       packetIds: [],
       tags: ["ai", "infrastructure"],

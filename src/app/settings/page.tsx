@@ -43,7 +43,7 @@ const mockServices: ServiceStatus[] = [
   { name: "n8n Orchestrator", url: "http://orangepi:5678", status: "connected", latency: 45 },
   { name: "LM Studio BEAST", url: "http://192.168.245.155:1234", status: "connected", latency: 23 },
   { name: "LM Studio BEDROOM", url: "http://192.168.27.182:1234", status: "connected", latency: 31 },
-  { name: "GitLab", url: "http://192.168.245.211:8929", status: "connected", latency: 12 },
+  { name: "GitLab", url: "https://bill-dev-linux-1", status: "connected", latency: 12 },
   { name: "Linear", url: "api.linear.app", status: "connected", latency: 89 },
   { name: "Claude API", url: "api.anthropic.com", status: "connected", latency: 156 },
 ]
