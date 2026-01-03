@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { CommandPalette } from "@/components/command-palette";
+import { GlobalVoiceButton } from "@/components/voice/global-voice-button";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,6 +36,7 @@ export default function RootLayout({
             {children}
           </main>
           <CommandPalette />
+          <GlobalVoiceButton />
         </div>
       </body>
     </html>

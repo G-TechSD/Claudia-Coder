@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,9 +10,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { InterviewPanel } from "@/components/interview/interview-panel"
+import { VoiceInput } from "@/components/voice/voice-input"
 import { createProject, linkRepoToProject } from "@/lib/data/projects"
 import { createGitLabRepo, hasGitLabToken, setGitLabToken, validateGitLabToken } from "@/lib/gitlab/api"
-import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
 import { useSettings } from "@/hooks/useSettings"
 import { LLMStatusBadge } from "@/components/llm/llm-status"
 import type { InterviewSession, Project } from "@/lib/data/types"
@@ -30,9 +30,7 @@ import {
   X,
   ThumbsUp,
   ThumbsDown,
-  RefreshCw,
-  Mic,
-  MicOff
+  RefreshCw
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -56,38 +54,7 @@ export default function NewProjectPage() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedPlan, setGeneratedPlan] = useState<GeneratedPlan | null>(null)
   const [planError, setPlanError] = useState("")
-
-  // Voice input for description
-  const descriptionVoiceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const descriptionSpeech = useSpeechRecognition({
-    continuous: true,
-    interimResults: true,
-    onResult: (transcript, isFinal) => {
-      if (isFinal && transcript.trim()) {
-        // Append to description
-        setQuickDescription(prev => (prev + " " + transcript).trim())
-
-        // Clear any pending timeout
-        if (descriptionVoiceTimeoutRef.current) {
-          clearTimeout(descriptionVoiceTimeoutRef.current)
-        }
-
-        // Auto-stop after 2 seconds of silence
-        descriptionVoiceTimeoutRef.current = setTimeout(() => {
-          descriptionSpeech.stopListening()
-        }, 2000)
-      }
-    }
-  })
-
-  // Cleanup voice timeout
-  useEffect(() => {
-    return () => {
-      if (descriptionVoiceTimeoutRef.current) {
-        clearTimeout(descriptionVoiceTimeoutRef.current)
-      }
-    }
-  }, [])
+  const [isVoiceMode, setIsVoiceMode] = useState(false)
 
   // Settings for paid API access
   const { settings } = useSettings()
@@ -286,53 +253,53 @@ export default function NewProjectPage() {
 
         <Card>
           <CardContent className="pt-6 space-y-4">
-            <div className="relative">
-              <Textarea
-                placeholder="Describe your project in a sentence or two... e.g., 'A mobile app for tracking daily habits with social accountability features'"
-                value={quickDescription + (descriptionSpeech.interimTranscript ? " " + descriptionSpeech.interimTranscript : "")}
-                onChange={(e) => setQuickDescription(e.target.value)}
-                rows={4}
-                className="text-lg pr-14"
-                disabled={descriptionSpeech.isListening}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (descriptionSpeech.isListening) {
-                    descriptionSpeech.stopListening()
-                  } else {
-                    descriptionSpeech.resetTranscript()
-                    descriptionSpeech.startListening()
-                  }
-                }}
-                disabled={!descriptionSpeech.isSupported}
-                className={cn(
-                  "absolute right-3 top-3 h-10 w-10 rounded-full flex items-center justify-center transition-all",
-                  descriptionSpeech.isListening
-                    ? "bg-red-500 text-white animate-pulse"
-                    : "bg-muted hover:bg-accent text-muted-foreground hover:text-foreground",
-                  !descriptionSpeech.isSupported && "opacity-50 cursor-not-allowed"
-                )}
-                title={descriptionSpeech.isSupported ? "Click to speak" : "Voice not supported"}
+            {/* Toggle between text and voice input */}
+            <div className="flex justify-center gap-2 pb-2">
+              <Button
+                variant={!isVoiceMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => setIsVoiceMode(false)}
               >
-                {descriptionSpeech.isListening ? (
-                  <MicOff className="h-5 w-5" />
-                ) : (
-                  <Mic className="h-5 w-5" />
-                )}
-              </button>
+                Type
+              </Button>
+              <Button
+                variant={isVoiceMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => setIsVoiceMode(true)}
+              >
+                Speak
+              </Button>
             </div>
 
-            {descriptionSpeech.isListening && (
-              <p className="text-sm text-center text-muted-foreground animate-pulse">
-                Listening... speak your project description
-              </p>
-            )}
-
-            {descriptionSpeech.error && (
-              <p className="text-sm text-center text-red-500">
-                {descriptionSpeech.error}
-              </p>
+            {!isVoiceMode ? (
+              /* Text Input Mode */
+              <Textarea
+                placeholder="Describe your project in a sentence or two... e.g., 'A mobile app for tracking daily habits with social accountability features'"
+                value={quickDescription}
+                onChange={(e) => setQuickDescription(e.target.value)}
+                rows={4}
+                className="text-lg"
+              />
+            ) : (
+              /* Voice Input Mode */
+              <div className="py-4">
+                <VoiceInput
+                  onTranscript={(text) => {
+                    setQuickDescription(prev => (prev ? prev + " " + text : text).trim())
+                  }}
+                  onListeningChange={(listening) => {
+                    // Could show additional UI feedback
+                  }}
+                  size="lg"
+                  pauseTimeout={2500}
+                />
+                {quickDescription && (
+                  <div className="mt-4 p-3 bg-muted rounded-lg">
+                    <p className="text-sm text-muted-foreground mb-1">Captured:</p>
+                    <p className="text-sm">{quickDescription}</p>
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="flex flex-col sm:flex-row gap-3">
@@ -340,7 +307,7 @@ export default function NewProjectPage() {
                 size="lg"
                 className="flex-1"
                 onClick={handleFeelingLucky}
-                disabled={!quickDescription.trim() || isGenerating || descriptionSpeech.isListening}
+                disabled={!quickDescription.trim() || isGenerating}
               >
                 {isGenerating ? (
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />

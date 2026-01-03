@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -62,7 +62,13 @@ export function InterviewPanel({
 
   // Speech hooks - track pending transcript for voice input
   const [pendingVoiceInput, setPendingVoiceInput] = useState("")
+  const [audioLevel, setAudioLevel] = useState(0)
   const voiceSubmitTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const animationRef = useRef<number | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const isListeningRef = useRef(false)
 
   const speech = useSpeechRecognition({
     continuous: true,
@@ -91,6 +97,56 @@ export function InterviewPanel({
     }
   })
 
+  // Audio visualization
+  const startAudioVisualization = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      const audioContext = new AudioContext()
+      audioContextRef.current = audioContext
+
+      const analyser = audioContext.createAnalyser()
+      analyser.fftSize = 256
+      analyserRef.current = analyser
+
+      const source = audioContext.createMediaStreamSource(stream)
+      source.connect(analyser)
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount)
+
+      const updateLevel = () => {
+        if (!isListeningRef.current) return
+
+        analyser.getByteFrequencyData(dataArray)
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+        setAudioLevel(average / 255)
+
+        animationRef.current = requestAnimationFrame(updateLevel)
+      }
+
+      updateLevel()
+    } catch (err) {
+      console.error("[Voice] Audio visualization failed:", err)
+    }
+  }, [])
+
+  const stopAudioVisualization = useCallback(() => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current)
+      animationRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+    setAudioLevel(0)
+  }, [])
+
   const tts = useSpeechSynthesis({
     onEnd: () => {
       // Could auto-start listening after speech ends
@@ -105,8 +161,9 @@ export function InterviewPanel({
       if (voiceSubmitTimeoutRef.current) {
         clearTimeout(voiceSubmitTimeoutRef.current)
       }
+      stopAudioVisualization()
     }
-  }, [])
+  }, [stopAudioVisualization])
 
   // Speak new assistant messages
   useEffect(() => {
@@ -137,10 +194,14 @@ export function InterviewPanel({
 
   const toggleListening = () => {
     if (speech.isListening) {
+      isListeningRef.current = false
       speech.stopListening()
+      stopAudioVisualization()
     } else {
+      isListeningRef.current = true
       tts.cancel() // Stop speaking before listening
       speech.startListening()
+      startAudioVisualization()
     }
   }
 
@@ -307,51 +368,95 @@ export function InterviewPanel({
       {!isComplete && (
         <div className="p-4 border-t space-y-3">
           {/* Voice Control */}
-          <div className="flex items-center justify-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleSkip}
-              disabled={interview.isProcessing}
-            >
-              <SkipForward className="h-4 w-4 mr-1" />
-              Skip
-            </Button>
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex items-center justify-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSkip}
+                disabled={interview.isProcessing}
+              >
+                <SkipForward className="h-4 w-4 mr-1" />
+                Skip
+              </Button>
 
-            <button
-              onClick={toggleListening}
-              disabled={!speech.isSupported}
-              className={cn(
-                "relative h-16 w-16 rounded-full flex items-center justify-center transition-all",
-                speech.isListening
-                  ? "bg-red-500 text-white scale-110"
-                  : "bg-muted hover:bg-accent"
-              )}
-            >
-              {speech.isListening && (
-                <span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-25" />
-              )}
-              {speech.isListening ? (
-                <MicOff className="h-6 w-6" />
-              ) : (
-                <Mic className="h-6 w-6" />
-              )}
-            </button>
+              <div className="relative">
+                {/* Audio level rings */}
+                {speech.isListening && (
+                  <>
+                    <div
+                      className="absolute inset-0 rounded-full bg-red-500/20 animate-ping"
+                      style={{ animationDuration: "1.5s" }}
+                    />
+                    <div
+                      className="absolute rounded-full bg-red-500/30 transition-all duration-100"
+                      style={{
+                        inset: `-${Math.max(4, audioLevel * 24)}px`,
+                      }}
+                    />
+                    <div
+                      className="absolute rounded-full bg-red-500/20 transition-all duration-100"
+                      style={{
+                        inset: `-${Math.max(8, audioLevel * 40)}px`,
+                      }}
+                    />
+                  </>
+                )}
 
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleFinish}
-              disabled={interview.isProcessing || messages.length < 3}
-            >
-              <Check className="h-4 w-4 mr-1" />
-              Finish
-            </Button>
+                <button
+                  onClick={toggleListening}
+                  disabled={!speech.isSupported}
+                  className={cn(
+                    "relative h-16 w-16 rounded-full flex items-center justify-center transition-all",
+                    speech.isListening
+                      ? "bg-red-500 text-white scale-110"
+                      : "bg-muted hover:bg-accent"
+                  )}
+                >
+                  {speech.isListening ? (
+                    <MicOff className="h-6 w-6" />
+                  ) : (
+                    <Mic className="h-6 w-6" />
+                  )}
+                </button>
+              </div>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleFinish}
+                disabled={interview.isProcessing || messages.length < 3}
+              >
+                <Check className="h-4 w-4 mr-1" />
+                Finish
+              </Button>
+            </div>
+
+            {/* Audio Level Bars */}
+            {speech.isListening && (
+              <div className="flex items-end justify-center gap-1 h-6">
+                {[0.3, 0.5, 0.7, 1, 0.7, 0.5, 0.3].map((multiplier, i) => (
+                  <div
+                    key={i}
+                    className="w-1 bg-red-500 rounded-full transition-all duration-75"
+                    style={{
+                      height: `${Math.max(4, audioLevel * 24 * multiplier)}px`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           {!speech.isSupported && (
             <p className="text-xs text-center text-muted-foreground">
               Voice not supported in this browser - use text input below
+            </p>
+          )}
+
+          {speech.isListening && (
+            <p className="text-xs text-center text-muted-foreground">
+              Pause for 1.5s to auto-send, or click mic to stop
             </p>
           )}
 
