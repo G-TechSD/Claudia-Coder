@@ -45,3 +45,6 @@ next-env.d.ts
 # SSL certificates
 localhost.crt
 localhost.key
+
+# Generated projects (can be regenerated)
+generated/
