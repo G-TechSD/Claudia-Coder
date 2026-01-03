@@ -9,6 +9,8 @@ export { parseCodeOutput, applyToGitLab, applyWithMergeRequest, createCommit } f
 export type { FileChange, ParsedOutput, CommitResult, ApplyResult } from "./apply-code"
 export { getRepoContext, getMinimalContext, getGitLabFileTree, detectTechStack, findRelevantFiles, getKeyFileSummaries } from "./repo-context"
 export type { RepoContext, TreeItem } from "./repo-context"
+export { runIterationLoop, executeWithIteration } from "./iteration-loop"
+export type { IterationConfig, IterationUpdate, IterationResult } from "./iteration-loop"
 
 import type { WorkPacket, PacketTask } from "@/lib/ai/build-plan"
 import type { LinkedRepo } from "@/lib/data/types"

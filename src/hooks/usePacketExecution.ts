@@ -41,6 +41,10 @@ export interface ExecutionOptions {
   maxTokens?: number
   createBranch?: boolean
   branchName?: string
+  // Iteration loop options
+  useIteration?: boolean
+  maxIterations?: number
+  minConfidence?: number
 }
 
 export interface UsePacketExecutionReturn {
