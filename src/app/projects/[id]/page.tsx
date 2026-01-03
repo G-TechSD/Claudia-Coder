@@ -32,10 +32,16 @@ import {
   Zap,
   Brain,
   Loader2,
-  FileText
+  FileText,
+  FolderOpen,
+  Upload
 } from "lucide-react"
 import { getProject, updateProject, deleteProject } from "@/lib/data/projects"
+import { getResourcesForProject } from "@/lib/data/resources"
 import { ModelAssignment } from "@/components/project/model-assignment"
+import { ResourceList } from "@/components/project/resource-list"
+import { ResourceUpload } from "@/components/project/resource-upload"
+import { RepoBrowser } from "@/components/project/repo-browser"
 import type { Project, ProjectStatus, InterviewMessage } from "@/lib/data/types"
 import type { BuildPlan } from "@/lib/ai/build-plan"
 
@@ -62,13 +68,29 @@ export default function ProjectDetailPage() {
   const [buildPlan, setBuildPlan] = useState<BuildPlan | null>(null)
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false)
   const [planError, setPlanError] = useState("")
+  const [resourceCount, setResourceCount] = useState(0)
+  const [repoBrowserOpen, setRepoBrowserOpen] = useState(false)
 
   useEffect(() => {
     const projectId = params.id as string
     const found = getProject(projectId)
     setProject(found || null)
     setLoading(false)
+
+    // Load resource count
+    const resources = getResourcesForProject(projectId)
+    setResourceCount(resources.length)
   }, [params.id])
+
+  const refreshResourceCount = () => {
+    const resources = getResourcesForProject(params.id as string)
+    setResourceCount(resources.length)
+  }
+
+  const refreshProject = () => {
+    const found = getProject(params.id as string)
+    if (found) setProject(found)
+  }
 
   const handleGenerateBuildPlan = async () => {
     if (!project) return
@@ -245,6 +267,12 @@ export default function ProjectDetailPage() {
             Packets
             <Badge variant="secondary" className="ml-1 text-xs">
               {project.packetIds.length}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="resources">
+            Resources
+            <Badge variant="secondary" className="ml-1 text-xs">
+              {resourceCount}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="interview">
@@ -541,7 +569,7 @@ export default function ProjectDetailPage() {
         <TabsContent value="repos" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-medium">Linked Repositories</h3>
-            <Button size="sm">
+            <Button size="sm" onClick={() => setRepoBrowserOpen(true)}>
               <Link2 className="h-4 w-4 mr-1" />
               Link Repository
             </Button>
@@ -552,7 +580,7 @@ export default function ProjectDetailPage() {
               <CardContent className="p-8 text-center">
                 <GitBranch className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">No repositories linked yet.</p>
-                <Button className="mt-4" size="sm">
+                <Button className="mt-4" size="sm" onClick={() => setRepoBrowserOpen(true)}>
                   <Link2 className="h-4 w-4 mr-1" />
                   Link Your First Repository
                 </Button>
@@ -630,6 +658,26 @@ export default function ProjectDetailPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        {/* Resources Tab */}
+        <TabsContent value="resources" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-medium">Project Resources</h3>
+          </div>
+
+          <ResourceUpload
+            projectId={project.id}
+            onUploadComplete={() => refreshResourceCount()}
+          />
+
+          <ResourceList
+            projectId={project.id}
+            onTranscribe={(resource) => {
+              // TODO: Open transcription flow
+              console.log("Transcribe:", resource.name)
+            }}
+          />
         </TabsContent>
 
         {/* Interview Tab */}
@@ -722,6 +770,15 @@ export default function ProjectDetailPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Repo Browser Modal */}
+      <RepoBrowser
+        open={repoBrowserOpen}
+        onOpenChange={setRepoBrowserOpen}
+        projectId={project.id}
+        linkedRepos={project.repos}
+        onRepoLinked={() => refreshProject()}
+      />
     </div>
   )
 }

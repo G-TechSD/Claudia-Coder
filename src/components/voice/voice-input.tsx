@@ -37,7 +37,7 @@ export function VoiceInput({
   const [pendingText, setPendingText] = useState("")
   const [interimText, setInterimText] = useState("")
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const animationRef = useRef<number | null>(null)
@@ -47,12 +47,13 @@ export function VoiceInput({
 
   // Check support and initialize
   useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    setIsSupported(!!SpeechRecognition)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    setIsSupported(!!SpeechRecognitionAPI)
 
-    if (!SpeechRecognition) return
+    if (!SpeechRecognitionAPI) return
 
-    const recognition = new SpeechRecognition()
+    const recognition = new SpeechRecognitionAPI() as SpeechRecognitionInstance
     recognitionRef.current = recognition
 
     recognition.continuous = true
@@ -67,7 +68,8 @@ export function VoiceInput({
       onListeningChange?.(true)
     }
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
       let finalText = ""
       let interim = ""
 
@@ -107,7 +109,8 @@ export function VoiceInput({
       setInterimText(interim)
     }
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onerror = (event: any) => {
       console.log("[Voice] Error:", event.error)
 
       if (event.error === "not-allowed") {
@@ -362,50 +365,17 @@ export function VoiceInput({
 }
 
 // Type declarations for Web Speech API
-interface SpeechRecognitionEvent extends Event {
-  resultIndex: number
-  results: SpeechRecognitionResultList
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string
-  message: string
-}
-
-interface SpeechRecognitionResultList {
-  length: number
-  item(index: number): SpeechRecognitionResult
-  [index: number]: SpeechRecognitionResult
-}
-
-interface SpeechRecognitionResult {
-  isFinal: boolean
-  length: number
-  item(index: number): SpeechRecognitionAlternative
-  [index: number]: SpeechRecognitionAlternative
-}
-
-interface SpeechRecognitionAlternative {
-  transcript: string
-  confidence: number
-}
-
-interface SpeechRecognition extends EventTarget {
+// Web Speech API types - shared with useSpeechRecognition hook
+// Using 'any' for recognition to avoid duplicate global declarations
+type SpeechRecognitionInstance = {
   continuous: boolean
   interimResults: boolean
   lang: string
   start(): void
   stop(): void
   abort(): void
-  onresult: ((event: SpeechRecognitionEvent) => void) | null
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
+  onresult: ((event: { resultIndex: number; results: { length: number; [index: number]: { isFinal: boolean; [index: number]: { transcript: string } } } }) => void) | null
+  onerror: ((event: { error: string }) => void) | null
   onend: (() => void) | null
   onstart: (() => void) | null
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition: new () => SpeechRecognition
-    webkitSpeechRecognition: new () => SpeechRecognition
-  }
 }

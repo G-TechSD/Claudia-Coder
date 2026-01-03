@@ -480,7 +480,7 @@ function AddModelPanel({
       {/* Add Button */}
       <Button
         className="w-full"
-        disabled={!selectedProvider || (provider?.models.length && !selectedModel)}
+        disabled={!selectedProvider || (provider?.models.length !== undefined && provider.models.length > 0 && !selectedModel)}
         onClick={() => {
           if (selectedProvider) {
             const modelId = selectedModel || `${selectedProvider}-loaded`

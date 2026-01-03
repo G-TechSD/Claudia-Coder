@@ -46,6 +46,7 @@ export interface Project {
   // Linked resources
   repos: LinkedRepo[]
   packetIds: string[]
+  resourceIds?: string[]
 
   // Optional Linear sync
   linearSync?: LinearSyncConfig
@@ -130,4 +131,113 @@ export interface ProjectFilter {
   priority?: ProjectPriority
   search?: string
   tags?: string[]
+}
+
+// ============ Project Resources ============
+
+export type ResourceType = "markdown" | "json" | "csv" | "image" | "audio" | "pdf" | "other"
+export type ResourceStorageType = "indexeddb" | "filepath"
+
+export interface ProjectResource {
+  id: string
+  projectId: string
+  name: string
+  type: ResourceType
+  mimeType: string
+  size: number
+  createdAt: string
+  updatedAt: string
+
+  // Storage location
+  storage: ResourceStorageType
+  filePath?: string           // For local file references
+  indexedDbKey?: string       // For IndexedDB storage
+
+  // Metadata
+  description?: string
+  tags: string[]
+
+  // For audio resources - transcription data
+  transcription?: TranscriptionData
+}
+
+// ============ Transcription ============
+
+export type TranscriptionMethod = "whisper-local" | "browser-speech"
+
+export interface TranscriptionSegment {
+  start: number   // seconds
+  end: number
+  text: string
+}
+
+export interface TranscriptionData {
+  text: string
+  method: TranscriptionMethod
+  duration: number          // seconds
+  wordCount: number
+  confidence?: number       // 0-1 for whisper
+  transcribedAt: string
+  segments?: TranscriptionSegment[]  // For longer recordings
+}
+
+// ============ Brain Dumps ============
+
+export type BrainDumpStatus = "recording" | "transcribing" | "processing" | "review" | "completed" | "archived"
+
+export interface BrainDump {
+  id: string
+  projectId: string
+  resourceId: string        // Link to the audio resource
+  status: BrainDumpStatus
+  createdAt: string
+  updatedAt: string
+
+  // Transcription
+  transcription?: TranscriptionData
+
+  // Processed content
+  processedContent?: ProcessedBrainDump
+
+  // Review state
+  reviewNotes?: string
+  approvedSections?: string[]
+}
+
+export interface ProcessedBrainDump {
+  summary: string
+  structuredMarkdown: string
+  sections: BrainDumpSection[]
+  actionItems: ActionItem[]
+  ideas: string[]
+  decisions: Decision[]
+  questions: string[]
+  rawInsights: string[]
+  processedAt: string
+  processedBy: string        // Model that processed it
+}
+
+export interface BrainDumpSection {
+  id: string
+  title: string
+  content: string
+  type: "overview" | "feature" | "technical" | "requirement" | "idea" | "concern" | "decision"
+  approved: boolean
+  convertedToIssue?: string  // Issue ID if converted
+}
+
+export interface ActionItem {
+  id: string
+  description: string
+  priority: "high" | "medium" | "low"
+  category: "task" | "research" | "decision" | "question"
+  approved: boolean
+  convertedToPacket?: string
+}
+
+export interface Decision {
+  id: string
+  description: string
+  rationale: string
+  approved: boolean
 }

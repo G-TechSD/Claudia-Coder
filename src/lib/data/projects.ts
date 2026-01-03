@@ -59,6 +59,9 @@ export function getAllProjects(): Project[] {
   return getStoredProjects()
 }
 
+// Alias for getAllProjects
+export const getProjects = getAllProjects
+
 export function getProject(id: string): Project | null {
   const projects = getStoredProjects()
   return projects.find(p => p.id === id) || null
