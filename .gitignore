@@ -41,3 +41,7 @@ coverage/
 *.log
 *.tsbuildinfo
 next-env.d.ts
+
+# SSL certificates
+localhost.crt
+localhost.key

@@ -1,6 +1,7 @@
 /**
  * Interview Engine
  * Manages interview sessions, generates questions, and extracts insights
+ * Now with real LLM integration via Claude API
  */
 
 import type {
@@ -9,7 +10,8 @@ import type {
   InterviewType,
   InterviewTargetType
 } from "@/lib/data/types"
-import { buildInterviewContext, PROJECT_CREATION_FOLLOW_UPS, EXTRACTION_PROMPT } from "./prompts"
+import { buildInterviewContext, PROJECT_CREATION_SYSTEM_PROMPT } from "./prompts"
+import { generateInterviewQuestion, extractInterviewInsights } from "@/lib/llm/anthropic"
 
 // UUID generator that works in all contexts (HTTP, HTTPS, localhost)
 function generateUUID(): string {
@@ -130,164 +132,120 @@ export function cancelInterview(session: InterviewSession): InterviewSession {
 // ============ Question Generation ============
 
 /**
- * Generate the next question based on conversation history.
- * In a real implementation, this would call an LLM API.
- * For now, uses smart fallback logic.
+ * Generate the next question using Claude LLM
  */
 export async function generateNextQuestion(
   session: InterviewSession,
   userResponse: string
 ): Promise<string> {
-  const messageCount = session.messages.length
-
-  // Check for commands
+  // Check for voice commands first
   const lowerResponse = userResponse.toLowerCase().trim()
   if (lowerResponse === "skip" || lowerResponse === "next") {
-    return getNextFallbackQuestion(session)
-  }
-  if (lowerResponse.includes("more") || lowerResponse.includes("elaborate")) {
-    return generateFollowUp(session, userResponse)
+    return generateSkipResponse(session)
   }
   if (lowerResponse === "done" || lowerResponse === "finish" || lowerResponse === "end") {
-    return "Great! Let me summarize what we've discussed. Is there anything else you'd like to add before we wrap up?"
+    return "Perfect, I think we have a good picture now. Is there anything else you'd like to add before I put together a summary?"
   }
 
-  // For project creation interviews
-  if (session.type === "project_creation") {
-    return generateProjectQuestion(session, userResponse)
-  }
+  // Build system prompt based on interview type
+  const { systemPrompt } = buildInterviewContext(
+    session.type,
+    session.targetType,
+    session.targetContext
+  )
 
-  // For contextual interviews (shorter)
-  if (session.type === "contextual") {
-    return generateContextualQuestion(session, userResponse)
-  }
+  // Convert messages for the LLM
+  const messages = session.messages.map(m => ({
+    role: m.role as "user" | "assistant",
+    content: m.content
+  }))
 
-  return getNextFallbackQuestion(session)
+  // Try LLM first
+  try {
+    const response = await generateInterviewQuestion({
+      systemPrompt,
+      messages,
+      context: session.targetContext
+    })
+
+    if (response.question && !response.error) {
+      return response.question
+    }
+
+    // Fall back to local generation on error
+    console.warn("LLM error, using fallback:", response.error)
+    return generateFallbackQuestion(session, userResponse)
+  } catch (error) {
+    console.error("LLM call failed:", error)
+    return generateFallbackQuestion(session, userResponse)
+  }
 }
 
-function generateProjectQuestion(session: InterviewSession, userResponse: string): string {
+function generateSkipResponse(session: InterviewSession): string {
+  const questionCount = session.messages.filter(m => m.role === "assistant").length
+
+  if (questionCount < 5) {
+    return "No problem! Let's talk about what features are most important to you."
+  }
+  if (questionCount < 10) {
+    return "Okay, moving on. Is there anything specific about the technical approach you'd like to discuss?"
+  }
+  return "Got it. We're getting close to wrapping up - anything else on your mind?"
+}
+
+function generateFallbackQuestion(session: InterviewSession, userResponse: string): string {
   const questionCount = session.messages.filter(m => m.role === "assistant").length
   const userMessages = session.messages.filter(m => m.role === "user")
+  const allContent = userMessages.map(m => m.content.toLowerCase()).join(" ")
 
-  // If this is after the first response (project description)
-  if (questionCount === 1) {
-    return "That sounds interesting! Who would be the main users of this, and what problem are you solving for them?"
-  }
-
-  // Check what topics we've covered
-  const allUserContent = userMessages.map(m => m.content.toLowerCase()).join(" ")
-  const topics = {
-    users: /users?|audience|customers?|people/i.test(allUserContent),
-    features: /features?|functionality|capability/i.test(allUserContent),
-    tech: /tech|stack|framework|language|react|node|python/i.test(allUserContent),
-    scale: /scale|users?|traffic|performance|big|large/i.test(allUserContent),
-    timeline: /time|deadline|when|schedule|weeks?|months?/i.test(allUserContent),
-    integration: /integrat|api|connect|sync/i.test(allUserContent),
-    similar: /similar|like|competitor|existing/i.test(allUserContent)
+  // Smart fallbacks based on what hasn't been discussed
+  const discussed = {
+    users: /users?|audience|customers?|people|who/i.test(allContent),
+    features: /features?|functionality|capability|do|does/i.test(allContent),
+    tech: /tech|stack|framework|language|react|node|python/i.test(allContent),
+    scale: /scale|size|traffic|performance|big|large|users?.*many/i.test(allContent),
+    timeline: /time|deadline|when|schedule|weeks?|months?|urgent/i.test(allContent),
+    integration: /integrat|api|connect|sync|service/i.test(allContent)
   }
 
-  // Ask about uncovered topics with natural transitions
-  if (!topics.features && questionCount >= 2) {
-    return "What are the 2-3 most important features this needs to have on day one?"
+  // Don't repeat topics
+  if (!discussed.users && questionCount >= 1) {
+    return "Who's going to be using this? Paint me a picture of your typical user."
   }
-  if (!topics.tech && questionCount >= 3) {
-    return "Do you have any preferences for the tech stack, or should I suggest something based on what you've described?"
+  if (!discussed.features && questionCount >= 2) {
+    return "If you could only ship three features, what would they be?"
   }
-  if (!topics.scale && questionCount >= 4) {
-    return "How big do you see this getting? Are we building for 10 users or 10,000?"
+  if (!discussed.tech && questionCount >= 3) {
+    return "Any thoughts on the tech stack, or should I make recommendations based on what you've described?"
   }
-  if (!topics.integration && questionCount >= 5) {
-    return "Will this need to connect to any existing systems or APIs?"
+  if (!discussed.scale && questionCount >= 4) {
+    return "Let's talk scale - are we building for a handful of users or preparing for thousands?"
   }
-  if (!topics.timeline && questionCount >= 6) {
-    return "Is there a target date or deadline we should know about?"
+  if (!discussed.integration && questionCount >= 5) {
+    return "Will this need to talk to any existing systems or external services?"
   }
-  if (!topics.similar && questionCount >= 7) {
-    return "Have you looked at any existing solutions? What did or didn't work about them?"
+  if (!discussed.timeline && questionCount >= 6) {
+    return "What's the timeline looking like? Any key milestones or deadlines?"
   }
 
   // Wrap-up questions
   if (questionCount >= 10) {
-    return "We're getting a good picture. What's the single most important thing to get right?"
+    return "We've covered a lot of ground. What's the one thing that absolutely has to be right for this to succeed?"
   }
   if (questionCount >= 12) {
-    return "Anything else you want to make sure we capture before I summarize?"
+    return "Anything else important that we haven't touched on?"
   }
   if (questionCount >= 15) {
-    return "I think we have a solid foundation. Ready for me to put together a project summary?"
+    return "I think we have a solid foundation. Ready to wrap up?"
   }
 
-  // Fallback to follow-up pool
-  return getNextFallbackQuestion(session)
-}
-
-function generateContextualQuestion(session: InterviewSession, userResponse: string): string {
-  const questionCount = session.messages.filter(m => m.role === "assistant").length
-
-  // Contextual interviews are shorter
-  if (questionCount >= 5) {
-    return "Thanks for the context. Any final thoughts before I summarize my understanding?"
-  }
-
-  // Generate based on target type
-  if (session.targetType === "commit") {
-    if (questionCount === 1) return "Were there any alternative approaches you considered?"
-    if (questionCount === 2) return "How confident are you in the testing coverage for this change?"
-    if (questionCount === 3) return "Anything you'd do differently if you had more time?"
-  }
-
-  if (session.targetType === "activity") {
-    if (questionCount === 1) return "Was this expected behavior, or did something surprise you?"
-    if (questionCount === 2) return "What's the next step here?"
-    if (questionCount === 3) return "Should we flag this for anyone else's attention?"
-  }
-
-  return "Anything else relevant to add?"
-}
-
-function generateFollowUp(session: InterviewSession, userResponse: string): string {
-  const lastAssistantMessage = [...session.messages]
-    .reverse()
-    .find(m => m.role === "assistant")
-
-  if (lastAssistantMessage?.content.includes("feature")) {
-    return "Tell me more about that feature - what makes it essential?"
-  }
-  if (lastAssistantMessage?.content.includes("user")) {
-    return "What's a day in the life of your typical user? What frustrates them?"
-  }
-  if (lastAssistantMessage?.content.includes("tech")) {
-    return "Are there specific requirements driving that tech choice?"
-  }
-
-  return "Can you give me an example of what you mean?"
-}
-
-function getNextFallbackQuestion(session: InterviewSession): string {
-  const askedQuestions = session.messages
-    .filter(m => m.role === "assistant")
-    .map(m => m.content)
-
-  // Find a question we haven't asked yet
-  for (const question of PROJECT_CREATION_FOLLOW_UPS) {
-    const alreadyAsked = askedQuestions.some(
-      asked => asked.toLowerCase().includes(question.toLowerCase().slice(0, 20))
-    )
-    if (!alreadyAsked) {
-      return question
-    }
-  }
-
-  // All questions asked
-  return "Is there anything else important about the project you'd like to share?"
+  return "Tell me more about that - what's most important to you there?"
 }
 
 // ============ Insight Extraction ============
 
 /**
- * Extract structured insights from the interview.
- * In a real implementation, this would call an LLM.
- * For now, uses pattern matching.
+ * Extract structured insights from the interview using Claude
  */
 export async function extractInsights(session: InterviewSession): Promise<{
   summary: string
@@ -295,79 +253,105 @@ export async function extractInsights(session: InterviewSession): Promise<{
   suggestedActions: string[]
   extractedData: Record<string, unknown>
 }> {
-  const userMessages = session.messages
-    .filter(m => m.role === "user")
-    .map(m => m.content)
-    .join(" ")
+  // Build content from messages
+  const content = session.messages
+    .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+    .join("\n\n")
 
-  // Basic extraction (would be replaced with LLM call)
-  const summary = generateSummary(userMessages, session.type)
-  const keyPoints = extractKeyPoints(userMessages)
-  const suggestedActions = generateSuggestedActions(session.type)
-  const extractedData = extractProjectData(userMessages)
+  // Try LLM extraction
+  try {
+    const response = await extractInterviewInsights({
+      systemPrompt: PROJECT_CREATION_SYSTEM_PROMPT,
+      content,
+      type: session.type
+    })
 
-  return { summary, keyPoints, suggestedActions, extractedData }
-}
+    if (!response.error) {
+      return {
+        summary: response.summary || generateFallbackSummary(session),
+        keyPoints: response.keyPoints.length > 0 ? response.keyPoints : extractFallbackKeyPoints(session),
+        suggestedActions: response.suggestedActions.length > 0 ? response.suggestedActions : generateFallbackActions(session),
+        extractedData: response.extractedData || {}
+      }
+    }
 
-function generateSummary(content: string, type: InterviewType): string {
-  const wordCount = content.split(/\s+/).length
-  if (type === "project_creation") {
-    return `Project interview completed with ${wordCount} words of input covering goals, features, and requirements.`
+    console.warn("LLM extraction error, using fallback:", response.error)
+  } catch (error) {
+    console.error("LLM extraction failed:", error)
   }
-  return `Contextual interview completed covering the key discussion points.`
+
+  // Fallback extraction
+  return {
+    summary: generateFallbackSummary(session),
+    keyPoints: extractFallbackKeyPoints(session),
+    suggestedActions: generateFallbackActions(session),
+    extractedData: extractFallbackProjectData(session)
+  }
 }
 
-function extractKeyPoints(content: string): string[] {
+function generateFallbackSummary(session: InterviewSession): string {
+  const userMessages = session.messages.filter(m => m.role === "user")
+  const wordCount = userMessages.map(m => m.content).join(" ").split(/\s+/).length
+
+  return `Interview completed with ${userMessages.length} responses covering project goals, features, and requirements. Total input: approximately ${wordCount} words.`
+}
+
+function extractFallbackKeyPoints(session: InterviewSession): string[] {
   const points: string[] = []
+  const content = session.messages.filter(m => m.role === "user").map(m => m.content).join(" ")
 
-  // Extract what seem like important statements
-  if (content.includes("need") || content.includes("must")) {
-    points.push("Requirements identified for core functionality")
+  if (/need|must|require|essential/i.test(content)) {
+    points.push("Core requirements identified")
   }
-  if (content.includes("user") || content.includes("customer")) {
-    points.push("Target audience discussed")
+  if (/user|customer|audience/i.test(content)) {
+    points.push("Target users discussed")
   }
-  if (content.includes("integrate") || content.includes("connect")) {
-    points.push("Integration requirements noted")
+  if (/feature|functionality/i.test(content)) {
+    points.push("Key features outlined")
   }
-  if (content.includes("deadline") || content.includes("timeline")) {
-    points.push("Timeline constraints mentioned")
+  if (/tech|stack|framework/i.test(content)) {
+    points.push("Technical preferences noted")
   }
 
-  return points.length > 0 ? points : ["Key details captured from interview"]
+  return points.length > 0 ? points : ["Project details captured from interview"]
 }
 
-function generateSuggestedActions(type: InterviewType): string[] {
-  if (type === "project_creation") {
+function generateFallbackActions(session: InterviewSession): string[] {
+  if (session.type === "project_creation") {
     return [
-      "Review and refine project description",
-      "Link relevant repositories",
-      "Create initial packets for development"
+      "Review project details and create the project",
+      "Set up the repository",
+      "Create initial development packets"
     ]
   }
-  return ["Review interview notes", "Follow up if needed"]
+  return ["Review notes and follow up as needed"]
 }
 
-function extractProjectData(content: string): Record<string, unknown> {
-  // Basic pattern matching for project data
+function extractFallbackProjectData(session: InterviewSession): Record<string, unknown> {
+  const content = session.messages.filter(m => m.role === "user").map(m => m.content).join(" ")
   const data: Record<string, unknown> = {}
 
-  // Look for tech stack mentions
+  // Extract tech stack mentions
   const techPatterns = [
-    /react/i, /next\.?js/i, /node/i, /python/i, /typescript/i,
-    /postgresql/i, /mongodb/i, /redis/i, /docker/i
+    { pattern: /react/i, name: "React" },
+    { pattern: /next\.?js/i, name: "Next.js" },
+    { pattern: /node/i, name: "Node.js" },
+    { pattern: /python/i, name: "Python" },
+    { pattern: /typescript/i, name: "TypeScript" },
+    { pattern: /postgresql|postgres/i, name: "PostgreSQL" },
+    { pattern: /mongodb/i, name: "MongoDB" },
+    { pattern: /redis/i, name: "Redis" }
   ]
-  const tech = techPatterns
-    .filter(p => p.test(content))
-    .map(p => p.source.replace(/\\|\./g, ""))
+
+  const tech = techPatterns.filter(t => t.pattern.test(content)).map(t => t.name)
   if (tech.length > 0) {
     data.techStack = tech
   }
 
-  // Extract priority hints
-  if (/urgent|asap|critical|priority/i.test(content)) {
+  // Extract priority
+  if (/urgent|asap|critical|priority|immediately/i.test(content)) {
     data.priority = "high"
-  } else if (/eventually|when.*time|low priority/i.test(content)) {
+  } else if (/eventually|someday|low priority|no rush/i.test(content)) {
     data.priority = "low"
   } else {
     data.priority = "medium"

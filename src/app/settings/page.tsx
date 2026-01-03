@@ -1,10 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+import { useSettings } from "@/hooks/useSettings"
+import { LLMStatus } from "@/components/llm/llm-status"
 import {
   Settings,
   Server,
@@ -22,7 +26,10 @@ import {
   GitBranch,
   Mic,
   DollarSign,
-  Zap
+  Zap,
+  Brain,
+  ImageIcon,
+  AlertCircle
 } from "lucide-react"
 
 interface ServiceStatus {
@@ -56,7 +63,8 @@ const statusConfig = {
 
 export default function SettingsPage() {
   const [services] = useState<ServiceStatus[]>(mockServices)
-  const [activeTab, setActiveTab] = useState<string>("connections")
+  const [activeTab, setActiveTab] = useState<string>("ai-services")
+  const { settings, update } = useSettings()
 
   const [notifications, setNotifications] = useState<SettingToggle[]>([
     { id: "n1", label: "Approval Requests", description: "Get notified when human approval is needed", enabled: true },
@@ -75,6 +83,7 @@ export default function SettingsPage() {
   ])
 
   const tabs = [
+    { id: "ai-services", label: "AI Services", icon: Brain },
     { id: "connections", label: "Connections", icon: Server },
     { id: "api-keys", label: "API Keys", icon: Key },
     { id: "notifications", label: "Notifications", icon: Bell },
@@ -133,6 +142,86 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className="lg:col-span-3 space-y-6">
+          {/* AI Services Tab */}
+          {activeTab === "ai-services" && (
+            <>
+              {/* LLM Status */}
+              <LLMStatus />
+
+              {/* Image Generation */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ImageIcon className="h-5 w-5" />
+                    Image Generation
+                  </CardTitle>
+                  <CardDescription>
+                    Configure AI image generation for logos, icons, and graphics
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between p-4 rounded-lg border">
+                    <div className="flex items-center gap-3">
+                      <DollarSign className="h-5 w-5 text-yellow-500" />
+                      <div>
+                        <p className="font-medium">Enable Paid Image Generation</p>
+                        <p className="text-sm text-muted-foreground">
+                          Use NanoBanana AI for logos and graphics
+                        </p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={settings.allowPaidImageGen}
+                      onCheckedChange={(checked) => update({ allowPaidImageGen: checked })}
+                    />
+                  </div>
+
+                  {settings.allowPaidImageGen && (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="nanoBananaKey">NanoBanana API Key</Label>
+                        <input
+                          id="nanoBananaKey"
+                          type="password"
+                          placeholder="nb_api_..."
+                          value={settings.nanoBananaApiKey || ""}
+                          onChange={(e) => update({ nanoBananaApiKey: e.target.value })}
+                          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Image generation will use AI to create logos, icons, and marketing graphics for your projects.
+                      </p>
+                    </div>
+                  )}
+
+                  {!settings.allowPaidImageGen && (
+                    <p className="text-sm text-muted-foreground p-3 rounded-lg bg-muted/50">
+                      Image generation requires a paid API key. Projects will use placeholder graphics.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Cost Warning */}
+              <Card className="border-yellow-500/50 bg-yellow-500/5">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+                    <div className="space-y-1">
+                      <p className="font-medium text-yellow-600">About Paid Services</p>
+                      <p className="text-sm text-muted-foreground">
+                        This application prioritizes <strong>local LLMs</strong> (LM Studio, Ollama) for all AI operations.
+                        Paid services (Claude API, NanoBanana) are only used when explicitly enabled and local options are unavailable.
+                        All core functionality works without any paid subscriptions.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
           {/* Connections Tab */}
           {activeTab === "connections" && (
             <>

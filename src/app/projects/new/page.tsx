@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,9 @@ import { Switch } from "@/components/ui/switch"
 import { InterviewPanel } from "@/components/interview/interview-panel"
 import { createProject, linkRepoToProject } from "@/lib/data/projects"
 import { createGitLabRepo, hasGitLabToken, setGitLabToken, validateGitLabToken } from "@/lib/gitlab/api"
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
+import { useSettings } from "@/hooks/useSettings"
+import { LLMStatusBadge } from "@/components/llm/llm-status"
 import type { InterviewSession, Project } from "@/lib/data/types"
 import {
   ArrowLeft,
@@ -21,16 +24,73 @@ import {
   Loader2,
   AlertCircle,
   Key,
-  ExternalLink
+  Sparkles,
+  MessageSquare,
+  Zap,
+  X,
+  ThumbsUp,
+  ThumbsDown,
+  RefreshCw,
+  Mic,
+  MicOff
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-type Step = "interview" | "setup" | "complete"
+type Mode = "choose" | "quick" | "interview" | "setup" | "complete"
+
+interface GeneratedPlan {
+  name: string
+  description: string
+  features: string[]
+  techStack: string[]
+  priority: "low" | "medium" | "high" | "critical"
+}
 
 export default function NewProjectPage() {
   const router = useRouter()
-  const [step, setStep] = useState<Step>("interview")
+  const [mode, setMode] = useState<Mode>("choose")
   const [interviewSession, setInterviewSession] = useState<InterviewSession | null>(null)
+
+  // Quick mode state
+  const [quickDescription, setQuickDescription] = useState("")
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [generatedPlan, setGeneratedPlan] = useState<GeneratedPlan | null>(null)
+  const [planError, setPlanError] = useState("")
+
+  // Voice input for description
+  const descriptionVoiceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const descriptionSpeech = useSpeechRecognition({
+    continuous: true,
+    interimResults: true,
+    onResult: (transcript, isFinal) => {
+      if (isFinal && transcript.trim()) {
+        // Append to description
+        setQuickDescription(prev => (prev + " " + transcript).trim())
+
+        // Clear any pending timeout
+        if (descriptionVoiceTimeoutRef.current) {
+          clearTimeout(descriptionVoiceTimeoutRef.current)
+        }
+
+        // Auto-stop after 2 seconds of silence
+        descriptionVoiceTimeoutRef.current = setTimeout(() => {
+          descriptionSpeech.stopListening()
+        }, 2000)
+      }
+    }
+  })
+
+  // Cleanup voice timeout
+  useEffect(() => {
+    return () => {
+      if (descriptionVoiceTimeoutRef.current) {
+        clearTimeout(descriptionVoiceTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Settings for paid API access
+  const { settings } = useSettings()
 
   // Project setup state
   const [projectName, setProjectName] = useState("")
@@ -60,10 +120,70 @@ export default function NewProjectPage() {
     setHasToken(hasGitLabToken())
   }, [])
 
+  // Generate plan from quick description
+  const handleFeelingLucky = async () => {
+    if (!quickDescription.trim()) return
+
+    setIsGenerating(true)
+    setPlanError("")
+
+    try {
+      const response = await fetch("/api/llm/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description: quickDescription,
+          allowPaidFallback: settings.allowPaidLLM
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to generate plan")
+      }
+
+      const plan = await response.json()
+      setGeneratedPlan(plan)
+      setMode("quick")
+    } catch (error) {
+      // Fallback to basic plan generation
+      const words = quickDescription.split(/\s+/)
+      const name = words.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ")
+
+      setGeneratedPlan({
+        name: name || "New Project",
+        description: quickDescription,
+        features: ["Core functionality as described"],
+        techStack: [],
+        priority: "medium"
+      })
+      setMode("quick")
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const handleApprovePlan = () => {
+    if (!generatedPlan) return
+
+    setProjectName(generatedPlan.name)
+    setProjectDescription(generatedPlan.description)
+    setRepoName(toRepoName(generatedPlan.name))
+    setPriority(generatedPlan.priority)
+    setMode("setup")
+  }
+
+  const handleRejectPlan = () => {
+    setGeneratedPlan(null)
+    setMode("choose")
+  }
+
+  const handleRegeneratePlan = async () => {
+    await handleFeelingLucky()
+  }
+
   const handleInterviewComplete = (session: InterviewSession) => {
     setInterviewSession(session)
 
-    // Extract data from interview
     const extractedData = session.extractedData || {}
     const name = (extractedData.name as string) || generateProjectName(session)
     const description = (extractedData.description as string) || session.summary || ""
@@ -73,11 +193,11 @@ export default function NewProjectPage() {
     setRepoName(toRepoName(name))
     setPriority((extractedData.priority as "low" | "medium" | "high" | "critical") || "medium")
 
-    setStep("setup")
+    setMode("setup")
   }
 
   const handleInterviewCancel = () => {
-    router.push("/projects")
+    setMode("choose")
   }
 
   const handleTokenSave = async () => {
@@ -108,7 +228,6 @@ export default function NewProjectPage() {
     setSubmitError("")
 
     try {
-      // Create the project
       const project = createProject({
         name: projectName,
         description: projectDescription,
@@ -116,11 +235,10 @@ export default function NewProjectPage() {
         priority,
         repos: [],
         packetIds: [],
-        tags: (interviewSession?.extractedData?.techStack as string[]) || [],
+        tags: generatedPlan?.techStack || (interviewSession?.extractedData?.techStack as string[]) || [],
         creationInterview: interviewSession || undefined
       })
 
-      // Optionally create GitLab repo
       if (createRepo && hasToken) {
         try {
           const repo = await createGitLabRepo({
@@ -130,7 +248,6 @@ export default function NewProjectPage() {
             initializeWithReadme: initWithReadme
           })
 
-          // Link the repo to the project
           linkRepoToProject(project.id, {
             provider: "gitlab",
             id: repo.id,
@@ -140,13 +257,12 @@ export default function NewProjectPage() {
           })
         } catch (repoError) {
           console.error("Failed to create repo:", repoError)
-          // Don't fail the whole process if repo creation fails
           setSubmitError(`Project created, but repo creation failed: ${repoError instanceof Error ? repoError.message : "Unknown error"}`)
         }
       }
 
       setCreatedProject(project)
-      setStep("complete")
+      setMode("complete")
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Failed to create project")
     } finally {
@@ -154,8 +270,200 @@ export default function NewProjectPage() {
     }
   }
 
-  // Interview step
-  if (step === "interview") {
+  // Mode: Choose - initial screen with description input
+  if (mode === "choose") {
+    return (
+      <div className="p-6 max-w-2xl mx-auto space-y-8">
+        <div className="text-center space-y-2">
+          <div className="flex items-center justify-center gap-2">
+            <h1 className="text-3xl font-bold">New Project</h1>
+            <LLMStatusBadge />
+          </div>
+          <p className="text-muted-foreground">
+            Describe what you want to build, then choose your path
+          </p>
+        </div>
+
+        <Card>
+          <CardContent className="pt-6 space-y-4">
+            <div className="relative">
+              <Textarea
+                placeholder="Describe your project in a sentence or two... e.g., 'A mobile app for tracking daily habits with social accountability features'"
+                value={quickDescription + (descriptionSpeech.interimTranscript ? " " + descriptionSpeech.interimTranscript : "")}
+                onChange={(e) => setQuickDescription(e.target.value)}
+                rows={4}
+                className="text-lg pr-14"
+                disabled={descriptionSpeech.isListening}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (descriptionSpeech.isListening) {
+                    descriptionSpeech.stopListening()
+                  } else {
+                    descriptionSpeech.resetTranscript()
+                    descriptionSpeech.startListening()
+                  }
+                }}
+                disabled={!descriptionSpeech.isSupported}
+                className={cn(
+                  "absolute right-3 top-3 h-10 w-10 rounded-full flex items-center justify-center transition-all",
+                  descriptionSpeech.isListening
+                    ? "bg-red-500 text-white animate-pulse"
+                    : "bg-muted hover:bg-accent text-muted-foreground hover:text-foreground",
+                  !descriptionSpeech.isSupported && "opacity-50 cursor-not-allowed"
+                )}
+                title={descriptionSpeech.isSupported ? "Click to speak" : "Voice not supported"}
+              >
+                {descriptionSpeech.isListening ? (
+                  <MicOff className="h-5 w-5" />
+                ) : (
+                  <Mic className="h-5 w-5" />
+                )}
+              </button>
+            </div>
+
+            {descriptionSpeech.isListening && (
+              <p className="text-sm text-center text-muted-foreground animate-pulse">
+                Listening... speak your project description
+              </p>
+            )}
+
+            {descriptionSpeech.error && (
+              <p className="text-sm text-center text-red-500">
+                {descriptionSpeech.error}
+              </p>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                size="lg"
+                className="flex-1"
+                onClick={handleFeelingLucky}
+                disabled={!quickDescription.trim() || isGenerating || descriptionSpeech.isListening}
+              >
+                {isGenerating ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                ) : (
+                  <Zap className="mr-2 h-5 w-5" />
+                )}
+                Feeling Lucky
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setMode("interview")}
+              >
+                <MessageSquare className="mr-2 h-5 w-5" />
+                Full Interview
+              </Button>
+            </div>
+
+            <p className="text-xs text-center text-muted-foreground">
+              <strong>Feeling Lucky</strong> generates a plan instantly • <strong>Full Interview</strong> asks 10-20 questions for detail
+            </p>
+          </CardContent>
+        </Card>
+
+        <div className="text-center">
+          <Button variant="ghost" onClick={() => router.push("/projects")}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Projects
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // Mode: Quick - show generated plan for approval
+  if (mode === "quick" && generatedPlan) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => setMode("choose")}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-semibold">Review Your Plan</h1>
+            <p className="text-sm text-muted-foreground">
+              Generated from: "{quickDescription.slice(0, 50)}..."
+            </p>
+          </div>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              {generatedPlan.name}
+            </CardTitle>
+            <CardDescription>{generatedPlan.description}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {generatedPlan.features.length > 0 && (
+              <div>
+                <Label className="text-xs text-muted-foreground uppercase">Suggested Features</Label>
+                <ul className="mt-1 space-y-1">
+                  {generatedPlan.features.map((feature, i) => (
+                    <li key={i} className="text-sm flex items-start gap-2">
+                      <Check className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {generatedPlan.techStack.length > 0 && (
+              <div>
+                <Label className="text-xs text-muted-foreground uppercase">Tech Stack</Label>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {generatedPlan.techStack.map((tech, i) => (
+                    <Badge key={i} variant="secondary">{tech}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <Label className="text-xs text-muted-foreground uppercase">Priority</Label>
+              <Badge
+                className={cn(
+                  "mt-1 capitalize",
+                  generatedPlan.priority === "critical" && "bg-red-500",
+                  generatedPlan.priority === "high" && "bg-orange-500"
+                )}
+              >
+                {generatedPlan.priority}
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex gap-3">
+          <Button variant="outline" className="flex-1" onClick={handleRejectPlan}>
+            <ThumbsDown className="mr-2 h-4 w-4" />
+            Start Over
+          </Button>
+          <Button variant="outline" onClick={handleRegeneratePlan} disabled={isGenerating}>
+            {isGenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+          </Button>
+          <Button className="flex-1" onClick={handleApprovePlan}>
+            <ThumbsUp className="mr-2 h-4 w-4" />
+            Looks Good
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // Mode: Interview
+  if (mode === "interview") {
     return (
       <div className="h-[calc(100vh-4rem)]">
         <InterviewPanel
@@ -167,8 +475,8 @@ export default function NewProjectPage() {
     )
   }
 
-  // Complete step
-  if (step === "complete" && createdProject) {
+  // Mode: Complete
+  if (mode === "complete" && createdProject) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-6">
         <Card className="max-w-lg w-full">
@@ -203,12 +511,11 @@ export default function NewProjectPage() {
     )
   }
 
-  // Setup step
+  // Mode: Setup
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setStep("interview")}>
+        <Button variant="ghost" size="icon" onClick={() => setMode("choose")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
@@ -219,7 +526,6 @@ export default function NewProjectPage() {
         </div>
       </div>
 
-      {/* Project Details Card */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Project Details</CardTitle>
@@ -273,7 +579,6 @@ export default function NewProjectPage() {
         </CardContent>
       </Card>
 
-      {/* Repository Card */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -292,7 +597,6 @@ export default function NewProjectPage() {
         </CardHeader>
         {createRepo && (
           <CardContent className="space-y-4">
-            {/* Token configuration */}
             {!hasToken ? (
               <div className="p-4 rounded-lg border border-dashed space-y-3">
                 <div className="flex items-start gap-3">
@@ -395,7 +699,6 @@ export default function NewProjectPage() {
         )}
       </Card>
 
-      {/* Submit Error */}
       {submitError && (
         <div className="p-4 rounded-lg bg-red-500/10 text-red-600 flex items-start gap-3">
           <AlertCircle className="h-5 w-5 flex-none mt-0.5" />
@@ -403,7 +706,6 @@ export default function NewProjectPage() {
         </div>
       )}
 
-      {/* Actions */}
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={() => router.push("/projects")}>
           Cancel
@@ -459,7 +761,6 @@ function capitalizeWords(str: string): string {
     .join(" ")
 }
 
-// Convert project name to valid repo name
 function toRepoName(name: string): string {
   return name
     .toLowerCase()

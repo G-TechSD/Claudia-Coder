@@ -60,14 +60,33 @@ export function InterviewPanel({
     onCancel
   })
 
-  // Speech hooks
+  // Speech hooks - track pending transcript for voice input
+  const [pendingVoiceInput, setPendingVoiceInput] = useState("")
+  const voiceSubmitTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
   const speech = useSpeechRecognition({
     continuous: true,
     interimResults: true,
     onResult: (transcript, isFinal) => {
       if (isFinal && transcript.trim()) {
-        handleSubmit(transcript.trim(), "voice")
-        speech.resetTranscript()
+        // Accumulate final transcripts
+        setPendingVoiceInput(prev => (prev + " " + transcript).trim())
+
+        // Clear any existing timeout
+        if (voiceSubmitTimeoutRef.current) {
+          clearTimeout(voiceSubmitTimeoutRef.current)
+        }
+
+        // Wait for a pause in speech before submitting (1.5 seconds)
+        voiceSubmitTimeoutRef.current = setTimeout(() => {
+          setPendingVoiceInput(current => {
+            if (current.trim()) {
+              handleSubmit(current.trim(), "voice")
+            }
+            return ""
+          })
+          speech.resetTranscript()
+        }, 1500)
       }
     }
   })
@@ -78,9 +97,15 @@ export function InterviewPanel({
     }
   })
 
-  // Start interview on mount
+  // Start interview on mount and cleanup voice timeout
   useEffect(() => {
     interview.start()
+
+    return () => {
+      if (voiceSubmitTimeoutRef.current) {
+        clearTimeout(voiceSubmitTimeoutRef.current)
+      }
+    }
   }, [])
 
   // Speak new assistant messages
@@ -227,21 +252,21 @@ export function InterviewPanel({
         )}
 
         {/* Live transcript */}
-        {speech.isListening && (speech.transcript || speech.interimTranscript) && (
+        {speech.isListening && (pendingVoiceInput || speech.interimTranscript) && (
           <div className="flex gap-3 flex-row-reverse">
             <div className="h-8 w-8 rounded-full bg-primary/50 flex items-center justify-center">
               <User className="h-4 w-4 text-primary-foreground" />
             </div>
             <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-primary/50 text-primary-foreground">
               <p className="text-sm">
-                {speech.transcript}
+                {pendingVoiceInput}
                 {speech.interimTranscript && (
                   <span className="opacity-60"> {speech.interimTranscript}</span>
                 )}
               </p>
               <div className="flex items-center gap-1 mt-1 opacity-60">
                 <Mic className="h-3 w-3 animate-pulse" />
-                <span className="text-xs">listening...</span>
+                <span className="text-xs">listening... (pause to send)</span>
               </div>
             </div>
           </div>
