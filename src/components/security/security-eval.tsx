@@ -28,15 +28,19 @@ import {
   Package,
   ExternalLink,
   Copy,
-  Check
+  Check,
+  Cloud,
+  Server
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { SecurityScan, SecurityFinding, SecuritySeverity } from "@/lib/data/types"
 
 interface ProviderOption {
   name: string
-  status: "online" | "offline" | "checking"
+  displayName: string
+  status: "online" | "offline" | "checking" | "not-configured"
   model?: string
+  type: "local" | "cloud"
 }
 
 interface SecurityEvalProps {
@@ -189,20 +193,35 @@ export function SecurityEval({
             </div>
             <div className="flex items-center gap-2">
               <Select value={selectedProvider || ""} onValueChange={onProviderChange}>
-                <SelectTrigger className="w-[150px] h-8 text-xs">
+                <SelectTrigger className="w-[180px] h-8 text-xs">
                   <SelectValue placeholder="Select AI..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {providers.map(p => (
+                  {providers.filter(p => p.type === "local").length > 0 && (
+                    <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Local</div>
+                  )}
+                  {providers.filter(p => p.type === "local").map(p => (
                     <SelectItem key={p.name} value={p.name} disabled={p.status !== "online"}>
                       <div className="flex items-center gap-2">
+                        <Server className="h-3 w-3 text-muted-foreground" />
                         <span className={cn(
                           "h-2 w-2 rounded-full",
                           p.status === "online" && "bg-green-500",
-                          p.status === "offline" && "bg-red-500",
-                          p.status === "checking" && "bg-yellow-500"
+                          p.status === "offline" && "bg-red-500"
                         )} />
-                        {p.name}
+                        {p.displayName}
+                      </div>
+                    </SelectItem>
+                  ))}
+                  {providers.filter(p => p.type === "cloud").length > 0 && (
+                    <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud</div>
+                  )}
+                  {providers.filter(p => p.type === "cloud").map(p => (
+                    <SelectItem key={p.name} value={p.name} disabled={p.status !== "online"}>
+                      <div className="flex items-center gap-2">
+                        <Cloud className="h-3 w-3 text-blue-500" />
+                        <span className="h-2 w-2 rounded-full bg-green-500" />
+                        {p.displayName}
                       </div>
                     </SelectItem>
                   ))}

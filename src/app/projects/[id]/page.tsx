@@ -35,11 +35,12 @@ import {
   FileText,
   FolderOpen,
   Upload,
-  Shield
+  Shield,
+  Cloud,
+  Server
 } from "lucide-react"
 import { getProject, updateProject, deleteProject } from "@/lib/data/projects"
 import { getResourcesForProject } from "@/lib/data/resources"
-import { getConfiguredServers, checkServerStatus, type LLMServer } from "@/lib/llm/local-llm"
 import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
 import { ResourceUpload } from "@/components/project/resource-upload"
@@ -57,9 +58,10 @@ import type { BuildPlan } from "@/lib/ai/build-plan"
 
 interface ProviderOption {
   name: string
-  status: "online" | "offline" | "checking"
+  displayName: string
+  status: "online" | "offline" | "checking" | "not-configured"
   model?: string
-  type: "local" | "anthropic"
+  type: "local" | "cloud"
 }
 
 const statusConfig: Record<ProjectStatus, { label: string; color: string; icon: React.ElementType }> = {
@@ -104,48 +106,40 @@ export default function ProjectDetailPage() {
 
   // Check available providers on mount
   useEffect(() => {
-    async function checkProviders() {
-      // Start with local servers as "checking"
-      const servers = getConfiguredServers()
-      const initialProviders: ProviderOption[] = servers.map(s => ({
-        name: s.name,
-        status: "checking" as const,
-        type: "local" as const
-      }))
+    async function fetchProviders() {
+      try {
+        const response = await fetch("/api/providers")
+        const data = await response.json()
 
-      // Add Anthropic if API key is configured
-      if (process.env.NEXT_PUBLIC_ANTHROPIC_AVAILABLE === "true") {
-        initialProviders.push({
-          name: "anthropic",
-          status: "online",
-          model: "claude-sonnet-4",
-          type: "anthropic"
-        })
-      }
+        if (data.providers) {
+          const providerOptions: ProviderOption[] = data.providers.map((p: {
+            name: string
+            displayName: string
+            type: "local" | "cloud"
+            status: "online" | "offline" | "checking" | "not-configured"
+            model?: string
+          }) => ({
+            name: p.name,
+            displayName: p.displayName,
+            type: p.type,
+            status: p.status,
+            model: p.model
+          }))
 
-      setProviders(initialProviders)
+          setProviders(providerOptions)
 
-      // Check each local server status
-      for (const server of servers) {
-        const status = await checkServerStatus(server)
-        setProviders(prev => prev.map(p =>
-          p.name === server.name
-            ? { ...p, status: status.status === "online" ? "online" : "offline", model: status.currentModel }
-            : p
-        ))
-      }
-
-      // Auto-select first online provider
-      setProviders(prev => {
-        const firstOnline = prev.find(p => p.status === "online")
-        if (firstOnline && !selectedProvider) {
-          setSelectedProvider(firstOnline.name)
+          // Auto-select first online provider
+          const firstOnline = providerOptions.find(p => p.status === "online")
+          if (firstOnline && !selectedProvider) {
+            setSelectedProvider(firstOnline.name)
+          }
         }
-        return prev
-      })
+      } catch (error) {
+        console.error("Failed to fetch providers:", error)
+      }
     }
 
-    checkProviders()
+    fetchProviders()
   }, [])
 
   const refreshResourceCount = () => {
@@ -271,29 +265,50 @@ export default function ProjectDetailPage() {
             value={selectedProvider || ""}
             onValueChange={setSelectedProvider}
           >
-            <SelectTrigger className="w-[160px] h-8 text-xs">
-              <SelectValue placeholder="Select provider..." />
+            <SelectTrigger className="w-[200px] h-8 text-xs">
+              <SelectValue placeholder="Select AI provider..." />
             </SelectTrigger>
             <SelectContent>
-              {providers.map(provider => (
+              {/* Local providers first */}
+              {providers.filter(p => p.type === "local").length > 0 && (
+                <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Local</div>
+              )}
+              {providers.filter(p => p.type === "local").map(provider => (
                 <SelectItem
                   key={provider.name}
                   value={provider.name}
                   disabled={provider.status !== "online"}
                 >
                   <div className="flex items-center gap-2">
+                    <Server className="h-3 w-3 text-muted-foreground" />
                     <span className={cn(
                       "h-2 w-2 rounded-full",
                       provider.status === "online" && "bg-green-500",
                       provider.status === "offline" && "bg-red-500",
                       provider.status === "checking" && "bg-yellow-500 animate-pulse"
                     )} />
-                    <span>{provider.name}</span>
-                    {provider.model && (
-                      <span className="text-muted-foreground text-xs truncate max-w-[80px]">
-                        {provider.model.split("/").pop()}
-                      </span>
-                    )}
+                    <span>{provider.displayName}</span>
+                  </div>
+                </SelectItem>
+              ))}
+              {/* Cloud providers */}
+              {providers.filter(p => p.type === "cloud").length > 0 && (
+                <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud</div>
+              )}
+              {providers.filter(p => p.type === "cloud").map(provider => (
+                <SelectItem
+                  key={provider.name}
+                  value={provider.name}
+                  disabled={provider.status !== "online"}
+                >
+                  <div className="flex items-center gap-2">
+                    <Cloud className="h-3 w-3 text-blue-500" />
+                    <span className={cn(
+                      "h-2 w-2 rounded-full",
+                      provider.status === "online" && "bg-green-500",
+                      provider.status === "not-configured" && "bg-gray-400"
+                    )} />
+                    <span>{provider.displayName}</span>
                   </div>
                 </SelectItem>
               ))}
@@ -525,16 +540,64 @@ export default function ProjectDetailPage() {
               <CardContent className="p-8 text-center">
                 <Zap className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground mb-4">
-                  No build plan generated yet. Click "Build Plan" to create one using your local AI.
+                  Generate a comprehensive build plan using AI. Select a provider and click generate.
                 </p>
-                <Button onClick={handleGenerateBuildPlan} disabled={isGeneratingPlan}>
-                  {isGeneratingPlan ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Zap className="h-4 w-4 mr-2" />
-                  )}
-                  Generate Build Plan
-                </Button>
+                <div className="flex items-center justify-center gap-3">
+                  <Select
+                    value={selectedProvider || ""}
+                    onValueChange={setSelectedProvider}
+                  >
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Select AI provider..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {providers.filter(p => p.type === "local").length > 0 && (
+                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Local</div>
+                      )}
+                      {providers.filter(p => p.type === "local").map(provider => (
+                        <SelectItem
+                          key={provider.name}
+                          value={provider.name}
+                          disabled={provider.status !== "online"}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Server className="h-3 w-3 text-muted-foreground" />
+                            <span className={cn(
+                              "h-2 w-2 rounded-full",
+                              provider.status === "online" && "bg-green-500",
+                              provider.status === "offline" && "bg-red-500"
+                            )} />
+                            <span>{provider.displayName}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                      {providers.filter(p => p.type === "cloud").length > 0 && (
+                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud</div>
+                      )}
+                      {providers.filter(p => p.type === "cloud").map(provider => (
+                        <SelectItem
+                          key={provider.name}
+                          value={provider.name}
+                          disabled={provider.status !== "online"}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Cloud className="h-3 w-3 text-blue-500" />
+                            <span className="h-2 w-2 rounded-full bg-green-500" />
+                            <span>{provider.displayName}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={handleGenerateBuildPlan} disabled={isGeneratingPlan || !selectedProvider}>
+                    {isGeneratingPlan ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Zap className="h-4 w-4 mr-2" />
+                    )}
+                    Generate Build Plan
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
