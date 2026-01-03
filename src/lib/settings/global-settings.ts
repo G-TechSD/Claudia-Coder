@@ -73,14 +73,50 @@ export function saveGlobalSettings(settings: GlobalSettings): void {
 }
 
 export function createDefaultSettings(): GlobalSettings {
+  // Check for pre-configured servers from environment
+  const beastUrl = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
+  const bedroomUrl = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
+
+  const localServers: LocalServerConfig[] = []
+
+  if (beastUrl) {
+    localServers.push({
+      id: "beast",
+      name: "BEAST",
+      type: "lmstudio",
+      baseUrl: beastUrl,
+      enabled: true,
+      defaultModel: "gpt-oss-20b"  // Default model for BEAST
+    })
+  }
+
+  if (bedroomUrl) {
+    localServers.push({
+      id: "bedroom",
+      name: "Bedroom",
+      type: "lmstudio",
+      baseUrl: bedroomUrl,
+      enabled: true
+    })
+  }
+
+  // Set default model to BEAST with gpt-oss-20b if available
+  const defaultModel: DefaultModelConfig | undefined = beastUrl ? {
+    provider: "lmstudio",
+    serverId: "beast",
+    modelId: "gpt-oss-20b",
+    displayName: "GPT-OSS 20B (BEAST)"
+  } : undefined
+
   return {
     setupComplete: false,
-    localServers: [],
+    localServers,
     cloudProviders: [
       { provider: "anthropic", enabled: false, enabledModels: [] },
       { provider: "openai", enabled: false, enabledModels: [] },
       { provider: "google", enabled: false, enabledModels: [] }
     ],
+    defaultModel,
     preferLocalModels: true,
     autoRouteByTaskType: true
   }
