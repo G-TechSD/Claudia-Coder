@@ -34,16 +34,33 @@ import {
   Loader2,
   FileText,
   FolderOpen,
-  Upload
+  Upload,
+  Shield
 } from "lucide-react"
 import { getProject, updateProject, deleteProject } from "@/lib/data/projects"
 import { getResourcesForProject } from "@/lib/data/resources"
+import { getConfiguredServers, checkServerStatus, type LLMServer } from "@/lib/llm/local-llm"
 import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
 import { ResourceUpload } from "@/components/project/resource-upload"
 import { RepoBrowser } from "@/components/project/repo-browser"
+import { SecurityEval } from "@/components/security/security-eval"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select"
 import type { Project, ProjectStatus, InterviewMessage } from "@/lib/data/types"
 import type { BuildPlan } from "@/lib/ai/build-plan"
+
+interface ProviderOption {
+  name: string
+  status: "online" | "offline" | "checking"
+  model?: string
+  type: "local" | "anthropic"
+}
 
 const statusConfig: Record<ProjectStatus, { label: string; color: string; icon: React.ElementType }> = {
   planning: { label: "Planning", color: "bg-blue-500/10 text-blue-500 border-blue-500/30", icon: Clock },
@@ -70,6 +87,9 @@ export default function ProjectDetailPage() {
   const [planError, setPlanError] = useState("")
   const [resourceCount, setResourceCount] = useState(0)
   const [repoBrowserOpen, setRepoBrowserOpen] = useState(false)
+  const [providers, setProviders] = useState<ProviderOption[]>([])
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  const [planSource, setPlanSource] = useState<{ server?: string; model?: string } | null>(null)
 
   useEffect(() => {
     const projectId = params.id as string
@@ -81,6 +101,52 @@ export default function ProjectDetailPage() {
     const resources = getResourcesForProject(projectId)
     setResourceCount(resources.length)
   }, [params.id])
+
+  // Check available providers on mount
+  useEffect(() => {
+    async function checkProviders() {
+      // Start with local servers as "checking"
+      const servers = getConfiguredServers()
+      const initialProviders: ProviderOption[] = servers.map(s => ({
+        name: s.name,
+        status: "checking" as const,
+        type: "local" as const
+      }))
+
+      // Add Anthropic if API key is configured
+      if (process.env.NEXT_PUBLIC_ANTHROPIC_AVAILABLE === "true") {
+        initialProviders.push({
+          name: "anthropic",
+          status: "online",
+          model: "claude-sonnet-4",
+          type: "anthropic"
+        })
+      }
+
+      setProviders(initialProviders)
+
+      // Check each local server status
+      for (const server of servers) {
+        const status = await checkServerStatus(server)
+        setProviders(prev => prev.map(p =>
+          p.name === server.name
+            ? { ...p, status: status.status === "online" ? "online" : "offline", model: status.currentModel }
+            : p
+        ))
+      }
+
+      // Auto-select first online provider
+      setProviders(prev => {
+        const firstOnline = prev.find(p => p.status === "online")
+        if (firstOnline && !selectedProvider) {
+          setSelectedProvider(firstOnline.name)
+        }
+        return prev
+      })
+    }
+
+    checkProviders()
+  }, [])
 
   const refreshResourceCount = () => {
     const resources = getResourcesForProject(params.id as string)
@@ -97,6 +163,7 @@ export default function ProjectDetailPage() {
 
     setIsGeneratingPlan(true)
     setPlanError("")
+    setPlanSource(null)
 
     try {
       const response = await fetch("/api/build-plan", {
@@ -106,6 +173,7 @@ export default function ProjectDetailPage() {
           projectId: project.id,
           projectName: project.name,
           projectDescription: project.description,
+          preferredProvider: selectedProvider,
           constraints: {
             requireLocalFirst: true,
             requireHumanApproval: ["planning", "deployment"]
@@ -119,6 +187,10 @@ export default function ProjectDetailPage() {
         setPlanError(data.error)
       } else if (data.plan) {
         setBuildPlan(data.plan)
+        setPlanSource({
+          server: data.server,
+          model: data.model
+        })
       }
     } catch (error) {
       setPlanError(error instanceof Error ? error.message : "Failed to generate plan")
@@ -194,10 +266,44 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Provider Selector */}
+          <Select
+            value={selectedProvider || ""}
+            onValueChange={setSelectedProvider}
+          >
+            <SelectTrigger className="w-[160px] h-8 text-xs">
+              <SelectValue placeholder="Select provider..." />
+            </SelectTrigger>
+            <SelectContent>
+              {providers.map(provider => (
+                <SelectItem
+                  key={provider.name}
+                  value={provider.name}
+                  disabled={provider.status !== "online"}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      "h-2 w-2 rounded-full",
+                      provider.status === "online" && "bg-green-500",
+                      provider.status === "offline" && "bg-red-500",
+                      provider.status === "checking" && "bg-yellow-500 animate-pulse"
+                    )} />
+                    <span>{provider.name}</span>
+                    {provider.model && (
+                      <span className="text-muted-foreground text-xs truncate max-w-[80px]">
+                        {provider.model.split("/").pop()}
+                      </span>
+                    )}
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Button
             size="sm"
             onClick={handleGenerateBuildPlan}
-            disabled={isGeneratingPlan}
+            disabled={isGeneratingPlan || !selectedProvider}
           >
             {isGeneratingPlan ? (
               <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -280,6 +386,10 @@ export default function ProjectDetailPage() {
             {project.creationInterview && (
               <Sparkles className="h-3 w-3 ml-1 text-primary" />
             )}
+          </TabsTrigger>
+          <TabsTrigger value="security">
+            Security
+            <Shield className="h-3 w-3 ml-1 text-red-500" />
           </TabsTrigger>
         </TabsList>
 
@@ -441,6 +551,20 @@ export default function ProjectDetailPage() {
                         {buildPlan.spec.name}
                       </CardTitle>
                       <CardDescription>{buildPlan.spec.description}</CardDescription>
+                      {planSource && (
+                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                          <Brain className="h-3 w-3" />
+                          <span>Generated by:</span>
+                          <Badge variant="outline" className="text-xs">
+                            {planSource.server || "Local"}
+                          </Badge>
+                          {planSource.model && (
+                            <span className="text-xs opacity-70">
+                              {planSource.model.split("/").pop()}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <Badge variant={buildPlan.status === "approved" ? "default" : "secondary"}>
                       {buildPlan.status}
@@ -768,6 +892,18 @@ export default function ProjectDetailPage() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* Security Tab */}
+        <TabsContent value="security" className="space-y-4">
+          <SecurityEval
+            projectId={project.id}
+            projectName={project.name}
+            projectDescription={project.description}
+            providers={providers}
+            selectedProvider={selectedProvider}
+            onProviderChange={setSelectedProvider}
+          />
         </TabsContent>
       </Tabs>
 

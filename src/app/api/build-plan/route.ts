@@ -19,7 +19,8 @@ export async function POST(request: NextRequest) {
       projectDescription,
       availableModels = [],
       constraints = {},
-      allowPaidFallback = false
+      allowPaidFallback = false,
+      preferredProvider = null  // e.g., "Beast", "Bedroom", "Ollama", "anthropic"
     } = await request.json()
 
     if (!projectName || !projectDescription) {
@@ -36,11 +37,61 @@ export async function POST(request: NextRequest) {
       constraints
     )
 
-    // Try local LLM first
+    // If Anthropic is explicitly requested and available
+    if (preferredProvider === "anthropic" && process.env.ANTHROPIC_API_KEY) {
+      try {
+        const Anthropic = (await import("@anthropic-ai/sdk")).default
+        const anthropic = new Anthropic({
+          apiKey: process.env.ANTHROPIC_API_KEY
+        })
+
+        const response = await anthropic.messages.create({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 4096,
+          system: BUILD_PLAN_SYSTEM_PROMPT,
+          messages: [{ role: "user", content: userPrompt }]
+        })
+
+        const content = response.content[0].type === "text"
+          ? response.content[0].text
+          : ""
+
+        const plan = parseBuildPlanResponse(
+          content,
+          projectId,
+          "anthropic:claude-sonnet-4"
+        )
+
+        if (plan) {
+          const validation = validateBuildPlan(plan)
+          return NextResponse.json({
+            plan,
+            validation,
+            source: "anthropic",
+            server: "Anthropic",
+            model: "claude-sonnet-4"
+          })
+        }
+      } catch (error) {
+        console.error("Anthropic build plan failed:", error)
+        return NextResponse.json({
+          error: "Anthropic API error",
+          source: "anthropic"
+        }, { status: 503 })
+      }
+    }
+
+    // Try local LLM (with preferred server if specified)
     const localResponse = await generateWithLocalLLM(
       BUILD_PLAN_SYSTEM_PROMPT,
       userPrompt,
-      { temperature: 0.7, max_tokens: 4096 }
+      {
+        temperature: 0.7,
+        max_tokens: 4096,
+        preferredServer: preferredProvider && preferredProvider !== "anthropic"
+          ? preferredProvider
+          : undefined
+      }
     )
 
     if (!localResponse.error) {

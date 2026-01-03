@@ -241,3 +241,91 @@ export interface Decision {
   rationale: string
   approved: boolean
 }
+
+// ============ Security Evaluation ============
+
+export type SecuritySeverity = "critical" | "high" | "medium" | "low" | "info"
+export type SecurityCategory =
+  | "injection"           // SQL, command, code injection
+  | "xss"                 // Cross-site scripting
+  | "auth"                // Authentication issues
+  | "access-control"      // Authorization/access control
+  | "cryptography"        // Weak crypto, key management
+  | "data-exposure"       // Sensitive data exposure
+  | "configuration"       // Security misconfiguration
+  | "dependencies"        // Vulnerable dependencies
+  | "input-validation"    // Missing/improper input validation
+  | "session"             // Session management issues
+  | "logging"             // Insufficient logging/monitoring
+  | "api-security"        // API security issues
+  | "other"
+
+export type SecurityScanStatus = "pending" | "running" | "completed" | "failed"
+
+export interface SecurityFinding {
+  id: string
+  category: SecurityCategory
+  severity: SecuritySeverity
+  title: string
+  description: string
+
+  // Location
+  filePath?: string
+  lineStart?: number
+  lineEnd?: number
+  codeSnippet?: string
+
+  // Reference
+  cweId?: string           // Common Weakness Enumeration ID
+  owaspCategory?: string   // OWASP Top 10 category
+  cvssScore?: number       // 0-10 score
+
+  // Remediation
+  recommendation: string
+  fixExample?: string
+  resources?: string[]     // Links to docs, articles
+
+  // Estimated fix effort
+  estimatedEffort?: "trivial" | "small" | "medium" | "large"
+  breakingChange?: boolean
+
+  // Status
+  acknowledged?: boolean
+  falsePositive?: boolean
+  fixedInCommit?: string
+}
+
+export interface SecurityScan {
+  id: string
+  projectId: string
+  status: SecurityScanStatus
+  startedAt: string
+  completedAt?: string
+
+  // What was scanned
+  scanScope: {
+    repos?: string[]       // Repo IDs
+    paths?: string[]       // Specific paths
+    excludePaths?: string[]
+  }
+
+  // Results
+  findings: SecurityFinding[]
+  summary?: {
+    critical: number
+    high: number
+    medium: number
+    low: number
+    info: number
+    totalFiles: number
+    scanDuration: number   // seconds
+  }
+
+  // Generation metadata
+  generatedBy: string      // Model/tool that ran the scan
+  generatedWorkPackets?: string[]  // Packet IDs created from findings
+
+  // Error handling
+  error?: string
+  warnings?: string[]
+}
