@@ -358,7 +358,7 @@ export default function NewProjectPage() {
                     placeholder="my-project"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Will be created at: http://192.168.245.11/gtechsd/{repoName}
+                    Will be created at: http://192.168.245.211:8929/gtechsd/{repoName}
                   </p>
                 </div>
 
