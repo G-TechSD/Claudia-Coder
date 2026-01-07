@@ -38,9 +38,12 @@ import {
   Shield,
   Cloud,
   Server,
-  Zap as ExecuteIcon
+  Zap as ExecuteIcon,
+  Check,
+  X,
+  Pencil
 } from "lucide-react"
-import { getProject, updateProject, deleteProject, seedSampleProjects } from "@/lib/data/projects"
+import { getProject, updateProject, deleteProject, seedSampleProjects, updateRepoLocalPath } from "@/lib/data/projects"
 import { getResourcesForProject, getBrainDumpsForProject } from "@/lib/data/resources"
 import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
@@ -58,6 +61,7 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
 import type { Project, ProjectStatus, InterviewMessage } from "@/lib/data/types"
 
 interface ProviderOption {
@@ -110,6 +114,10 @@ export default function ProjectDetailPage() {
     tasks: Array<{ id: string; description: string; completed: boolean }>
     acceptanceCriteria: string[]
   }>>([])
+
+  // State for editing repo local path
+  const [editingRepoId, setEditingRepoId] = useState<number | null>(null)
+  const [editingLocalPath, setEditingLocalPath] = useState("")
 
   // Load packets for this project
   useEffect(() => {
@@ -226,6 +234,26 @@ export default function ProjectDetailPage() {
       deleteProject(project.id)
       router.push("/projects")
     }
+  }
+
+  const handleStartEditLocalPath = (repoId: number, currentPath: string | undefined) => {
+    setEditingRepoId(repoId)
+    setEditingLocalPath(currentPath || "")
+  }
+
+  const handleSaveLocalPath = (repoId: number) => {
+    if (!project) return
+    const updated = updateRepoLocalPath(project.id, repoId, editingLocalPath)
+    if (updated) {
+      setProject(updated)
+    }
+    setEditingRepoId(null)
+    setEditingLocalPath("")
+  }
+
+  const handleCancelEditLocalPath = () => {
+    setEditingRepoId(null)
+    setEditingLocalPath("")
   }
 
   const handleAddToQueue = () => {
@@ -613,26 +641,79 @@ export default function ProjectDetailPage() {
             <div className="space-y-2">
               {project.repos.map((repo) => (
                 <Card key={repo.id}>
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <GitBranch className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">{repo.name}</p>
-                        <p className="text-sm text-muted-foreground">{repo.path}</p>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <GitBranch className="h-5 w-5 text-muted-foreground" />
+                        <div>
+                          <p className="font-medium">{repo.name}</p>
+                          <p className="text-sm text-muted-foreground">{repo.path}</p>
+                        </div>
+                        <Badge variant="outline" className="text-xs">
+                          {repo.provider}
+                        </Badge>
                       </div>
-                      <Badge variant="outline" className="text-xs">
-                        {repo.provider}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" asChild>
+                          <a href={repo.url} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        </Button>
+                        <Button variant="ghost" size="sm">
+                          <Unlink className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" asChild>
-                        <a href={repo.url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      </Button>
-                      <Button variant="ghost" size="sm">
-                        <Unlink className="h-4 w-4" />
-                      </Button>
+                    {/* Local Path Section */}
+                    <div className="flex items-center gap-2 pl-8 border-t pt-3">
+                      <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm text-muted-foreground flex-shrink-0">Local Path:</span>
+                      {editingRepoId === repo.id ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <Input
+                            value={editingLocalPath}
+                            onChange={(e) => setEditingLocalPath(e.target.value)}
+                            placeholder="/home/user/projects/repo-name"
+                            className="h-8 text-sm flex-1"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSaveLocalPath(repo.id)
+                              if (e.key === "Escape") handleCancelEditLocalPath()
+                            }}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
+                            onClick={() => handleSaveLocalPath(repo.id)}
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                            onClick={handleCancelEditLocalPath}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-1">
+                          <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
+                            {repo.localPath || <span className="text-muted-foreground italic">Not configured</span>}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleStartEditLocalPath(repo.id, repo.localPath)}
+                            title="Edit local path"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

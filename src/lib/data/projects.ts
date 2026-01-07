@@ -202,6 +202,24 @@ export function unlinkRepoFromProject(
   })
 }
 
+export function updateRepoLocalPath(
+  projectId: string,
+  repoId: number,
+  localPath: string
+): Project | null {
+  const project = getProject(projectId)
+  if (!project) return null
+
+  const updatedRepos = project.repos.map(r => {
+    if (r.id === repoId) {
+      return { ...r, localPath: localPath || undefined }
+    }
+    return r
+  })
+
+  return updateProject(projectId, { repos: updatedRepos })
+}
+
 // ============ Linear Sync ============
 
 export function configureLinearSync(
