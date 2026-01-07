@@ -6,6 +6,7 @@ import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { useStarredProjects } from "@/hooks/useStarredProjects"
 import {
   LayoutDashboard,
   Activity,
@@ -19,6 +20,7 @@ import {
   ChevronLeft,
   Command,
   Layers,
+  Star,
 } from "lucide-react"
 
 interface NavItem {
@@ -47,6 +49,7 @@ const bottomNavItems: NavItem[] = [
 export function Sidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
+  const { starredProjects } = useStarredProjects()
 
   return (
     <aside
@@ -82,6 +85,45 @@ export function Sidebar() {
           <ChevronLeft className="h-4 w-4" />
         </Button>
       </div>
+
+      {/* Starred Projects */}
+      {starredProjects.length > 0 && (
+        <div className="border-b p-2">
+          {!collapsed && (
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+              Starred
+            </div>
+          )}
+          <nav className="space-y-0.5">
+            {starredProjects.map((project) => {
+              const isActive = pathname === `/projects/${project.id}`
+              return (
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-yellow-400/10 text-yellow-500"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    collapsed && "justify-center px-2"
+                  )}
+                  title={collapsed ? project.name : undefined}
+                >
+                  <Star className={cn(
+                    "h-3.5 w-3.5 shrink-0",
+                    isActive ? "fill-yellow-400 text-yellow-400" : "fill-yellow-400/50 text-yellow-400/50"
+                  )} />
+                  {!collapsed && (
+                    <span className="flex-1 truncate">{project.name}</span>
+                  )}
+                </Link>
+              )
+            })}
+          </nav>
+        </div>
+      )}
 
       {/* Main Navigation */}
       <nav className="flex-1 space-y-1 p-2">

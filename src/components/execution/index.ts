@@ -6,3 +6,4 @@
 export { GoButton, HeroGoButton } from "./go-button"
 export { ActivityStream, ActivityIndicator, type ActivityEvent } from "./activity-stream"
 export { ExecutionPanel, ExecutionWidget } from "./execution-panel"
+export { LaunchTestPanel } from "./launch-test-panel"

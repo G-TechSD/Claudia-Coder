@@ -41,9 +41,11 @@ import {
   Zap as ExecuteIcon,
   Check,
   X,
-  Pencil
+  Pencil,
+  Star
 } from "lucide-react"
-import { getProject, updateProject, deleteProject, seedSampleProjects, updateRepoLocalPath } from "@/lib/data/projects"
+import { getProject, updateProject, deleteProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar } from "@/lib/data/projects"
+import { useStarredProjects } from "@/hooks/useStarredProjects"
 import { getResourcesForProject, getBrainDumpsForProject } from "@/lib/data/resources"
 import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
@@ -53,7 +55,7 @@ import { BuildPlanEditor } from "@/components/project/build-plan-editor"
 import { ProjectTimeline } from "@/components/project/project-timeline"
 import { BrainDumpList } from "@/components/brain-dump/brain-dump-list"
 import { AudioRecorder } from "@/components/brain-dump/audio-recorder"
-import { ExecutionPanel } from "@/components/execution"
+import { ExecutionPanel, LaunchTestPanel } from "@/components/execution"
 import {
   Select,
   SelectContent,
@@ -118,6 +120,9 @@ export default function ProjectDetailPage() {
   // State for editing repo local path
   const [editingRepoId, setEditingRepoId] = useState<number | null>(null)
   const [editingLocalPath, setEditingLocalPath] = useState("")
+
+  // Starred projects hook for sidebar sync
+  const { toggleStar } = useStarredProjects()
 
   // Load packets for this project
   useEffect(() => {
@@ -236,6 +241,14 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const handleToggleStar = () => {
+    if (!project) return
+    const updated = toggleStar(project.id)
+    if (updated) {
+      setProject(updated)
+    }
+  }
+
   const handleStartEditLocalPath = (repoId: number, currentPath: string | undefined) => {
     setEditingRepoId(repoId)
     setEditingLocalPath(currentPath || "")
@@ -349,6 +362,20 @@ export default function ProjectDetailPage() {
               </Link>
             </Button>
             <h1 className="text-2xl font-bold">{project.name}</h1>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-8 w-8",
+                project.starred
+                  ? "text-yellow-400 hover:text-yellow-500"
+                  : "text-muted-foreground hover:text-yellow-400"
+              )}
+              onClick={handleToggleStar}
+              title={project.starred ? "Unstar project" : "Star project"}
+            >
+              <Star className={cn("h-5 w-5", project.starred && "fill-current")} />
+            </Button>
             <Badge className={cn("border", statusConfig[project.status].color)}>
               <StatusIcon className="h-3 w-3 mr-1" />
               {statusConfig[project.status].label}
@@ -469,10 +496,40 @@ export default function ProjectDetailPage() {
             Security
             <Shield className="h-3 w-3 ml-1 text-red-500" />
           </TabsTrigger>
+          <TabsTrigger value="launch-test">
+            Launch & Test
+            <Zap className="h-3 w-3 ml-1 text-blue-500" />
+          </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
+          {/* Build Plan Section - Prominent for Planning Phase */}
+          {project.status === "planning" && (
+            <Card className="border-blue-500/30 bg-blue-500/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-blue-500" />
+                  Build Plan
+                </CardTitle>
+                <CardDescription>
+                  Create and approve your build plan before starting execution. Once approved, change status to Active to begin.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <BuildPlanEditor
+                  projectId={project.id}
+                  projectName={project.name}
+                  projectDescription={project.description}
+                  projectStatus={project.status}
+                  providers={providers}
+                  selectedProvider={selectedProvider}
+                  onProviderChange={setSelectedProvider}
+                />
+              </CardContent>
+            </Card>
+          )}
+
           {/* GO BUTTON - The Star of the Show */}
           <ExecutionPanel
             project={{
@@ -928,6 +985,18 @@ export default function ProjectDetailPage() {
               </Badge>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Launch & Test Tab */}
+        <TabsContent value="launch-test" className="space-y-4">
+          <LaunchTestPanel
+            project={{
+              id: project.id,
+              name: project.name,
+              description: project.description,
+              repos: project.repos
+            }}
+          />
         </TabsContent>
       </Tabs>
 

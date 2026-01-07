@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { InterviewPanel } from "@/components/interview/interview-panel"
 import { VoiceInput } from "@/components/voice/voice-input"
-import { createProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
+import { createProject, updateProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
 import { savePackets, saveBuildPlan } from "@/lib/ai/build-plan"
 import { createGitLabRepo, hasGitLabToken, setGitLabToken, validateGitLabToken } from "@/lib/gitlab/api"
 import { useSettings } from "@/hooks/useSettings"
@@ -414,11 +414,17 @@ export default function NewProjectPage() {
         })
 
         // Save all the packets
-        savePackets(project.id, linearImportData.packets.map(pkt => ({
+        const packetsToSave = linearImportData.packets.map(pkt => ({
           ...pkt,
           blockedBy: pkt.dependencies || [],
           blocks: []
-        })))
+        }))
+        savePackets(project.id, packetsToSave)
+
+        // Update project with packet IDs
+        updateProject(project.id, {
+          packetIds: packetsToSave.map(p => p.id)
+        })
       }
 
       if (createRepo && hasToken) {

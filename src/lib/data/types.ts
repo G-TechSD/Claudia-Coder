@@ -59,6 +59,9 @@ export interface Project {
   tags: string[]
   estimatedEffort?: string
   color?: string
+
+  // User preferences
+  starred?: boolean
 }
 
 // ============ Interviews ============

@@ -109,6 +109,20 @@ export function deleteProject(id: string): boolean {
   return true
 }
 
+// ============ Project Starring ============
+
+export function toggleProjectStar(id: string): Project | null {
+  const project = getProject(id)
+  if (!project) return null
+
+  return updateProject(id, { starred: !project.starred })
+}
+
+export function getStarredProjects(): Project[] {
+  const projects = getStoredProjects()
+  return projects.filter(p => p.starred === true)
+}
+
 // ============ Project Queries ============
 
 export function filterProjects(filter: ProjectFilter): Project[] {

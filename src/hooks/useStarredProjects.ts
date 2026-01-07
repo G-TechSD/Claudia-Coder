@@ -1,0 +1,73 @@
+"use client"
+
+import { useState, useEffect, useCallback } from "react"
+import type { Project } from "@/lib/data/types"
+import { getStarredProjects, toggleProjectStar, getAllProjects } from "@/lib/data/projects"
+
+const STORAGE_EVENT_KEY = "claudia_projects_starred_update"
+
+/**
+ * Hook for managing starred/pinned projects
+ * Provides starred projects list and toggle functionality with cross-component sync
+ */
+export function useStarredProjects() {
+  const [starredProjects, setStarredProjects] = useState<Project[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Load starred projects
+  const loadStarred = useCallback(() => {
+    const starred = getStarredProjects()
+    setStarredProjects(starred)
+    setIsLoading(false)
+  }, [])
+
+  // Initial load
+  useEffect(() => {
+    loadStarred()
+  }, [loadStarred])
+
+  // Listen for storage events (cross-tab sync and custom events)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "claudia_projects") {
+        loadStarred()
+      }
+    }
+
+    const handleCustomEvent = () => {
+      loadStarred()
+    }
+
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener(STORAGE_EVENT_KEY, handleCustomEvent)
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener(STORAGE_EVENT_KEY, handleCustomEvent)
+    }
+  }, [loadStarred])
+
+  // Toggle star status for a project
+  const toggleStar = useCallback((projectId: string) => {
+    const updated = toggleProjectStar(projectId)
+    if (updated) {
+      loadStarred()
+      // Dispatch custom event for same-window components
+      window.dispatchEvent(new CustomEvent(STORAGE_EVENT_KEY))
+    }
+    return updated
+  }, [loadStarred])
+
+  // Check if a project is starred
+  const isStarred = useCallback((projectId: string) => {
+    return starredProjects.some(p => p.id === projectId)
+  }, [starredProjects])
+
+  return {
+    starredProjects,
+    isLoading,
+    toggleStar,
+    isStarred,
+    refresh: loadStarred
+  }
+}

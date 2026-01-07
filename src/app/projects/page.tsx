@@ -27,15 +27,18 @@ import {
   Archive,
   AlertCircle,
   LayoutGrid,
-  LayoutList
+  LayoutList,
+  Star
 } from "lucide-react"
 import {
   getAllProjects,
   getProjectStats,
   filterProjects,
   deleteProject,
-  seedSampleProjects
+  seedSampleProjects,
+  toggleProjectStar
 } from "@/lib/data/projects"
+import { useStarredProjects } from "@/hooks/useStarredProjects"
 import type { Project, ProjectStatus, ProjectFilter } from "@/lib/data/types"
 
 const statusConfig: Record<ProjectStatus, {
@@ -81,6 +84,7 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>("list")
+  const { isStarred, toggleStar, refresh: refreshStarred } = useStarredProjects()
 
   // Load view preference
   useEffect(() => {
@@ -126,9 +130,14 @@ export default function ProjectsPage() {
       )
     }
 
-    return result.sort((a, b) =>
-      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    )
+    // Sort by starred first, then by updated date
+    return result.sort((a, b) => {
+      // Starred projects come first
+      if (a.starred && !b.starred) return -1
+      if (!a.starred && b.starred) return 1
+      // Then sort by updated date
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    })
   }, [projects, statusFilter, search])
 
   // Stats
@@ -139,6 +148,13 @@ export default function ProjectsPage() {
       deleteProject(id)
       loadProjects()
     }
+  }
+
+  const handleToggleStar = (id: string, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    toggleStar(id)
+    loadProjects() // Refresh to update the list order
   }
 
   return (
@@ -336,8 +352,22 @@ export default function ProjectsPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1 flex-none opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                  <div className="flex items-center gap-1 flex-none">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-7 w-7",
+                        project.starred
+                          ? "text-yellow-400 hover:text-yellow-500"
+                          : "opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-yellow-400"
+                      )}
+                      onClick={(e) => handleToggleStar(project.id, e)}
+                      title={project.starred ? "Unstar project" : "Star project"}
+                    >
+                      <Star className={cn("h-3.5 w-3.5", project.starred && "fill-current")} />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100" asChild>
                       <Link href={`/projects/${project.id}`}>
                         <ArrowUpRight className="h-3.5 w-3.5" />
                       </Link>
@@ -345,7 +375,7 @@ export default function ProjectsPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 text-red-400 hover:text-red-400 hover:bg-red-400/10"
+                      className="h-7 w-7 text-red-400 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100"
                       onClick={() => handleDelete(project.id, project.name)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -385,9 +415,22 @@ export default function ProjectsPage() {
                           {project.description}
                         </p>
                       </div>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "h-8 w-8",
+                            project.starred
+                              ? "text-yellow-400 hover:text-yellow-500"
+                              : "opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-yellow-400"
+                          )}
+                          onClick={(e) => handleToggleStar(project.id, e)}
+                          title={project.starred ? "Unstar project" : "Star project"}
+                        >
+                          <Star className={cn("h-4 w-4", project.starred && "fill-current")} />
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">

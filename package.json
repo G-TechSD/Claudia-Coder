@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbo --experimental-https --experimental-https-key localhost.key --experimental-https-cert localhost.crt",
+    "dev:lan": "next dev --turbo --hostname 0.0.0.0",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

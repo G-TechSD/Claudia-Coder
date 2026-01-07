@@ -5,6 +5,7 @@ import { MetricCard } from "@/components/dashboard/metric-card"
 import { ActivityPreview } from "@/components/dashboard/activity-preview"
 import { AgentGrid } from "@/components/dashboard/agent-grid"
 import { AgentControl } from "@/components/dashboard/agent-control"
+import { SetupGuide } from "@/components/setup/setup-guide"
 import { Package, CheckCircle, AlertTriangle, DollarSign, Layers } from "lucide-react"
 
 interface DashboardMetrics {
@@ -98,6 +99,9 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
+      {/* Setup Guide - Shows only if setup incomplete */}
+      <SetupGuide />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
