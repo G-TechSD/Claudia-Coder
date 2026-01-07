@@ -458,6 +458,13 @@ function cleanFileContent(content: string): string {
   // Remove any trailing file markers that leaked in
   cleaned = cleaned.replace(/\n===FILE:[\s\S]*$/, "")
 
+  // Remove trailing --- markers (used as file delimiters)
+  cleaned = cleaned.replace(/\n?---+\s*$/, "")
+
+  // Remove orphaned CONTENT markers
+  cleaned = cleaned.replace(/\n?---CONTENT---\s*$/, "")
+  cleaned = cleaned.replace(/\n?---END---\s*$/, "")
+
   // Trim whitespace but preserve internal formatting
   cleaned = cleaned.trimEnd()
 
