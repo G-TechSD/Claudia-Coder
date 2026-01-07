@@ -31,51 +31,10 @@ export interface ChatCompletionResponse {
   error?: string
 }
 
-// Keywords that indicate embedding models (should be filtered out for code generation)
-const EMBEDDING_MODEL_PATTERNS = ["embed", "embedding"]
-
-// Keywords that indicate code-capable models (preferred for code generation)
-const CODE_MODEL_PATTERNS = ["code", "coder", "codellama", "devstral", "deepseek-coder", "phind"]
-
-/**
- * Select the best model for code generation from a list of available models
- * Priority:
- * 1. Filter out embedding models
- * 2. Prefer models with code-related keywords
- * 3. Fall back to first non-embedding model
- */
-export function selectBestCodeModel(models: string[]): string | undefined {
-  if (!models || models.length === 0) return undefined
-
-  // Filter out embedding models
-  const nonEmbeddingModels = models.filter(
-    model => !EMBEDDING_MODEL_PATTERNS.some(pattern =>
-      model.toLowerCase().includes(pattern)
-    )
-  )
-
-  if (nonEmbeddingModels.length === 0) {
-    // All models are embedding models, return undefined
-    return undefined
-  }
-
-  // Look for code-capable models
-  const codeModels = nonEmbeddingModels.filter(
-    model => CODE_MODEL_PATTERNS.some(pattern =>
-      model.toLowerCase().includes(pattern)
-    )
-  )
-
-  if (codeModels.length > 0) {
-    // Return the first code-capable model found
-    return codeModels[0]
-  }
-
-  // Fall back to first non-embedding model
-  return nonEmbeddingModels[0]
-}
-
 // Get configured LM Studio servers from environment
+// IMPORTANT: Do NOT change models or try to load others - use what's configured:
+// - Beast: gpt-oss-20b
+// - Bedroom: ministral-3-3b
 export function getConfiguredServers(): LLMServer[] {
   const servers: LLMServer[] = []
 
@@ -136,12 +95,10 @@ export async function checkServerStatus(server: LLMServer, verifyModel = false):
 
     if (server.type === "lmstudio" && data.data) {
       availableModels = data.data.map((m: { id: string }) => m.id)
-      // Select the best code-capable model instead of just the first one
-      currentModel = selectBestCodeModel(availableModels)
+      currentModel = data.data[0]?.id // Use whatever model is loaded
     } else if (server.type === "ollama" && data.models) {
       availableModels = data.models.map((m: { name: string }) => m.name)
-      // Select the best code-capable model instead of just the first one
-      currentModel = selectBestCodeModel(availableModels)
+      currentModel = data.models[0]?.name // Use whatever model is loaded
     }
 
     // Optionally verify the model is actually loaded and ready
@@ -316,26 +273,29 @@ export async function chatCompletion(
 }
 
 // High-level function: Generate with local LLM, with automatic server selection
+// Default preferred server is "beast" since it has the 34B code model (phind-codellama-34b-v2)
+// compared to bedroom which only has the 3B model (ministral-3-3b)
 export async function generateWithLocalLLM(
   systemPrompt: string,
   userPrompt: string,
   options?: {
     temperature?: number
     max_tokens?: number
-    preferredServer?: string
+    preferredServer?: string  // Defaults to "beast" for code tasks
   }
 ): Promise<{ content: string; server?: string; model?: string; error?: string }> {
   const servers = getConfiguredServers()
 
-  // Try preferred server first if specified
+  // Default to Beast server which has the better code model (34B vs 3B)
+  const preferredServer = options?.preferredServer ?? "beast"
+
+  // Try preferred server first
   let serversToTry = servers
-  if (options?.preferredServer) {
-    // Case-insensitive comparison (API uses lowercase, servers use capitalized)
-    const preferredLower = options.preferredServer.toLowerCase()
-    const preferred = servers.find(s => s.name.toLowerCase() === preferredLower)
-    if (preferred) {
-      serversToTry = [preferred, ...servers.filter(s => s.name.toLowerCase() !== preferredLower)]
-    }
+  // Case-insensitive comparison (API uses lowercase, servers use capitalized)
+  const preferredLower = preferredServer.toLowerCase()
+  const preferred = servers.find(s => s.name.toLowerCase() === preferredLower)
+  if (preferred) {
+    serversToTry = [preferred, ...servers.filter(s => s.name.toLowerCase() !== preferredLower)]
   }
 
   for (const server of serversToTry) {
