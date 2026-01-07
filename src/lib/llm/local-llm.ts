@@ -31,6 +31,50 @@ export interface ChatCompletionResponse {
   error?: string
 }
 
+// Keywords that indicate embedding models (should be filtered out for code generation)
+const EMBEDDING_MODEL_PATTERNS = ["embed", "embedding"]
+
+// Keywords that indicate code-capable models (preferred for code generation)
+const CODE_MODEL_PATTERNS = ["code", "coder", "codellama", "devstral", "deepseek-coder", "phind"]
+
+/**
+ * Select the best model for code generation from a list of available models
+ * Priority:
+ * 1. Filter out embedding models
+ * 2. Prefer models with code-related keywords
+ * 3. Fall back to first non-embedding model
+ */
+export function selectBestCodeModel(models: string[]): string | undefined {
+  if (!models || models.length === 0) return undefined
+
+  // Filter out embedding models
+  const nonEmbeddingModels = models.filter(
+    model => !EMBEDDING_MODEL_PATTERNS.some(pattern =>
+      model.toLowerCase().includes(pattern)
+    )
+  )
+
+  if (nonEmbeddingModels.length === 0) {
+    // All models are embedding models, return undefined
+    return undefined
+  }
+
+  // Look for code-capable models
+  const codeModels = nonEmbeddingModels.filter(
+    model => CODE_MODEL_PATTERNS.some(pattern =>
+      model.toLowerCase().includes(pattern)
+    )
+  )
+
+  if (codeModels.length > 0) {
+    // Return the first code-capable model found
+    return codeModels[0]
+  }
+
+  // Fall back to first non-embedding model
+  return nonEmbeddingModels[0]
+}
+
 // Get configured LM Studio servers from environment
 export function getConfiguredServers(): LLMServer[] {
   const servers: LLMServer[] = []
@@ -92,10 +136,12 @@ export async function checkServerStatus(server: LLMServer, verifyModel = false):
 
     if (server.type === "lmstudio" && data.data) {
       availableModels = data.data.map((m: { id: string }) => m.id)
-      currentModel = data.data[0]?.id
+      // Select the best code-capable model instead of just the first one
+      currentModel = selectBestCodeModel(availableModels)
     } else if (server.type === "ollama" && data.models) {
       availableModels = data.models.map((m: { name: string }) => m.name)
-      currentModel = data.models[0]?.name
+      // Select the best code-capable model instead of just the first one
+      currentModel = selectBestCodeModel(availableModels)
     }
 
     // Optionally verify the model is actually loaded and ready
@@ -222,7 +268,10 @@ export async function chatCompletion(
       }
     } else {
       // LM Studio (OpenAI-compatible)
+      // Explicitly specify the model to ensure we use the code-capable model
+      // and not an embedding model that might be loaded
       body = {
+        model: server.currentModel,
         messages: request.messages,
         temperature: request.temperature ?? 0.7,
         max_tokens: request.max_tokens ?? 1024,
