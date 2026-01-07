@@ -445,18 +445,38 @@ interface FileOperation {
   content: string
 }
 
+/**
+ * Clean content by removing markdown artifacts that LM models often include
+ */
+function cleanFileContent(content: string): string {
+  let cleaned = content
+
+  // Remove leading/trailing markdown code fences
+  cleaned = cleaned.replace(/^```[\w]*\n?/, "")
+  cleaned = cleaned.replace(/\n?```\s*$/, "")
+
+  // Remove any trailing file markers that leaked in
+  cleaned = cleaned.replace(/\n===FILE:[\s\S]*$/, "")
+
+  // Trim whitespace but preserve internal formatting
+  cleaned = cleaned.trimEnd()
+
+  return cleaned
+}
+
 function parseFileOperations(response: string): FileOperation[] {
   const operations: FileOperation[] = []
 
   // Pattern: ===FILE: path/to/file===\nOPERATION: create|update|delete\n---CONTENT---\n...\n---END---
-  const filePattern = /===FILE:\s*(.+?)===\s*\nOPERATION:\s*(create|update|delete)\s*\n---CONTENT---\n([\s\S]*?)---END---/gi
+  // Make ---END--- optional since many LM models forget it
+  const filePattern = /===FILE:\s*(.+?)===\s*\nOPERATION:\s*(create|update|delete)\s*\n---CONTENT---\n([\s\S]*?)(?:---END---|(?=\n===FILE:)|$)/gi
 
   let match
   while ((match = filePattern.exec(response)) !== null) {
     operations.push({
       path: match[1].trim(),
       operation: match[2].toLowerCase() as "create" | "update" | "delete",
-      content: match[3]
+      content: cleanFileContent(match[3])
     })
   }
 
@@ -470,7 +490,7 @@ function parseFileOperations(response: string): FileOperation[] {
         operations.push({
           path: filepath,
           operation: "create",
-          content: match[2]
+          content: cleanFileContent(match[2])
         })
       }
     }

@@ -109,6 +109,55 @@ body {
   outline-offset: 2px;
 }
 
+/* Prevent blinking text cursor on non-editable elements */
+/* Default cursor for all elements */
+*:not(input):not(textarea):not([contenteditable="true"]) {
+  caret-color: transparent;
+}
+
+/* Restore caret for actual input elements */
+input,
+textarea,
+[contenteditable="true"] {
+  caret-color: auto;
+}
+
+/* Ensure proper cursor types */
+button,
+[role="button"],
+a,
+label[for],
+select,
+[type="checkbox"],
+[type="radio"] {
+  cursor: pointer;
+}
+
+/* Static content should have default cursor */
+p,
+span,
+div,
+h1, h2, h3, h4, h5, h6,
+li,
+td,
+th {
+  cursor: default;
+}
+
+/* Allow text cursor only on text inputs and textareas */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+input[type="number"],
+input:not([type]),
+textarea,
+[contenteditable="true"] {
+  cursor: text;
+}
+
 /* Selection */
 ::selection {
   background: hsl(var(--accent-blue) / 0.3);
