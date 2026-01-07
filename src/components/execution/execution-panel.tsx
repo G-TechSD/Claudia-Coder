@@ -61,8 +61,10 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
   const [executionMode, setExecutionMode] = React.useState<ExecutionMode>("auto")
   const [lastUsedMode, setLastUsedMode] = React.useState<string | null>(null)
 
-  // Filter to only ready packets
-  const readyPackets = packets.filter(p => p.status === "ready" || p.status === "pending")
+  // Filter to executable packets - include "queued" for Linear-imported issues
+  const readyPackets = packets.filter(p =>
+    p.status === "ready" || p.status === "pending" || p.status === "queued"
+  )
 
   const addEvent = (
     type: ActivityEvent["type"],
