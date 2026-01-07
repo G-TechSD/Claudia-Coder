@@ -37,9 +37,10 @@ import {
   Upload,
   Shield,
   Cloud,
-  Server
+  Server,
+  Zap as ExecuteIcon
 } from "lucide-react"
-import { getProject, updateProject, deleteProject } from "@/lib/data/projects"
+import { getProject, updateProject, deleteProject, seedSampleProjects } from "@/lib/data/projects"
 import { getResourcesForProject, getBrainDumpsForProject } from "@/lib/data/resources"
 import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
@@ -49,6 +50,7 @@ import { BuildPlanEditor } from "@/components/project/build-plan-editor"
 import { ProjectTimeline } from "@/components/project/project-timeline"
 import { BrainDumpList } from "@/components/brain-dump/brain-dump-list"
 import { AudioRecorder } from "@/components/brain-dump/audio-recorder"
+import { ExecutionPanel } from "@/components/execution"
 import {
   Select,
   SelectContent,
@@ -84,6 +86,10 @@ const priorityConfig = {
 export default function ProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
+
+  // Safely extract project ID from params (handle array case for catch-all routes)
+  const projectId = Array.isArray(params.id) ? params.id[0] : (params.id as string)
+
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
   const [resourceCount, setResourceCount] = useState(0)
@@ -92,9 +98,45 @@ export default function ProjectDetailPage() {
   const [repoBrowserOpen, setRepoBrowserOpen] = useState(false)
   const [providers, setProviders] = useState<ProviderOption[]>([])
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [executionStatus, setExecutionStatus] = useState<string | null>(null)
+  const [packets, setPackets] = useState<Array<{
+    id: string
+    title: string
+    description: string
+    type: string
+    priority: string
+    status: string
+    tasks: Array<{ id: string; description: string; completed: boolean }>
+    acceptanceCriteria: string[]
+  }>>([])
+
+  // Load packets for this project
+  useEffect(() => {
+    if (!projectId) return
+
+    const storedPackets = localStorage.getItem("claudia_packets")
+    if (storedPackets) {
+      try {
+        const allPackets = JSON.parse(storedPackets)
+        // Packets are stored as { [projectId]: WorkPacket[] }, not a flat array
+        const projectPackets = allPackets[projectId] || []
+        setPackets(projectPackets)
+      } catch {
+        console.error("Failed to parse packets")
+      }
+    }
+  }, [projectId])
 
   useEffect(() => {
-    const projectId = params.id as string
+    // Ensure sample data is seeded (important for direct navigation to this page)
+    seedSampleProjects()
+
+    if (!projectId) {
+      setLoading(false)
+      return
+    }
+
     const found = getProject(projectId)
     setProject(found || null)
     setLoading(false)
@@ -106,7 +148,7 @@ export default function ProjectDetailPage() {
     // Load brain dump count
     const brainDumps = getBrainDumpsForProject(projectId)
     setBrainDumpCount(brainDumps.length)
-  }, [params.id])
+  }, [projectId])
 
   // Check available providers on mount
   useEffect(() => {
@@ -147,12 +189,14 @@ export default function ProjectDetailPage() {
   }, [])
 
   const refreshResourceCount = () => {
-    const resources = getResourcesForProject(params.id as string)
+    if (!projectId) return
+    const resources = getResourcesForProject(projectId)
     setResourceCount(resources.length)
   }
 
   const refreshBrainDumpCount = () => {
-    const brainDumps = getBrainDumpsForProject(params.id as string)
+    if (!projectId) return
+    const brainDumps = getBrainDumpsForProject(projectId)
     setBrainDumpCount(brainDumps.length)
   }
 
@@ -165,7 +209,8 @@ export default function ProjectDetailPage() {
   }
 
   const refreshProject = () => {
-    const found = getProject(params.id as string)
+    if (!projectId) return
+    const found = getProject(projectId)
     if (found) setProject(found)
   }
 
@@ -180,6 +225,58 @@ export default function ProjectDetailPage() {
     if (confirm("Are you sure you want to delete this project?")) {
       deleteProject(project.id)
       router.push("/projects")
+    }
+  }
+
+  const handleAddToQueue = () => {
+    if (!project || project.repos.length === 0) {
+      alert("Please link at least one repository first")
+      return
+    }
+
+    // Get packets for this project from localStorage
+    // Packets are stored as { [projectId]: WorkPacket[] }, not a flat array
+    const storedPackets = localStorage.getItem("claudia_packets")
+    const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
+    const projectPackets = allPackets[project.id] || []
+
+    if (projectPackets.length === 0) {
+      alert("No packets found for this project. Create a build plan first.")
+      return
+    }
+
+    // Add to queue
+    try {
+      const queueData = localStorage.getItem("claudia_execution_queue")
+      const queue = queueData ? JSON.parse(queueData) : []
+
+      // Check if already in queue
+      if (queue.some((q: { projectId: string }) => q.projectId === project.id)) {
+        setExecutionStatus("Already in queue")
+        return
+      }
+
+      queue.push({
+        projectId: project.id,
+        project: {
+          id: project.id,
+          name: project.name,
+          description: project.description
+        },
+        packets: projectPackets,
+        repo: project.repos[0],
+        priority: queue.length + 1,
+        addedAt: new Date().toISOString(),
+        estimatedPackets: projectPackets.length
+      })
+
+      localStorage.setItem("claudia_execution_queue", JSON.stringify(queue))
+      setExecutionStatus(`Added to queue (position ${queue.length})`)
+
+      // Clear status after a few seconds
+      setTimeout(() => setExecutionStatus(null), 3000)
+    } catch (error) {
+      setExecutionStatus(`Error: ${error instanceof Error ? error.message : "Failed to add to queue"}`)
     }
   }
 
@@ -236,6 +333,19 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={handleAddToQueue}
+            disabled={isExecuting || project.repos.length === 0}
+            className="gap-2"
+          >
+            {isExecuting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ExecuteIcon className="h-4 w-4" />
+            )}
+            Add to Queue
+          </Button>
           <Button variant="outline" size="sm">
             <Edit2 className="h-4 w-4 mr-1" />
             Edit
@@ -246,6 +356,23 @@ export default function ProjectDetailPage() {
           </Button>
         </div>
       </div>
+
+      {/* Execution Status */}
+      {executionStatus && (
+        <Card className="p-3 border-primary/30 bg-primary/5">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-primary" />
+            <p className="text-sm font-medium flex-1">{executionStatus}</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExecutionStatus(null)}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {/* Status Actions */}
       <Card>
@@ -317,7 +444,18 @@ export default function ProjectDetailPage() {
         </TabsList>
 
         {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-4">
+        <TabsContent value="overview" className="space-y-6">
+          {/* GO BUTTON - The Star of the Show */}
+          <ExecutionPanel
+            project={{
+              id: project.id,
+              name: project.name,
+              description: project.description,
+              repos: project.repos
+            }}
+            packets={packets}
+          />
+
           {/* Project Timeline */}
           <ProjectTimeline
             projectId={project.id}

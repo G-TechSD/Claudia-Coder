@@ -24,6 +24,7 @@ import {
   VolumeX
 } from "lucide-react"
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
+import { useWhisperVoiceInput } from "@/hooks/useWhisperVoiceInput"
 import { useSpeechSynthesis } from "@/hooks/useSpeechSynthesis"
 import { getProjects } from "@/lib/data/projects"
 import type { Project } from "@/lib/data/types"
@@ -55,6 +56,7 @@ export function VoiceControlPanel({ className, onClose }: VoiceControlPanelProps
   // Audio visualization
   const [audioLevel, setAudioLevel] = useState(0)
   const [pendingVoiceInput, setPendingVoiceInput] = useState("")
+  const [useWhisper, setUseWhisper] = useState(true) // Prefer Whisper by default
   const voiceSubmitTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -68,8 +70,32 @@ export function VoiceControlPanel({ className, onClose }: VoiceControlPanelProps
     setProjects(getProjects())
   }, [])
 
-  // Speech recognition
-  const speech = useSpeechRecognition({
+  // Whisper voice input (local server)
+  const whisperVoice = useWhisperVoiceInput({
+    onResult: (transcript, isFinal) => {
+      if (isFinal && transcript.trim()) {
+        setPendingVoiceInput(prev => (prev + " " + transcript).trim())
+
+        if (voiceSubmitTimeoutRef.current) {
+          clearTimeout(voiceSubmitTimeoutRef.current)
+        }
+
+        // Give users 5 minutes of patient silence to think deeply
+        voiceSubmitTimeoutRef.current = setTimeout(() => {
+          setPendingVoiceInput(current => {
+            if (current.trim()) {
+              handleSubmit(current.trim(), "voice")
+            }
+            return ""
+          })
+          whisperVoice.resetTranscript()
+        }, 300000)
+      }
+    }
+  })
+
+  // Browser speech recognition (fallback)
+  const browserSpeech = useSpeechRecognition({
     continuous: true,
     interimResults: true,
     onResult: (transcript, isFinal) => {
@@ -80,6 +106,8 @@ export function VoiceControlPanel({ className, onClose }: VoiceControlPanelProps
           clearTimeout(voiceSubmitTimeoutRef.current)
         }
 
+        // "The quieter you are, the more you are able to hear"
+        // Give users 5 minutes of patient silence to think deeply
         voiceSubmitTimeoutRef.current = setTimeout(() => {
           setPendingVoiceInput(current => {
             if (current.trim()) {
@@ -87,14 +115,37 @@ export function VoiceControlPanel({ className, onClose }: VoiceControlPanelProps
             }
             return ""
           })
-          speech.resetTranscript()
-        }, 2000)
+          browserSpeech.resetTranscript()
+        }, 300000)
       }
     }
   })
 
-  // Text-to-speech
-  const tts = useSpeechSynthesis()
+  // Select active speech input based on Whisper availability and preference
+  const speech = useWhisper && whisperVoice.whisperAvailable ? whisperVoice : browserSpeech
+  const speechMethod = useWhisper && whisperVoice.whisperAvailable ? "whisper" : "browser"
+
+  // Text-to-speech with mic muting to prevent feedback loop
+  // When AI speaks, we pause recognition to avoid picking up its own voice
+  const tts = useSpeechSynthesis({
+    onStart: () => {
+      // Mute mic when AI starts speaking to prevent feedback
+      if (speech.isListening) {
+        speech.stopListening()
+        // Store that we should resume after speech
+        sessionStorage.setItem('voice_resume_after_speech', 'true')
+      }
+    },
+    onEnd: () => {
+      // Resume mic if we were listening before AI spoke
+      if (sessionStorage.getItem('voice_resume_after_speech') === 'true') {
+        sessionStorage.removeItem('voice_resume_after_speech')
+        speech.startListening()
+        startAudioVisualization()
+        isListeningRef.current = true
+      }
+    }
+  })
 
   // Audio visualization
   const startAudioVisualization = useCallback(async () => {
@@ -161,7 +212,7 @@ export function VoiceControlPanel({ className, onClose }: VoiceControlPanelProps
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  const toggleListening = () => {
+  const toggleListening = async () => {
     if (speech.isListening) {
       isListeningRef.current = false
       speech.stopListening()
@@ -169,8 +220,12 @@ export function VoiceControlPanel({ className, onClose }: VoiceControlPanelProps
     } else {
       isListeningRef.current = true
       tts.cancel()
-      speech.startListening()
-      startAudioVisualization()
+      // startListening may be async (Whisper) or sync (browser)
+      await speech.startListening()
+      // Only start visualization for browser speech (Whisper handles its own audio)
+      if (speechMethod === "browser") {
+        startAudioVisualization()
+      }
     }
   }
 
@@ -436,8 +491,17 @@ Be concise and helpful. If the user asks about a project they haven't selected, 
                 )}
               </p>
               <div className="flex items-center gap-1 mt-1 opacity-60">
-                <Mic className="h-3 w-3 animate-pulse" />
-                <span className="text-xs">listening...</span>
+                {"isProcessing" in speech && speech.isProcessing ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span className="text-xs">transcribing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="h-3 w-3 animate-pulse" />
+                    <span className="text-xs">listening...</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -507,10 +571,37 @@ Be concise and helpful. If the user asks about a project they haven't selected, 
             </div>
           )}
 
+          {/* Manual Send Button - "The quieter you are, the more you are able to hear" */}
+          {speech.isListening && pendingVoiceInput && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => {
+                if (pendingVoiceInput.trim()) {
+                  if (voiceSubmitTimeoutRef.current) {
+                    clearTimeout(voiceSubmitTimeoutRef.current)
+                  }
+                  handleSubmit(pendingVoiceInput.trim(), "voice")
+                  setPendingVoiceInput("")
+                  speech.resetTranscript()
+                }
+              }}
+              className="mt-2"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              Send Now
+            </Button>
+          )}
+
           {speech.isListening && (
-            <p className="text-xs text-muted-foreground">
-              Pause for 2s to send, or click to stop
-            </p>
+            <div className="flex flex-col items-center gap-1">
+              <p className="text-xs text-muted-foreground text-center max-w-[250px]">
+                Take your time to think. Click &quot;Send Now&quot; when ready, or I&apos;ll wait patiently.
+              </p>
+              <Badge variant="outline" className="text-xs">
+                {speechMethod === "whisper" ? "Local Whisper" : "Browser Speech"}
+              </Badge>
+            </div>
           )}
         </div>
 

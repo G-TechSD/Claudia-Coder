@@ -72,14 +72,35 @@ export function useSpeechSynthesis(options: SpeechSynthesisOptions = {}): UseSpe
           }
         }
 
-        // Default: prefer a natural English voice
-        const preferred = availableVoices.find(
-          v => v.lang.startsWith("en") && v.name.toLowerCase().includes("natural")
-        ) || availableVoices.find(
-          v => v.lang.startsWith("en") && v.default
-        ) || availableVoices.find(
-          v => v.lang.startsWith("en")
-        ) || availableVoices[0]
+        // Default: prefer a feminine English voice to match Claudia brand
+        // Priority order: feminine natural voices > feminine voices > natural voices > default
+        const femaleNames = ["samantha", "victoria", "zira", "female", "fiona", "karen", "moira", "tessa", "allison", "ava", "susan", "kate"]
+
+        const findFeminineVoice = (voices: SpeechSynthesisVoice[]) =>
+          voices.find(v =>
+            femaleNames.some(name => v.name.toLowerCase().includes(name))
+          )
+
+        const englishVoices = availableVoices.filter(v => v.lang.startsWith("en"))
+        const naturalEnglish = englishVoices.filter(v =>
+          v.name.toLowerCase().includes("natural") ||
+          v.name.toLowerCase().includes("neural") ||
+          v.name.toLowerCase().includes("premium")
+        )
+
+        const preferred =
+          // First: feminine natural/neural voice
+          findFeminineVoice(naturalEnglish) ||
+          // Second: any feminine English voice
+          findFeminineVoice(englishVoices) ||
+          // Third: any natural English voice
+          naturalEnglish[0] ||
+          // Fourth: default English voice
+          englishVoices.find(v => v.default) ||
+          // Fifth: any English voice
+          englishVoices[0] ||
+          // Fallback: first available voice
+          availableVoices[0]
 
         setCurrentVoice(preferred)
       }
@@ -199,10 +220,17 @@ export function useSpeechSynthesis(options: SpeechSynthesisOptions = {}): UseSpe
 
 // Helper to get recommended voices
 export function getRecommendedVoices(voices: SpeechSynthesisVoice[]): {
+  feminine: SpeechSynthesisVoice[]
   natural: SpeechSynthesisVoice[]
   english: SpeechSynthesisVoice[]
   all: SpeechSynthesisVoice[]
 } {
+  const femaleNames = ["samantha", "victoria", "zira", "female", "fiona", "karen", "moira", "tessa", "allison", "ava", "susan", "kate"]
+
+  const feminine = voices.filter(v =>
+    femaleNames.some(name => v.name.toLowerCase().includes(name))
+  )
+
   const natural = voices.filter(
     v => v.name.toLowerCase().includes("natural") ||
          v.name.toLowerCase().includes("neural") ||
@@ -211,5 +239,5 @@ export function getRecommendedVoices(voices: SpeechSynthesisVoice[]): {
 
   const english = voices.filter(v => v.lang.startsWith("en"))
 
-  return { natural, english, all: voices }
+  return { feminine, natural, english, all: voices }
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -41,41 +41,39 @@ const typeConfig = {
   test: { label: "Tests", color: "bg-cyan-400", icon: CheckCircle }
 }
 
-// Generate mock timeline data for the past 24 hours
-function generateMockEvents(): TimelineEvent[] {
-  const events: TimelineEvent[] = []
-  const packets = [
-    { id: "PKT-001", title: "User authentication flow" },
-    { id: "PKT-002", title: "Dashboard metrics" },
-    { id: "PKT-003", title: "API rate limiting" },
-    { id: "PKT-004", title: "Login validation fix" },
-    { id: "PKT-005", title: "Dark mode toggle" },
-    { id: "PKT-006", title: "TypeScript migration" },
-  ]
-  const agents = ["BEAST", "BEDROOM", "Claude", "n8n"]
-  const types: EventType[] = ["start", "complete", "error", "approval", "deploy", "test"]
+// Timeline events will come from execution logs stored in localStorage
+function getStoredEvents(): TimelineEvent[] {
+  if (typeof window === "undefined") return []
 
-  const now = new Date()
-  for (let i = 0; i < 30; i++) {
-    const packet = packets[Math.floor(Math.random() * packets.length)]
-    const hoursAgo = Math.random() * 24
-    const timestamp = new Date(now.getTime() - hoursAgo * 3600000)
+  try {
+    const storedLogs = localStorage.getItem("claudia_execution_logs")
+    if (!storedLogs) return []
 
-    events.push({
+    const logs = JSON.parse(storedLogs) as Array<{
+      packetId: string
+      packetTitle: string
+      type: string
+      agent: string
+      timestamp: string
+      duration?: number
+    }>
+
+    return logs.map((log, i) => ({
       id: `evt-${i}`,
-      packetId: packet.id,
-      packetTitle: packet.title,
-      type: types[Math.floor(Math.random() * types.length)],
-      agent: agents[Math.floor(Math.random() * agents.length)],
-      timestamp,
-      duration: Math.floor(Math.random() * 60) + 5
-    })
+      packetId: log.packetId,
+      packetTitle: log.packetTitle,
+      type: (log.type as EventType) || "start",
+      agent: log.agent || "Claudia",
+      timestamp: new Date(log.timestamp),
+      duration: log.duration
+    })).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+  } catch {
+    return []
   }
-
-  return events.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
 }
 
-const mockEvents = generateMockEvents()
+// Empty by default - will be populated from localStorage
+const initialEvents: TimelineEvent[] = []
 
 // Group events by hour for the timeline
 function groupEventsByHour(events: TimelineEvent[]): Map<string, TimelineEvent[]> {
@@ -97,10 +95,15 @@ function groupEventsByHour(events: TimelineEvent[]): Map<string, TimelineEvent[]
 }
 
 export default function TimelinePage() {
-  const [events] = useState<TimelineEvent[]>(mockEvents)
+  const [events, setEvents] = useState<TimelineEvent[]>(initialEvents)
   const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null)
   const [zoomLevel, setZoomLevel] = useState(1)
   const [filter, setFilter] = useState<EventType | "all">("all")
+
+  // Load events from localStorage on mount
+  useEffect(() => {
+    setEvents(getStoredEvents())
+  }, [])
 
   const filteredEvents = events.filter(e => filter === "all" || e.type === filter)
   const groupedEvents = groupEventsByHour(filteredEvents)
@@ -203,6 +206,13 @@ export default function TimelinePage() {
             <CardTitle className="text-base font-medium">Event Timeline</CardTitle>
           </CardHeader>
           <CardContent className="flex-1 overflow-auto">
+            {filteredEvents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <Calendar className="h-12 w-12 mb-4 opacity-50" />
+                <p className="text-sm font-medium">No timeline events yet</p>
+                <p className="text-xs mt-1">Events will appear here as packets are executed</p>
+              </div>
+            ) : (
             <div className="relative" style={{ transform: `scale(${zoomLevel})`, transformOrigin: "top left" }}>
               {Array.from(groupedEvents.entries()).map(([hour, hourEvents]) => (
                 <div key={hour} className="mb-6">
@@ -266,6 +276,7 @@ export default function TimelinePage() {
                 </div>
               ))}
             </div>
+            )}
           </CardContent>
         </Card>
 

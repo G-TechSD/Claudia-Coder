@@ -66,126 +66,11 @@ const categoryConfig = {
   performance: { label: "Performance", icon: Gauge, color: "text-cyan-400" }
 }
 
-const mockGates: QualityGate[] = [
-  {
-    id: "gate-1",
-    name: "ESLint",
-    description: "JavaScript/TypeScript linting with strict rules",
-    category: "code",
-    status: "passed",
-    required: true,
-    lastRun: new Date(Date.now() - 300000),
-    details: { passed: 156, failed: 0, warnings: 3 },
-    threshold: "0 errors, < 10 warnings"
-  },
-  {
-    id: "gate-2",
-    name: "TypeScript Strict",
-    description: "Type checking with strict mode enabled",
-    category: "code",
-    status: "passed",
-    required: true,
-    lastRun: new Date(Date.now() - 300000),
-    details: { passed: 89, failed: 0, warnings: 0 },
-    threshold: "0 type errors"
-  },
-  {
-    id: "gate-3",
-    name: "Unit Tests",
-    description: "Jest unit test suite",
-    category: "test",
-    status: "passed",
-    required: true,
-    lastRun: new Date(Date.now() - 600000),
-    details: { passed: 47, failed: 0, warnings: 0 },
-    threshold: "100% pass rate"
-  },
-  {
-    id: "gate-4",
-    name: "Integration Tests",
-    description: "API and database integration tests",
-    category: "test",
-    status: "warning",
-    required: true,
-    lastRun: new Date(Date.now() - 900000),
-    details: { passed: 23, failed: 0, warnings: 2 },
-    threshold: "100% pass, < 5 flaky"
-  },
-  {
-    id: "gate-5",
-    name: "E2E Tests",
-    description: "Playwright end-to-end tests",
-    category: "test",
-    status: "failed",
-    required: true,
-    lastRun: new Date(Date.now() - 1200000),
-    details: { passed: 12, failed: 3, warnings: 0 },
-    threshold: "100% pass rate"
-  },
-  {
-    id: "gate-6",
-    name: "Dependency Audit",
-    description: "npm audit for security vulnerabilities",
-    category: "security",
-    status: "warning",
-    required: true,
-    lastRun: new Date(Date.now() - 1800000),
-    details: { passed: 145, failed: 0, warnings: 4 },
-    threshold: "0 high/critical vulnerabilities"
-  },
-  {
-    id: "gate-7",
-    name: "Secret Scanning",
-    description: "Detect hardcoded secrets and credentials",
-    category: "security",
-    status: "passed",
-    required: true,
-    lastRun: new Date(Date.now() - 1800000),
-    details: { passed: 1, failed: 0, warnings: 0 },
-    threshold: "0 secrets detected"
-  },
-  {
-    id: "gate-8",
-    name: "Code Coverage",
-    description: "Test coverage threshold check",
-    category: "test",
-    status: "passed",
-    required: false,
-    lastRun: new Date(Date.now() - 600000),
-    details: { passed: 1, failed: 0, warnings: 0 },
-    threshold: ">= 80% coverage"
-  },
-  {
-    id: "gate-9",
-    name: "Bundle Size",
-    description: "Check production bundle size limits",
-    category: "performance",
-    status: "passed",
-    required: false,
-    lastRun: new Date(Date.now() - 3600000),
-    details: { passed: 1, failed: 0, warnings: 0 },
-    threshold: "< 500kb gzipped"
-  },
-  {
-    id: "gate-10",
-    name: "AI Code Review",
-    description: "Claude-powered code review check",
-    category: "review",
-    status: "pending",
-    required: false,
-    lastRun: null,
-    details: { passed: 0, failed: 0, warnings: 0 },
-    threshold: "No critical issues"
-  }
-]
+// Quality gates will be populated when code generation runs quality checks
+// Empty by default - populated by execution pipeline
+const initialGates: QualityGate[] = []
 
-const mockRuns: GateRun[] = [
-  { id: "run-1", gateId: "gate-5", gateName: "E2E Tests", packetId: "PKT-001", status: "failed", timestamp: new Date(Date.now() - 300000), duration: 180, message: "3 tests failed: checkout flow timeout" },
-  { id: "run-2", gateId: "gate-3", gateName: "Unit Tests", packetId: "PKT-001", status: "passed", timestamp: new Date(Date.now() - 600000), duration: 45 },
-  { id: "run-3", gateId: "gate-1", gateName: "ESLint", packetId: "PKT-002", status: "passed", timestamp: new Date(Date.now() - 900000), duration: 12 },
-  { id: "run-4", gateId: "gate-4", gateName: "Integration Tests", packetId: "PKT-002", status: "warning", timestamp: new Date(Date.now() - 1200000), duration: 120, message: "2 flaky tests detected" },
-  { id: "run-5", gateId: "gate-6", gateName: "Dependency Audit", packetId: "PKT-003", status: "warning", timestamp: new Date(Date.now() - 1800000), duration: 8, message: "4 moderate vulnerabilities" },
-]
+const initialRuns: GateRun[] = []
 
 function formatTime(date: Date | null): string {
   if (!date) return "Never"
@@ -198,8 +83,8 @@ function formatTime(date: Date | null): string {
 }
 
 export default function QualityPage() {
-  const [gates] = useState<QualityGate[]>(mockGates)
-  const [runs] = useState<GateRun[]>(mockRuns)
+  const [gates] = useState<QualityGate[]>(initialGates)
+  const [runs] = useState<GateRun[]>(initialRuns)
   const [selectedGate, setSelectedGate] = useState<QualityGate | null>(null)
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
 

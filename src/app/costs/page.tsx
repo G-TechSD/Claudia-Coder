@@ -53,51 +53,18 @@ const categoryConfig = {
   other: { label: "Other", icon: Zap, color: "text-yellow-400", bg: "bg-yellow-400" }
 }
 
-const mockBudget: BudgetConfig = {
+// Budget configuration - can be set by user in settings
+const budget: BudgetConfig = {
   daily: 35.00,
   monthly: 750.00,
   alertThreshold: 0.8
 }
 
-// Generate mock daily spending data
-function generateDailyData(): DailySpend[] {
-  const data: DailySpend[] = []
-  const now = new Date()
+// Cost data will be tracked from actual API usage and execution
+// Empty by default - populated by execution pipeline
+const initialDailyData: DailySpend[] = []
 
-  for (let i = 29; i >= 0; i--) {
-    const date = new Date(now)
-    date.setDate(date.getDate() - i)
-
-    const api = Math.random() * 15 + 5
-    const compute = Math.random() * 10 + 2
-    const storage = Math.random() * 3 + 0.5
-    const other = Math.random() * 2
-
-    data.push({
-      date: date.toISOString().split('T')[0],
-      api: parseFloat(api.toFixed(2)),
-      compute: parseFloat(compute.toFixed(2)),
-      storage: parseFloat(storage.toFixed(2)),
-      other: parseFloat(other.toFixed(2)),
-      total: parseFloat((api + compute + storage + other).toFixed(2))
-    })
-  }
-
-  return data
-}
-
-const mockDailyData = generateDailyData()
-
-const mockRecentCosts: CostEntry[] = [
-  { id: "c1", category: "api", provider: "Claude API", amount: 2.45, timestamp: new Date(Date.now() - 300000), packetId: "PKT-001", description: "Code generation tokens" },
-  { id: "c2", category: "api", provider: "Claude API", amount: 1.80, timestamp: new Date(Date.now() - 900000), packetId: "PKT-002", description: "Code review analysis" },
-  { id: "c3", category: "compute", provider: "LM Studio BEAST", amount: 0.85, timestamp: new Date(Date.now() - 1800000), packetId: "PKT-001", description: "Local inference" },
-  { id: "c4", category: "api", provider: "Linear API", amount: 0.02, timestamp: new Date(Date.now() - 2700000), description: "Issue sync" },
-  { id: "c5", category: "compute", provider: "LM Studio BEDROOM", amount: 0.45, timestamp: new Date(Date.now() - 3600000), packetId: "PKT-003", description: "Vision model processing" },
-  { id: "c6", category: "storage", provider: "GitLab", amount: 0.12, timestamp: new Date(Date.now() - 7200000), description: "Repository storage" },
-  { id: "c7", category: "api", provider: "OpenAI", amount: 3.20, timestamp: new Date(Date.now() - 10800000), packetId: "PKT-004", description: "GPT-4 fallback" },
-  { id: "c8", category: "other", provider: "n8n Cloud", amount: 0.50, timestamp: new Date(Date.now() - 14400000), description: "Workflow execution" }
-]
+const initialRecentCosts: CostEntry[] = []
 
 function formatTime(date: Date): string {
   const diff = Date.now() - date.getTime()
@@ -109,21 +76,23 @@ function formatTime(date: Date): string {
 }
 
 export default function CostsPage() {
-  const [dailyData] = useState<DailySpend[]>(mockDailyData)
-  const [recentCosts] = useState<CostEntry[]>(mockRecentCosts)
+  const [dailyData] = useState<DailySpend[]>(initialDailyData)
+  const [recentCosts] = useState<CostEntry[]>(initialRecentCosts)
   const [selectedPeriod, setSelectedPeriod] = useState<"day" | "week" | "month">("day")
 
-  const today = dailyData[dailyData.length - 1]
-  const yesterday = dailyData[dailyData.length - 2]
+  // Handle empty data state
+  const hasData = dailyData.length > 0
+  const today = hasData ? dailyData[dailyData.length - 1] : { date: new Date().toISOString(), api: 0, compute: 0, storage: 0, other: 0, total: 0 }
+  const yesterday = hasData && dailyData.length > 1 ? dailyData[dailyData.length - 2] : today
   const monthTotal = dailyData.reduce((sum, d) => sum + d.total, 0)
   const weekTotal = dailyData.slice(-7).reduce((sum, d) => sum + d.total, 0)
 
-  const dailyChange = ((today.total - yesterday.total) / yesterday.total) * 100
-  const budgetUsedDaily = (today.total / mockBudget.daily) * 100
-  const budgetUsedMonthly = (monthTotal / mockBudget.monthly) * 100
+  const dailyChange = yesterday.total > 0 ? ((today.total - yesterday.total) / yesterday.total) * 100 : 0
+  const budgetUsedDaily = (today.total / budget.daily) * 100
+  const budgetUsedMonthly = (monthTotal / budget.monthly) * 100
 
   const isOverBudget = budgetUsedDaily > 100
-  const isNearBudget = budgetUsedDaily > mockBudget.alertThreshold * 100
+  const isNearBudget = budgetUsedDaily > budget.alertThreshold * 100
 
   // Calculate category breakdown for current period
   const categoryTotals = {
@@ -169,7 +138,7 @@ export default function CostsPage() {
               </p>
               <p className="text-sm text-muted-foreground">
                 {isOverBudget
-                  ? `You've spent $${today.total.toFixed(2)} of your $${mockBudget.daily.toFixed(2)} daily budget`
+                  ? `You've spent $${today.total.toFixed(2)} of your $${budget.daily.toFixed(2)} daily budget`
                   : `You've used ${budgetUsedDaily.toFixed(0)}% of your daily budget`
                 }
               </p>
@@ -197,7 +166,7 @@ export default function CostsPage() {
           </div>
           <div className="mt-2">
             <div className="flex justify-between text-xs text-muted-foreground mb-1">
-              <span>Budget: ${mockBudget.daily}</span>
+              <span>Budget: ${budget.daily}</span>
               <span>{budgetUsedDaily.toFixed(0)}%</span>
             </div>
             <div className="h-1.5 rounded-full bg-muted overflow-hidden">
@@ -235,7 +204,7 @@ export default function CostsPage() {
           </div>
           <div className="mt-2">
             <div className="flex justify-between text-xs text-muted-foreground mb-1">
-              <span>Budget: ${mockBudget.monthly}</span>
+              <span>Budget: ${budget.monthly}</span>
               <span>{budgetUsedMonthly.toFixed(0)}%</span>
             </div>
             <div className="h-1.5 rounded-full bg-muted overflow-hidden">
@@ -258,9 +227,9 @@ export default function CostsPage() {
           <div className="flex items-baseline gap-2">
             <span className={cn(
               "text-2xl font-semibold",
-              (mockBudget.daily - today.total) < 0 ? "text-red-400" : "text-green-400"
+              (budget.daily - today.total) < 0 ? "text-red-400" : "text-green-400"
             )}>
-              ${Math.max(0, mockBudget.daily - today.total).toFixed(2)}
+              ${Math.max(0, budget.daily - today.total).toFixed(2)}
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-2">

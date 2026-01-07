@@ -184,7 +184,18 @@ export default function PacketsPage() {
     checkServerStatus
   } = usePacketExecution()
 
-  const [serverStatus, setServerStatus] = useState<{ servers: unknown[]; available: boolean } | null>(null)
+  interface ServerInfo {
+    name: string
+    url: string
+    type: string
+    status: string
+    currentModel: string | null
+    availableModels: string[]
+  }
+
+  const [serverStatus, setServerStatus] = useState<{ servers: ServerInfo[]; available: boolean } | null>(null)
+  const [selectedServer, setSelectedServer] = useState<string | null>(null)
+  const [executionMode, setExecutionMode] = useState<"standard" | "long-horizon">("standard")
 
   // Load real packets from storage on mount
   const loadPackets = useCallback(() => {
@@ -222,7 +233,12 @@ export default function PacketsPage() {
   // Handle packet execution
   const handleExecute = async (packet: Packet) => {
     setShowExecutionLogs(true)
-    await execute(packet.id, packet.projectId)
+    await execute(packet.id, packet.projectId, {
+      preferredServer: selectedServer || undefined,
+      useIteration: executionMode === "long-horizon",
+      maxIterations: executionMode === "long-horizon" ? 10 : 3,
+      minConfidence: 0.75
+    })
   }
 
   const filteredPackets = packets.filter(packet => {
@@ -252,6 +268,32 @@ export default function PacketsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Server/Model Selection */}
+          {serverStatus?.servers && serverStatus.servers.length > 0 && (
+            <select
+              value={selectedServer || ""}
+              onChange={(e) => setSelectedServer(e.target.value || null)}
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="">Auto (any server)</option>
+              {serverStatus.servers.map((server) => (
+                <option key={server.name} value={server.name}>
+                  {server.name}: {server.currentModel || "No model loaded"}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Execution Mode */}
+          <select
+            value={executionMode}
+            onChange={(e) => setExecutionMode(e.target.value as "standard" | "long-horizon")}
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="standard">Standard (3 iterations)</option>
+            <option value="long-horizon">Long-Horizon (10 iterations)</option>
+          </select>
+
           {/* Server Status */}
           <div className={cn(
             "flex items-center gap-1.5 px-2 py-1 rounded text-xs",

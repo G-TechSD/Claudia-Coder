@@ -34,7 +34,8 @@ import {
   RefreshCw,
   Download,
   Search,
-  Package
+  Package,
+  FolderOpen
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
@@ -131,6 +132,9 @@ export default function NewProjectPage() {
   const [repoName, setRepoName] = useState("")
   const [repoVisibility, setRepoVisibility] = useState<"private" | "internal" | "public">("private")
   const [initWithReadme, setInitWithReadme] = useState(true)
+
+  // Local repo linking state
+  const [localRepoPath, setLocalRepoPath] = useState("")
 
   // GitLab token state
   const [hasToken, setHasToken] = useState(false)
@@ -335,12 +339,22 @@ export default function NewProjectPage() {
         tags = ["imported-from-linear"]
       }
 
+      // Set up initial repos array with local path if provided
+      const initialRepos = localRepoPath.trim() ? [{
+        provider: "local" as const,
+        id: Date.now(),
+        name: projectName,
+        path: localRepoPath.trim(),
+        url: "",
+        localPath: localRepoPath.trim()
+      }] : []
+
       const project = createProject({
         name: projectName,
         description: projectDescription,
         status: linearImportData ? "active" : "planning",
         priority,
-        repos: [],
+        repos: initialRepos,
         packetIds: [],
         tags,
         creationInterview: interviewSession || undefined
@@ -1070,6 +1084,33 @@ export default function NewProjectPage() {
             )}
           </CardContent>
         )}
+      </Card>
+
+      {/* Link Existing Local Repo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FolderOpen className="h-4 w-4" />
+            Local Repository Path
+          </CardTitle>
+          <CardDescription>
+            Link an existing local repository for Claude Code execution
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="localRepoPath">Filesystem Path</Label>
+            <Input
+              id="localRepoPath"
+              value={localRepoPath}
+              onChange={(e) => setLocalRepoPath(e.target.value)}
+              placeholder="/home/bill/projects/my-app"
+            />
+            <p className="text-xs text-muted-foreground">
+              Full path to the local repository. Claude Code will execute changes here.
+            </p>
+          </div>
+        </CardContent>
       </Card>
 
       {submitError && (

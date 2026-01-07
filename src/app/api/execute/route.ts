@@ -57,6 +57,10 @@ interface ExecutionRequest {
     maxTokens?: number
     createBranch?: boolean
     branchName?: string
+    // Iteration options
+    useIteration?: boolean
+    maxIterations?: number
+    minConfidence?: number
   }
 }
 
@@ -116,10 +120,13 @@ async function checkServer(server: { name: string; url: string; type: string }) 
     if (!response.ok) return null
 
     const data = await response.json()
+    const models = data.data?.map((m: { id: string }) => m.id) || []
+
     return {
       ...server,
       status: "online",
-      currentModel: data.data?.[0]?.id
+      currentModel: models[0] || null,
+      availableModels: models
     }
   } catch {
     return null
@@ -387,7 +394,12 @@ export async function POST(request: NextRequest) {
       .slice(0, 50)
       .join("\n")
 
-    // Build prompt
+    // Check if using iteration mode
+    const useIteration = options?.useIteration ?? false
+    const maxIterations = options?.maxIterations ?? 3
+    const minConfidence = options?.minConfidence ?? 0.7
+
+    // Build base prompt
     const systemPrompt = `You are a senior developer implementing features.
 Output ONLY valid code. Use this format for each file:
 
@@ -407,7 +419,137 @@ Rules:
       .map((t, i) => `${i + 1}. ${t.description}`)
       .join("\n")
 
-    const userPrompt = `PROJECT: ${project.name}
+    let parsed: { files: FileChange[]; errors: string[] } = { files: [], errors: [] }
+
+    if (useIteration) {
+      // Iteration mode: generate -> critique -> refine
+      log("info", `Starting iteration loop (max ${maxIterations} iterations, min confidence ${minConfidence * 100}%)`)
+
+      let iteration = 0
+      let lastIssues: string[] = []
+      let confidence = 0
+
+      while (iteration < maxIterations) {
+        iteration++
+        log("info", `Iteration ${iteration}/${maxIterations}...`)
+
+        // Build prompt with previous issues if any
+        let userPrompt = `PROJECT: ${project.name}
+TECH STACK: ${techStack.join(", ")}
+
+FEATURE: ${packet.title}
+${packet.description}
+
+TASKS TO COMPLETE:
+${tasksSection}
+
+ACCEPTANCE CRITERIA:
+${packet.acceptanceCriteria.map(c => `- ${c}`).join("\n")}
+
+PROJECT FILES:
+${fileList || "Empty repository"}`
+
+        if (lastIssues.length > 0) {
+          userPrompt += `\n\nPREVIOUS ISSUES TO FIX:\n${lastIssues.map(i => `- ${i}`).join("\n")}`
+        }
+
+        userPrompt += "\n\nGenerate all the code needed to complete this feature."
+
+        // Generate code
+        const result = await generateWithLLM(systemPrompt, userPrompt, {
+          preferredServer: options?.preferredServer,
+          temperature: options?.temperature ?? 0.3,
+          max_tokens: options?.maxTokens ?? 8192
+        })
+
+        if (result.error) {
+          log("error", `LLM error: ${result.error}`)
+          errors.push(result.error)
+          continue
+        }
+
+        log("success", `Generated code using ${result.server}/${result.model}`)
+        parsed = parseCodeOutput(result.content)
+
+        if (parsed.files.length === 0) {
+          log("warn", "No files parsed, retrying...")
+          lastIssues = ["No valid code files were generated"]
+          continue
+        }
+
+        log("info", `Parsed ${parsed.files.length} files, running self-critique...`)
+
+        // Self-critique
+        const critiqueSystemPrompt = `You are a senior code reviewer evaluating generated code.
+Be critical and thorough. Output your analysis as JSON:
+
+{
+  "issues": ["list of problems found"],
+  "suggestions": ["list of improvements"],
+  "confidence": 0.0 to 1.0,
+  "passesAcceptanceCriteria": true/false,
+  "criteriaMet": ["criteria that are met"],
+  "criteriaMissing": ["criteria that are NOT met"]
+}
+
+Rules:
+- Be honest and critical
+- Check for bugs, security issues, edge cases
+- Verify all acceptance criteria are met
+- Rate confidence based on code quality`
+
+        const critiqueUserPrompt = `PROJECT: ${project.name}
+TECH STACK: ${techStack.join(", ")}
+
+FEATURE: ${packet.title}
+${packet.description}
+
+ACCEPTANCE CRITERIA:
+${packet.acceptanceCriteria.map(c => `- ${c}`).join("\n")}
+
+GENERATED CODE:
+${parsed.files.map(f => `// ${f.path}\n${f.content}`).join("\n\n")}
+
+Review this code and provide your analysis.`
+
+        const critiqueResult = await generateWithLLM(critiqueSystemPrompt, critiqueUserPrompt, {
+          preferredServer: options?.preferredServer,
+          temperature: 0.2,
+          max_tokens: 2048
+        })
+
+        if (!critiqueResult.error) {
+          try {
+            let jsonStr = critiqueResult.content
+            const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
+            if (jsonMatch) jsonStr = jsonMatch[1]
+
+            const critique = JSON.parse(jsonStr)
+            confidence = critique.confidence ?? 0.5
+            lastIssues = critique.issues ?? []
+
+            log("info", `Self-critique: ${(confidence * 100).toFixed(0)}% confidence, ${lastIssues.length} issues`)
+
+            if (confidence >= minConfidence && (critique.passesAcceptanceCriteria || lastIssues.length === 0)) {
+              log("success", `Quality threshold met at iteration ${iteration}`)
+              break
+            }
+
+            if (lastIssues.length > 0) {
+              log("info", `Issues to fix: ${lastIssues.slice(0, 3).join(", ")}${lastIssues.length > 3 ? "..." : ""}`)
+            }
+          } catch {
+            log("warn", "Could not parse critique response, continuing...")
+            confidence = 0.6
+          }
+        }
+      }
+
+      log("info", `Iteration loop completed: ${parsed.files.length} files at ${(confidence * 100).toFixed(0)}% confidence`)
+
+    } else {
+      // Standard mode: single generation
+      const userPrompt = `PROJECT: ${project.name}
 TECH STACK: ${techStack.join(", ")}
 
 FEATURE: ${packet.title}
@@ -424,30 +566,31 @@ ${fileList || "Empty repository"}
 
 Generate all the code needed to complete this feature.`
 
-    // Generate code with LLM
-    log("info", "Generating code with LLM...")
-    const result = await generateWithLLM(systemPrompt, userPrompt, {
-      preferredServer: options?.preferredServer,
-      temperature: options?.temperature ?? 0.3,
-      max_tokens: options?.maxTokens ?? 8192
-    })
-
-    if (result.error) {
-      log("error", `LLM error: ${result.error}`)
-      return NextResponse.json({
-        success: false,
-        packetId,
-        files: [],
-        logs,
-        errors: [result.error],
-        duration: Date.now() - startTime
+      // Generate code with LLM
+      log("info", "Generating code with LLM...")
+      const result = await generateWithLLM(systemPrompt, userPrompt, {
+        preferredServer: options?.preferredServer,
+        temperature: options?.temperature ?? 0.3,
+        max_tokens: options?.maxTokens ?? 8192
       })
+
+      if (result.error) {
+        log("error", `LLM error: ${result.error}`)
+        return NextResponse.json({
+          success: false,
+          packetId,
+          files: [],
+          logs,
+          errors: [result.error],
+          duration: Date.now() - startTime
+        })
+      }
+
+      log("success", `Generated code using ${result.server}/${result.model}`)
+
+      // Parse output
+      parsed = parseCodeOutput(result.content)
     }
-
-    log("success", `Generated code using ${result.server}/${result.model}`)
-
-    // Parse output
-    const parsed = parseCodeOutput(result.content)
     log("info", `Parsed ${parsed.files.length} files`)
 
     if (parsed.files.length === 0) {

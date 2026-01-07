@@ -27,11 +27,12 @@ export interface LinearSyncConfig {
 }
 
 export interface LinkedRepo {
-  provider: "gitlab" | "github"
+  provider: "gitlab" | "github" | "local"
   id: number
   name: string
   path: string
   url: string
+  localPath?: string // Filesystem path for Claude Code execution (e.g., /home/bill/projects/goldeneye)
 }
 
 export interface Project {

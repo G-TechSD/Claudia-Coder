@@ -9,25 +9,31 @@ interface VoiceInputProps {
   onListeningChange?: (isListening: boolean) => void
   className?: string
   size?: "sm" | "md" | "lg"
-  pauseTimeout?: number // ms to wait before auto-submitting
+  pauseTimeout?: number // ms to wait before auto-submitting (default: 5 minutes for deep thinking)
   disabled?: boolean
 }
 
 /**
  * Voice Input Component with visual feedback
  *
+ * Philosophy: "The quieter you are, the more you are able to hear"
+ * The system should LISTEN, not "wait to talk". Users need 5-10 minutes
+ * of silence to think deeply, not 2 seconds. The best listeners wait
+ * patiently through long pauses.
+ *
  * Features:
  * - Audio visualization (sound wave bars)
- * - Auto-transcription after pause
+ * - Patient auto-transcription after extended pause (5 min default)
  * - Clear status indication
  * - Forgiving about interruptions (accumulates speech)
+ * - Manual send button for user control
  */
 export function VoiceInput({
   onTranscript,
   onListeningChange,
   className,
   size = "md",
-  pauseTimeout = 2000,
+  pauseTimeout = 300000, // 5 minutes - embody stillness and receptivity
   disabled = false
 }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false)
@@ -332,7 +338,7 @@ export function VoiceInput({
         </div>
       )}
 
-      {/* Status Text */}
+      {/* Status Text - "The quieter you are, the more you are able to hear" */}
       <div className="text-center min-h-[40px]">
         {error ? (
           <p className="text-sm text-red-500">{error}</p>
@@ -347,11 +353,11 @@ export function VoiceInput({
               </p>
             ) : (
               <p className="text-sm text-muted-foreground animate-pulse">
-                Listening... speak now
+                Take your time - I&apos;m listening for up to 5 minutes
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Pause for {pauseTimeout / 1000}s to send, or click mic to stop
+              Click mic when ready to send.
             </p>
           </div>
         ) : (

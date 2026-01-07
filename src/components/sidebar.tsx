@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -17,8 +18,6 @@ import {
   Mic,
   ChevronLeft,
   Command,
-  Sparkles,
-  FolderGit2,
   Layers,
 } from "lucide-react"
 
@@ -34,7 +33,6 @@ const navItems: NavItem[] = [
   { title: "Projects", href: "/projects", icon: Layers },
   { title: "Activity", href: "/activity", icon: Activity },
   { title: "Packets", href: "/packets", icon: Package },
-  { title: "Files", href: "/files", icon: FolderGit2 },
   { title: "Timeline", href: "/timeline", icon: GitBranch },
   { title: "Quality", href: "/quality", icon: Shield },
   { title: "Approvals", href: "/approvals", icon: CheckCircle, badge: 3 },
@@ -60,11 +58,19 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex h-14 items-center border-b px-4">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <Sparkles className="h-4 w-4 text-primary-foreground" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg overflow-hidden bg-gradient-to-br from-green-400/20 to-blue-500/20">
+            <Image
+              src="/claudia-logo.jpg"
+              alt="Claudia"
+              width={32}
+              height={32}
+              className="h-8 w-8 object-cover"
+            />
           </div>
           {!collapsed && (
-            <span className="font-semibold tracking-tight">Claudia</span>
+            <span className="font-semibold tracking-tight bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
+              Claudia
+            </span>
           )}
         </Link>
         <Button

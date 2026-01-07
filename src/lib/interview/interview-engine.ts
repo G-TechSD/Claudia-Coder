@@ -197,49 +197,105 @@ function generateFallbackQuestion(session: InterviewSession, userResponse: strin
   const questionCount = session.messages.filter(m => m.role === "assistant").length
   const userMessages = session.messages.filter(m => m.role === "user")
   const allContent = userMessages.map(m => m.content.toLowerCase()).join(" ")
+  const lastResponse = userResponse.toLowerCase()
 
-  // Smart fallbacks based on what hasn't been discussed
+  // Broader pattern matching - recognize when a topic has been discussed even indirectly
   const discussed = {
-    users: /users?|audience|customers?|people|who/i.test(allContent),
-    features: /features?|functionality|capability|do|does/i.test(allContent),
-    tech: /tech|stack|framework|language|react|node|python/i.test(allContent),
-    scale: /scale|size|traffic|performance|big|large|users?.*many/i.test(allContent),
-    timeline: /time|deadline|when|schedule|weeks?|months?|urgent/i.test(allContent),
-    integration: /integrat|api|connect|sync|service/i.test(allContent)
+    users: /users?|audience|customers?|people|who|fans?|players?|members?|visitors?|employees?|clients?|everyone|anyone|somebody|teams?|groups?|individuals?/i.test(allContent),
+    features: /features?|functionality|capability|do|does|can|will|should|want|need|show|display|track|manage|create|edit|delete|view|search|filter|sort|export|import|share|notify|alert|report/i.test(allContent),
+    tech: /tech|stack|framework|language|react|node|python|database|server|cloud|aws|api|rest|graphql|mobile|web|app|backend|frontend|full.?stack/i.test(allContent),
+    scale: /scale|size|traffic|performance|big|large|many|thousand|million|growth|handle|capacity|load|concurrent/i.test(allContent),
+    timeline: /time|deadline|when|schedule|weeks?|months?|urgent|asap|soon|priority|mvp|launch|release|phase/i.test(allContent),
+    integration: /integrat|api|connect|sync|service|third.?party|external|webhook|oauth|auth|payment|stripe|email|notification/i.test(allContent),
+    data: /data|store|save|persist|database|storage|backup|import|export|migrate|sync/i.test(allContent),
+    security: /secure|security|auth|login|password|permission|role|access|encrypt|private|protect/i.test(allContent)
   }
 
-  // Don't repeat topics
-  if (!discussed.users && questionCount >= 1) {
-    return "Who's going to be using this? Paint me a picture of your typical user."
-  }
-  if (!discussed.features && questionCount >= 2) {
-    return "If you could only ship three features, what would they be?"
-  }
-  if (!discussed.tech && questionCount >= 3) {
-    return "Any thoughts on the tech stack, or should I make recommendations based on what you've described?"
-  }
-  if (!discussed.scale && questionCount >= 4) {
-    return "Let's talk scale - are we building for a handful of users or preparing for thousands?"
-  }
-  if (!discussed.integration && questionCount >= 5) {
-    return "Will this need to talk to any existing systems or external services?"
-  }
-  if (!discussed.timeline && questionCount >= 6) {
-    return "What's the timeline looking like? Any key milestones or deadlines?"
+  // Count how many topics have been discussed
+  const topicsDiscussed = Object.values(discussed).filter(Boolean).length
+
+  // Varied follow-up questions based on what user just said
+  const followUpQuestions = [
+    "That's interesting! Can you tell me more about that specific aspect?",
+    "I'd love to understand that better - what made you decide on that approach?",
+    "Great point! How do you see that working in practice?",
+    "That makes sense. What would make that experience exceptional?",
+    "Interesting! Are there any specific examples or inspirations you're drawing from?"
+  ]
+
+  // If we've already discussed most topics, move to wrap-up
+  if (topicsDiscussed >= 4 || questionCount >= 8) {
+    const wrapUpQuestions = [
+      "We've covered a lot of ground! What's the single most critical thing that needs to work perfectly?",
+      "Based on everything we've discussed, what would you consider the MVP - the minimum to launch?",
+      "Is there anything we haven't touched on that's important to you?",
+      "What would success look like six months after launch?",
+      "Any concerns or risks you'd like to make sure we address?"
+    ]
+    return wrapUpQuestions[questionCount % wrapUpQuestions.length]
   }
 
-  // Wrap-up questions
-  if (questionCount >= 10) {
-    return "We've covered a lot of ground. What's the one thing that absolutely has to be right for this to succeed?"
-  }
-  if (questionCount >= 12) {
-    return "Anything else important that we haven't touched on?"
-  }
-  if (questionCount >= 15) {
-    return "I think we have a solid foundation. Ready to wrap up?"
+  // Smart topic progression - pick topics not yet discussed
+  const topicQuestions: Array<{ check: boolean; questions: string[] }> = [
+    {
+      check: !discussed.users,
+      questions: [
+        "Who's the primary audience for this? Tell me about your ideal user.",
+        "Who do you envision using this the most?",
+        "Paint me a picture of your target user - what's their day like?"
+      ]
+    },
+    {
+      check: !discussed.features,
+      questions: [
+        "What are the must-have features for the first version?",
+        "If you could only ship three things, what would they be?",
+        "What's the core experience you want users to have?"
+      ]
+    },
+    {
+      check: !discussed.tech,
+      questions: [
+        "Do you have any technical preferences or constraints?",
+        "Any specific technologies you'd like to use or avoid?",
+        "Should I recommend a tech stack based on what we've discussed?"
+      ]
+    },
+    {
+      check: !discussed.scale,
+      questions: [
+        "How big do you expect this to get? Hundreds of users? Thousands? More?",
+        "What kind of growth are you anticipating?",
+        "Should we design for scale from the start or start simple?"
+      ]
+    },
+    {
+      check: !discussed.integration,
+      questions: [
+        "Will this need to connect with any existing systems?",
+        "Any third-party services or APIs you'd like to integrate?",
+        "How does this fit into your existing ecosystem?"
+      ]
+    },
+    {
+      check: !discussed.timeline,
+      questions: [
+        "What's your timeline looking like?",
+        "Any key milestones or deadlines to be aware of?",
+        "When would you ideally like to see this live?"
+      ]
+    }
+  ]
+
+  // Find next undiscussed topic
+  for (const topic of topicQuestions) {
+    if (topic.check) {
+      return topic.questions[Math.floor(Math.random() * topic.questions.length)]
+    }
   }
 
-  return "Tell me more about that - what's most important to you there?"
+  // Default: contextual follow-up
+  return followUpQuestions[Math.floor(Math.random() * followUpQuestions.length)]
 }
 
 // ============ Insight Extraction ============

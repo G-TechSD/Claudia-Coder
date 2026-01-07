@@ -246,6 +246,13 @@ export default function VoicePage() {
               )}
             </button>
 
+            {/* Patience Message - Listener Philosophy */}
+            {isListening && (
+              <p className="text-sm text-muted-foreground mt-4">
+                Take your time - I&apos;m listening for up to 5 minutes
+              </p>
+            )}
+
             {/* Current Transcript */}
             {currentTranscript && (
               <div className="mt-8 p-4 rounded-lg bg-muted/50 max-w-md text-center">

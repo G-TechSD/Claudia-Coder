@@ -10,6 +10,7 @@ export interface LLMServer {
   type: "lmstudio" | "ollama"
   status: "unknown" | "online" | "offline" | "busy"
   currentModel?: string
+  availableModels?: string[]
 }
 
 export interface ChatMessage {
@@ -87,29 +88,74 @@ export async function checkServerStatus(server: LLMServer, verifyModel = false):
     // LM Studio returns { data: [{ id: "model-name", ... }] }
     // Ollama returns { models: [{ name: "model-name", ... }] }
     let currentModel: string | undefined
+    let availableModels: string[] = []
 
-    if (server.type === "lmstudio" && data.data?.[0]?.id) {
-      currentModel = data.data[0].id
-    } else if (server.type === "ollama" && data.models?.[0]?.name) {
-      currentModel = data.models[0].name
+    if (server.type === "lmstudio" && data.data) {
+      availableModels = data.data.map((m: { id: string }) => m.id)
+      currentModel = data.data[0]?.id
+    } else if (server.type === "ollama" && data.models) {
+      availableModels = data.models.map((m: { name: string }) => m.name)
+      currentModel = data.models[0]?.name
     }
 
     // Optionally verify the model is actually loaded and ready
     if (verifyModel && currentModel) {
       const verified = await verifyModelLoaded(server, currentModel)
       if (!verified) {
-        return { ...server, status: "busy", currentModel }
+        return { ...server, status: "busy", currentModel, availableModels }
       }
     }
 
     return {
       ...server,
       status: "online",
-      currentModel
+      currentModel,
+      availableModels
     }
   } catch {
     return { ...server, status: "offline" }
   }
+}
+
+// Get detailed server info including all models
+export async function getServerDetails(server: LLMServer): Promise<LLMServer & {
+  modelInfo?: { id: string; size?: number; modified?: string }[]
+}> {
+  const status = await checkServerStatus(server)
+
+  if (status.status !== "online") {
+    return status
+  }
+
+  // For LM Studio, try to get more model details
+  if (server.type === "lmstudio") {
+    try {
+      const response = await fetch(`${server.url}/v1/models`, {
+        signal: AbortSignal.timeout(5000)
+      })
+      const data = await response.json()
+      return {
+        ...status,
+        modelInfo: data.data?.map((m: { id: string; owned_by?: string }) => ({
+          id: m.id,
+          owner: m.owned_by
+        }))
+      }
+    } catch {
+      return status
+    }
+  }
+
+  return status
+}
+
+// Get all configured servers with their status
+export async function getAllServersWithStatus(): Promise<LLMServer[]> {
+  const servers = getConfiguredServers()
+  const results = await Promise.all(
+    servers.map(server => checkServerStatus(server))
+  )
+  return results
 }
 
 // Quick test to verify model is actually loaded (not just listed)

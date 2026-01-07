@@ -27,12 +27,18 @@ interface TranscriptionOptions {
 function getWhisperEndpoint(): string | null {
   if (typeof window === "undefined") return null
 
-  // First try LM Studio endpoints
+  // Priority: Dedicated Whisper server > LM Studio > Ollama
+  const whisperUrl = process.env.NEXT_PUBLIC_WHISPER_URL
   const lmstudioBeast = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
   const lmstudioBedroom = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
   const ollamaUrl = process.env.NEXT_PUBLIC_OLLAMA_URL
 
-  // Prefer LM Studio BEAST for performance
+  // Prefer dedicated Whisper server
+  if (whisperUrl) {
+    return `${whisperUrl}/v1/audio/transcriptions`
+  }
+
+  // Fallback to LM Studio BEAST for performance
   if (lmstudioBeast) {
     return `${lmstudioBeast}/v1/audio/transcriptions`
   }
@@ -57,16 +63,30 @@ export async function isWhisperAvailable(): Promise<boolean> {
   if (!endpoint) return false
 
   try {
-    // Try to reach the endpoint (just check if server is responsive)
-    const baseUrl = endpoint.replace("/v1/audio/transcriptions", "/v1/models")
-    const response = await fetch(baseUrl, {
+    // Try the health endpoint first (for faster-whisper-server)
+    const baseUrl = endpoint.replace("/v1/audio/transcriptions", "")
+    const healthResponse = await fetch(`${baseUrl}/health`, {
       method: "GET",
       signal: AbortSignal.timeout(3000)
     })
-    return response.ok
+    if (healthResponse.ok) return true
+
+    // Fallback to models endpoint (for OpenAI-compatible servers)
+    const modelsResponse = await fetch(`${baseUrl}/v1/models`, {
+      method: "GET",
+      signal: AbortSignal.timeout(3000)
+    })
+    return modelsResponse.ok
   } catch {
     return false
   }
+}
+
+/**
+ * Get the configured Whisper endpoint URL (for debugging)
+ */
+export function getWhisperUrl(): string | null {
+  return getWhisperEndpoint()
 }
 
 /**

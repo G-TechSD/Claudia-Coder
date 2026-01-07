@@ -54,130 +54,9 @@ const typeConfig = {
   quality: { label: "Quality Gate", icon: GitPullRequest, color: "text-yellow-400" }
 }
 
-const mockApprovals: Approval[] = [
-  {
-    id: "apr-1",
-    type: "cost",
-    title: "GPU allocation for model training",
-    description: "Request to allocate additional GPU resources for parallel model inference",
-    status: "pending",
-    packetId: "PKT-001",
-    requestedBy: "BEAST",
-    requestedAt: new Date(Date.now() - 1800000),
-    expiresAt: new Date(Date.now() + 7200000),
-    details: {
-      "Estimated Cost": "$4.50",
-      "Duration": "2 hours",
-      "GPU Type": "RTX 4090",
-      "Reason": "Parallel code generation"
-    },
-    urgency: "high"
-  },
-  {
-    id: "apr-2",
-    type: "deploy",
-    title: "Deploy to production environment",
-    description: "Ready to deploy v2.1.4 to production after all tests passed",
-    status: "pending",
-    packetId: "PKT-005",
-    requestedBy: "n8n",
-    requestedAt: new Date(Date.now() - 3600000),
-    details: {
-      "Version": "2.1.4",
-      "Changes": "12 files",
-      "Tests": "47/47 passed",
-      "Coverage": "84%"
-    },
-    urgency: "normal"
-  },
-  {
-    id: "apr-3",
-    type: "security",
-    title: "External API integration",
-    description: "Adding new third-party payment processor API",
-    status: "pending",
-    packetId: "PKT-003",
-    requestedBy: "Claude",
-    requestedAt: new Date(Date.now() - 7200000),
-    expiresAt: new Date(Date.now() + 86400000),
-    details: {
-      "API Provider": "Stripe",
-      "Scopes": "payments:write",
-      "Data Exposed": "customer_id, amount"
-    },
-    urgency: "high"
-  },
-  {
-    id: "apr-4",
-    type: "manual",
-    title: "Review generated UI components",
-    description: "Human review requested for AI-generated dashboard components",
-    status: "pending",
-    packetId: "PKT-002",
-    requestedBy: "BEDROOM",
-    requestedAt: new Date(Date.now() - 10800000),
-    details: {
-      "Components": "5",
-      "Lines of Code": "842",
-      "Complexity": "Medium"
-    },
-    urgency: "low"
-  },
-  {
-    id: "apr-5",
-    type: "cost",
-    title: "Claude API budget extension",
-    description: "Daily budget exhausted, requesting additional allocation",
-    status: "approved",
-    packetId: "PKT-004",
-    requestedBy: "n8n",
-    requestedAt: new Date(Date.now() - 86400000),
-    respondedAt: new Date(Date.now() - 82800000),
-    respondedBy: "Admin",
-    details: {
-      "Current Spent": "$25.00",
-      "Requested": "$10.00",
-      "New Budget": "$35.00"
-    },
-    urgency: "high"
-  },
-  {
-    id: "apr-6",
-    type: "deploy",
-    title: "Rollback to v2.1.2",
-    description: "Critical bug detected in production",
-    status: "approved",
-    packetId: "PKT-006",
-    requestedBy: "n8n",
-    requestedAt: new Date(Date.now() - 172800000),
-    respondedAt: new Date(Date.now() - 172200000),
-    respondedBy: "Admin",
-    details: {
-      "Current Version": "2.1.3",
-      "Target Version": "2.1.2",
-      "Reason": "Payment processing error"
-    },
-    urgency: "high"
-  },
-  {
-    id: "apr-7",
-    type: "quality",
-    title: "Skip E2E tests for hotfix",
-    description: "Request to bypass E2E tests for urgent production fix",
-    status: "rejected",
-    packetId: "PKT-007",
-    requestedBy: "BEAST",
-    requestedAt: new Date(Date.now() - 259200000),
-    respondedAt: new Date(Date.now() - 255600000),
-    respondedBy: "Admin",
-    details: {
-      "Gate": "E2E Tests",
-      "Reason": "Urgent hotfix",
-      "Risk": "Medium"
-    },
-    urgency: "normal"
-  }
-]
+// Approvals will come from execution pipeline when human approval is required
+// Empty by default - populated when agents request human intervention
+const initialApprovals: Approval[] = []
 
 function formatTime(date: Date): string {
   const diff = Date.now() - date.getTime()
@@ -199,7 +78,7 @@ function formatTimeUntil(date: Date): string {
 }
 
 export default function ApprovalsPage() {
-  const [approvals] = useState<Approval[]>(mockApprovals)
+  const [approvals] = useState<Approval[]>(initialApprovals)
   const [selectedApproval, setSelectedApproval] = useState<Approval | null>(null)
   const [statusFilter, setStatusFilter] = useState<ApprovalStatus | "all">("pending")
 

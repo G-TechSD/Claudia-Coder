@@ -27,6 +27,14 @@ import {
   type LocalServerConfig
 } from "@/lib/settings/global-settings"
 import {
+  getAllClaudiaKeys,
+  getDataSummary,
+  clearAllData,
+  clearProjectData,
+  exportAllData,
+  importData
+} from "@/lib/data/reset"
+import {
   Settings,
   Server,
   Key,
@@ -52,7 +60,12 @@ import {
   EyeOff,
   Loader2,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  HardDrive,
+  Upload,
+  Download as DownloadIcon,
+  AlertOctagon,
+  FileJson
 } from "lucide-react"
 
 interface ServiceStatus {
@@ -93,7 +106,7 @@ function SettingsPageContent() {
   // Handle tab query parameter
   useEffect(() => {
     const tab = searchParams.get("tab")
-    if (tab && ["ai-services", "connections", "api-keys", "notifications", "automation", "security", "appearance"].includes(tab)) {
+    if (tab && ["ai-services", "connections", "api-keys", "notifications", "automation", "security", "appearance", "data"].includes(tab)) {
       setActiveTab(tab)
     }
   }, [searchParams])
@@ -291,6 +304,65 @@ function SettingsPageContent() {
     { id: "a5", label: "Ralph Wiggum Loop", description: "Keep iterating until all tests pass", enabled: true }
   ])
 
+  // Data management state
+  const [dataSummary, setDataSummary] = useState(() => getDataSummary())
+  const [showDangerZone, setShowDangerZone] = useState(false)
+  const [confirmClear, setConfirmClear] = useState("")
+  const [clearingData, setClearingData] = useState(false)
+  const [importingData, setImportingData] = useState(false)
+
+  const refreshDataSummary = () => setDataSummary(getDataSummary())
+
+  const handleExportData = () => {
+    const data = exportAllData()
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `claudia-backup-${new Date().toISOString().split("T")[0]}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setImportingData(true)
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      const imported = importData(data)
+      alert(`Successfully imported ${imported.length} items`)
+      refreshDataSummary()
+    } catch (error) {
+      alert("Failed to import data: " + (error instanceof Error ? error.message : "Invalid file"))
+    } finally {
+      setImportingData(false)
+      event.target.value = ""
+    }
+  }
+
+  const handleClearAllData = () => {
+    if (confirmClear !== "DELETE ALL") return
+    setClearingData(true)
+    const result = clearAllData({ keepToken: true })
+    setClearingData(false)
+    setConfirmClear("")
+    setShowDangerZone(false)
+    alert(`Cleared ${result.clearedKeys.length} items. GitLab token preserved.`)
+    refreshDataSummary()
+  }
+
+  const handleClearProjectData = () => {
+    if (!confirm("This will clear all project data but keep your settings. Continue?")) return
+    const cleared = clearProjectData()
+    alert(`Cleared ${cleared.length} project-related items`)
+    refreshDataSummary()
+  }
+
   const tabs = [
     { id: "ai-services", label: "AI Services", icon: Brain },
     { id: "connections", label: "Connections", icon: Server },
@@ -298,7 +370,8 @@ function SettingsPageContent() {
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "automation", label: "Automation", icon: Zap },
     { id: "security", label: "Security", icon: Shield },
-    { id: "appearance", label: "Appearance", icon: Palette }
+    { id: "appearance", label: "Appearance", icon: Palette },
+    { id: "data", label: "Data", icon: HardDrive }
   ]
 
   const toggleSetting = (list: SettingToggle[], setList: React.Dispatch<React.SetStateAction<SettingToggle[]>>, id: string) => {
@@ -808,6 +881,199 @@ function SettingsPageContent() {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {/* Data Tab */}
+          {activeTab === "data" && (
+            <>
+              {/* Data Summary */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileJson className="h-5 w-5" />
+                        Stored Data
+                      </CardTitle>
+                      <CardDescription>Overview of data stored in your browser</CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={refreshDataSummary} className="gap-2">
+                      <RefreshCw className="h-4 w-4" />
+                      Refresh
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-lg border text-center">
+                      <p className="text-2xl font-bold">{dataSummary.projects}</p>
+                      <p className="text-sm text-muted-foreground">Projects</p>
+                    </div>
+                    <div className="p-4 rounded-lg border text-center">
+                      <p className="text-2xl font-bold">{dataSummary.packets}</p>
+                      <p className="text-sm text-muted-foreground">Packets</p>
+                    </div>
+                    <div className="p-4 rounded-lg border text-center">
+                      <p className="text-2xl font-bold">{dataSummary.buildPlans}</p>
+                      <p className="text-sm text-muted-foreground">Build Plans</p>
+                    </div>
+                    <div className="p-4 rounded-lg border text-center">
+                      <p className="text-2xl font-bold">{dataSummary.totalKeys}</p>
+                      <p className="text-sm text-muted-foreground">Total Keys</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    {dataSummary.hasSettings && (
+                      <Badge variant="outline">Settings Configured</Badge>
+                    )}
+                    {dataSummary.hasGitLabToken && (
+                      <Badge variant="outline" className="text-green-500 border-green-500/50">GitLab Connected</Badge>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Import/Export */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Import & Export</CardTitle>
+                  <CardDescription>Backup or restore your Claudia data</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between p-4 rounded-lg border">
+                    <div>
+                      <p className="font-medium">Export All Data</p>
+                      <p className="text-sm text-muted-foreground">
+                        Download a JSON backup of all projects, settings, and configurations
+                      </p>
+                    </div>
+                    <Button onClick={handleExportData} className="gap-2">
+                      <DownloadIcon className="h-4 w-4" />
+                      Export
+                    </Button>
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-lg border">
+                    <div>
+                      <p className="font-medium">Import Data</p>
+                      <p className="text-sm text-muted-foreground">
+                        Restore from a previously exported backup file
+                      </p>
+                    </div>
+                    <label>
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleImportData}
+                        className="hidden"
+                        disabled={importingData}
+                      />
+                      <Button asChild disabled={importingData} className="gap-2 cursor-pointer">
+                        <span>
+                          {importingData ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Upload className="h-4 w-4" />
+                          )}
+                          Import
+                        </span>
+                      </Button>
+                    </label>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Clear Project Data */}
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Clear Project Data</p>
+                      <p className="text-sm text-muted-foreground">
+                        Remove all projects and packets, but keep settings and connections
+                      </p>
+                    </div>
+                    <Button variant="outline" onClick={handleClearProjectData} className="gap-2">
+                      <Trash2 className="h-4 w-4" />
+                      Clear Projects
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Danger Zone - Hidden by Default */}
+              <Card className="border-destructive/30">
+                <CardHeader>
+                  <button
+                    onClick={() => setShowDangerZone(!showDangerZone)}
+                    className="flex items-center justify-between w-full text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <AlertOctagon className="h-5 w-5 text-destructive" />
+                      <div>
+                        <CardTitle className="text-destructive">Danger Zone</CardTitle>
+                        <CardDescription>Irreversible actions</CardDescription>
+                      </div>
+                    </div>
+                    <span className={cn(
+                      "text-xs text-muted-foreground transition-transform",
+                      showDangerZone && "rotate-180"
+                    )}>
+                      ▼
+                    </span>
+                  </button>
+                </CardHeader>
+                {showDangerZone && (
+                  <CardContent className="space-y-4 border-t pt-4">
+                    <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 space-y-4">
+                      <div>
+                        <p className="font-medium text-destructive">Delete All Data</p>
+                        <p className="text-sm text-muted-foreground">
+                          Permanently delete all Claudia data including projects, packets, build plans,
+                          settings, and configurations. Your GitLab token will be preserved.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={handleExportData}
+                          className="gap-2"
+                        >
+                          <DownloadIcon className="h-4 w-4" />
+                          Export First
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="confirmDelete" className="text-sm">
+                          Type <code className="px-1 py-0.5 bg-muted rounded font-mono">DELETE ALL</code> to confirm:
+                        </Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="confirmDelete"
+                            value={confirmClear}
+                            onChange={(e) => setConfirmClear(e.target.value)}
+                            placeholder="Type DELETE ALL"
+                            className="max-w-xs"
+                          />
+                          <Button
+                            variant="destructive"
+                            onClick={handleClearAllData}
+                            disabled={confirmClear !== "DELETE ALL" || clearingData}
+                            className="gap-2"
+                          >
+                            {clearingData ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                            Delete Everything
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            </>
           )}
         </div>
       </div>
