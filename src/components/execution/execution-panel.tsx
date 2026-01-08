@@ -5,10 +5,20 @@ import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GoButton, HeroGoButton } from "./go-button"
 import { ActivityStream, ActivityEvent, ActivityIndicator } from "./activity-stream"
-import { AlertCircle, Settings2, Sparkles, RefreshCw, Cpu, Zap, Wifi, WifiOff } from "lucide-react"
+import { AlertCircle, Settings2, Sparkles, RefreshCw, Cpu, Zap, Wifi, WifiOff, GitBranch, RotateCcw, CheckCircle2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
-type ExecutionMode = "local" | "turbo" | "auto"
+type ExecutionMode = "local" | "turbo" | "auto" | "n8n"
+
+type N8NStage = "generating" | "validating" | "iterating" | "complete" | "idle"
+
+interface N8NStatus {
+  stage: N8NStage
+  iteration: number
+  maxIterations: number
+  qualityScore: number | null
+  validatorFeedback: string | null
+}
 
 interface WorkPacket {
   id: string
@@ -60,6 +70,13 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
   const [isRefining, setIsRefining] = React.useState(false)
   const [executionMode, setExecutionMode] = React.useState<ExecutionMode>("auto")
   const [lastUsedMode, setLastUsedMode] = React.useState<string | null>(null)
+  const [n8nStatus, setN8NStatus] = React.useState<N8NStatus>({
+    stage: "idle",
+    iteration: 0,
+    maxIterations: 5,
+    qualityScore: null,
+    validatorFeedback: null
+  })
 
   // Filter to executable packets - include "queued" for Linear-imported issues
   const readyPackets = packets.filter(p =>
@@ -89,6 +106,17 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
     setProgress(0)
     setError(null)
     setEvents([])
+
+    // Reset N8N status if using N8N mode
+    if (executionMode === "n8n") {
+      setN8NStatus({
+        stage: "generating",
+        iteration: 1,
+        maxIterations: 5,
+        qualityScore: null,
+        validatorFeedback: null
+      })
+    }
 
     addEvent("start", "Execution started", `Processing ${readyPackets.length} packets`)
 
@@ -136,6 +164,18 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
         // Track which mode was actually used
         if (result.mode) {
           setLastUsedMode(result.mode)
+        }
+
+        // Update N8N status if present in result
+        if (result.n8nStatus) {
+          setN8NStatus(prev => ({
+            ...prev,
+            stage: result.n8nStatus.stage || prev.stage,
+            iteration: result.n8nStatus.iteration || prev.iteration,
+            maxIterations: result.n8nStatus.maxIterations || prev.maxIterations,
+            qualityScore: result.n8nStatus.qualityScore ?? prev.qualityScore,
+            validatorFeedback: result.n8nStatus.validatorFeedback || prev.validatorFeedback
+          }))
         }
 
         if (!result.success) {
@@ -234,7 +274,7 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
       }
 
       if (result.success) {
-        const modeLabel = result.mode === "local" ? "Local" : "Turbo"
+        const modeLabel = result.mode === "local" ? "Local" : result.mode === "n8n" ? "N8N" : "Turbo"
         addEvent("complete", `Refinement #${iteration} complete`,
           `${result.filesChanged?.length || 0} files improved (${modeLabel} mode)`)
       } else {
@@ -268,11 +308,11 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
               <span className="text-sm font-medium text-gray-300">Execution Mode</span>
               {lastUsedMode && (
                 <span className="text-xs text-gray-500">
-                  Last: {lastUsedMode === "local" ? "Local" : "Turbo"}
+                  Last: {lastUsedMode === "local" ? "Local" : lastUsedMode === "turbo" ? "Turbo" : lastUsedMode === "n8n" ? "N8N" : "Auto"}
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {/* Auto Mode */}
               <button
                 onClick={() => setExecutionMode("auto")}
@@ -325,13 +365,139 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
                 </div>
                 <p className="text-xs opacity-70">Cloud-powered</p>
               </button>
+
+              {/* N8N Mode (Workflow Orchestration - Quality Loops) */}
+              <button
+                onClick={() => setExecutionMode("n8n")}
+                title="Multi-stage quality pipeline with iteration loops"
+                className={cn(
+                  "p-3 rounded-lg border transition-all text-left",
+                  executionMode === "n8n"
+                    ? "border-orange-500/50 bg-orange-500/10 text-orange-300"
+                    : "border-gray-700 hover:border-gray-600 text-gray-400 hover:text-gray-300"
+                )}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <RotateCcw className="h-4 w-4" />
+                  <span className="font-medium text-sm">N8N</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">LOOP</span>
+                </div>
+                <p className="text-xs opacity-70">Quality pipeline</p>
+              </button>
             </div>
             <p className="text-xs text-gray-500 mt-2 text-center">
               {executionMode === "auto" && "Uses Local when available, falls back to Turbo"}
               {executionMode === "local" && "LM Studio - No internet required, zero subscriptions"}
               {executionMode === "turbo" && "Claude Code - Higher quality, requires API subscription"}
+              {executionMode === "n8n" && "Multi-stage quality pipeline with iteration loops"}
             </p>
           </div>
+
+          {/* N8N Status Display - Shows when N8N mode is active and running */}
+          {executionMode === "n8n" && status === "running" && (
+            <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-orange-500/10 to-amber-500/10 border border-orange-500/30">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <RotateCcw className="h-5 w-5 text-orange-400 animate-spin" />
+                  <span className="font-medium text-orange-300">N8N Pipeline Active</span>
+                </div>
+                <span className="text-xs text-orange-400/70">
+                  Iteration {n8nStatus.iteration}/{n8nStatus.maxIterations}
+                </span>
+              </div>
+
+              {/* Stage Indicators */}
+              <div className="flex items-center gap-2 mb-3">
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded-full text-xs",
+                  n8nStatus.stage === "generating"
+                    ? "bg-orange-500/20 text-orange-300"
+                    : n8nStatus.stage === "validating" || n8nStatus.stage === "iterating" || n8nStatus.stage === "complete"
+                    ? "bg-green-500/20 text-green-400"
+                    : "bg-gray-700/50 text-gray-500"
+                )}>
+                  {n8nStatus.stage === "generating" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-3 w-3" />
+                  )}
+                  Generating
+                </div>
+                <GitBranch className="h-3 w-3 text-gray-600" />
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded-full text-xs",
+                  n8nStatus.stage === "validating"
+                    ? "bg-orange-500/20 text-orange-300"
+                    : n8nStatus.stage === "iterating" || n8nStatus.stage === "complete"
+                    ? "bg-green-500/20 text-green-400"
+                    : "bg-gray-700/50 text-gray-500"
+                )}>
+                  {n8nStatus.stage === "validating" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : n8nStatus.stage === "iterating" || n8nStatus.stage === "complete" ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : (
+                    <span className="h-3 w-3 rounded-full border border-current" />
+                  )}
+                  Validating
+                </div>
+                <GitBranch className="h-3 w-3 text-gray-600" />
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded-full text-xs",
+                  n8nStatus.stage === "iterating"
+                    ? "bg-orange-500/20 text-orange-300"
+                    : n8nStatus.stage === "complete"
+                    ? "bg-green-500/20 text-green-400"
+                    : "bg-gray-700/50 text-gray-500"
+                )}>
+                  {n8nStatus.stage === "iterating" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : n8nStatus.stage === "complete" ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : (
+                    <span className="h-3 w-3 rounded-full border border-current" />
+                  )}
+                  Iterating
+                </div>
+              </div>
+
+              {/* Quality Score */}
+              {n8nStatus.qualityScore !== null && (
+                <div className="flex items-center justify-between p-2 rounded-lg bg-gray-800/50">
+                  <span className="text-xs text-gray-400">Quality Score</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-24 h-2 rounded-full bg-gray-700 overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all",
+                          n8nStatus.qualityScore >= 80 ? "bg-green-500" :
+                          n8nStatus.qualityScore >= 60 ? "bg-yellow-500" :
+                          "bg-red-500"
+                        )}
+                        style={{ width: `${n8nStatus.qualityScore}%` }}
+                      />
+                    </div>
+                    <span className={cn(
+                      "text-sm font-medium",
+                      n8nStatus.qualityScore >= 80 ? "text-green-400" :
+                      n8nStatus.qualityScore >= 60 ? "text-yellow-400" :
+                      "text-red-400"
+                    )}>
+                      {n8nStatus.qualityScore}%
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Validator Feedback */}
+              {n8nStatus.validatorFeedback && (
+                <div className="mt-2 p-2 rounded-lg bg-gray-800/50">
+                  <p className="text-xs text-gray-400 mb-1">Validator Feedback</p>
+                  <p className="text-xs text-gray-300">{n8nStatus.validatorFeedback}</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Error message */}
           {error && (

@@ -1,10 +1,14 @@
 /**
  * Claudia Execution API
  * Executes work packets using:
+ * - N8N MODE: N8N workflow orchestration - handles iteration loops and quality validation
  * - LOCAL MODE (Free): LM Studio - works completely offline, no subscriptions
  * - TURBO MODE (Paid): Claude Code CLI - higher quality but requires API key
  *
- * LOCAL MODE is the default and works in the desert with no internet.
+ * N8N MODE triggers an external N8N workflow that handles the iteration loop,
+ * quality validation, and progress tracking. Results are delivered via callback.
+ *
+ * LOCAL MODE is the default fallback and works in the desert with no internet.
  * TURBO MODE is optional premium for users who want faster/better refinement.
  */
 
@@ -25,8 +29,12 @@ const SSH_HOST = process.env.CLAUDE_CODE_HOST || "172.18.22.114"
 const SSH_USER = process.env.CLAUDE_CODE_USER || "johnny-test"
 const SSH_KEY_PATH = process.env.CLAUDE_CODE_SSH_KEY || "~/.ssh/id_rsa"
 
-// Execution mode: "local" (LM Studio - free), "turbo" (Claude Code - paid)
-type ExecutionMode = "local" | "turbo" | "auto"
+// Execution mode: "local" (LM Studio - free), "turbo" (Claude Code - paid), "n8n" (N8N workflow)
+type ExecutionMode = "local" | "turbo" | "n8n" | "auto"
+
+// N8N configuration
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "http://192.168.245.211:5678/webhook/claudia-execute"
+const CLAUDIA_CALLBACK_URL = process.env.CLAUDIA_CALLBACK_URL || "http://localhost:3000/api/n8n-callback"
 
 interface ExecutionRequest {
   projectId: string
@@ -85,10 +93,31 @@ export async function POST(request: NextRequest) {
     // Build the prompt
     const prompt = buildClaudePrompt(packet)
 
-    let result: { success: boolean; output: string; filesChanged: string[]; mode: string }
+    let result: { success: boolean; output: string; filesChanged: string[]; mode: string; executionId?: string; async?: boolean }
 
     // Determine execution mode
-    if (mode === "local") {
+    if (mode === "n8n") {
+      // N8N Mode: Trigger N8N workflow, N8N handles iteration loop
+      emit("thinking", "Using N8N Mode...", "Workflow orchestration with quality loops")
+      const n8nResult = await triggerN8NWorkflow(body, emit)
+
+      if (n8nResult.async) {
+        // N8N returns immediately, results come via callback
+        emit("complete", "N8N workflow triggered", `Execution ID: ${n8nResult.executionId}`, { progress: 100 })
+        return NextResponse.json({
+          success: true,
+          packetId: packet.id,
+          events,
+          async: true,
+          executionId: n8nResult.executionId,
+          message: "Workflow triggered. Results will be delivered via callback.",
+          duration: Date.now() - startTime,
+          mode: "n8n"
+        })
+      }
+
+      result = { ...n8nResult, mode: "n8n" }
+    } else if (mode === "local") {
       // Force LM Studio (free, offline)
       emit("thinking", "Using Local Mode (LM Studio)...", "Free, works offline")
       result = await executeWithLMStudio(prompt, repoPath, packet, options, emit)
@@ -176,6 +205,153 @@ async function executeWithClaudeCode(
     return executeLocally(prompt, repoPath, options)
   } else {
     return executeRemotely(prompt, repoPath, options)
+  }
+}
+
+/**
+ * Trigger N8N workflow for execution (N8N Mode)
+ * N8N handles the iteration loop, quality validation, and progress tracking.
+ * Claudia just triggers and receives results via callback.
+ */
+async function triggerN8NWorkflow(
+  request: ExecutionRequest,
+  emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void
+): Promise<{
+  success: boolean
+  output: string
+  filesChanged: string[]
+  executionId?: string
+  async?: boolean
+}> {
+  const { projectId, projectName, repoPath, packet, options } = request
+
+  // Generate a unique session ID for tracking
+  const sessionId = `claudia-${projectId}-${packet.id}-${Date.now()}`
+
+  emit("thinking", "Preparing N8N workflow request...", `Session: ${sessionId}`)
+
+  // Build the webhook payload
+  const webhookPayload = {
+    sessionId,
+    callbackUrl: CLAUDIA_CALLBACK_URL,
+    task: {
+      type: packet.type || "code_gen",
+      projectId,
+      projectName,
+      packetId: packet.id,
+      title: packet.title,
+      description: packet.description,
+      tasks: packet.tasks,
+      acceptanceCriteria: packet.acceptanceCriteria,
+      priority: packet.priority,
+      qualityThreshold: 80, // Default quality threshold
+      maxIterations: options?.maxIterations || 5
+    },
+    context: {
+      repoPath,
+      runTests: options?.runTests ?? true,
+      createCommit: options?.createCommit ?? false,
+      createPR: options?.createPR ?? false
+    },
+    metadata: {
+      triggeredAt: new Date().toISOString(),
+      triggeredBy: "claudia-execution-api"
+    }
+  }
+
+  try {
+    emit("thinking", "Triggering N8N workflow...", N8N_WEBHOOK_URL)
+
+    const response = await fetch(N8N_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Claudia-Session": sessionId
+      },
+      body: JSON.stringify(webhookPayload)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      emit("error", "N8N webhook failed", `Status: ${response.status} - ${errorText}`)
+      return {
+        success: false,
+        output: `N8N webhook returned ${response.status}: ${errorText}`,
+        filesChanged: []
+      }
+    }
+
+    const result = await response.json()
+
+    emit("thinking", "N8N workflow accepted", `Execution ID: ${result.executionId || sessionId}`)
+
+    // N8N workflows are async - they return immediately and send results via callback
+    return {
+      success: true,
+      output: "N8N workflow triggered successfully. Results will be delivered via callback.",
+      filesChanged: [],
+      executionId: result.executionId || sessionId,
+      async: true
+    }
+
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error"
+    emit("error", "Failed to trigger N8N workflow", message)
+
+    // Check for common errors
+    if (message.includes("ECONNREFUSED") || message.includes("fetch failed")) {
+      return {
+        success: false,
+        output: `Cannot connect to N8N at ${N8N_WEBHOOK_URL}. Ensure N8N is running and accessible.`,
+        filesChanged: []
+      }
+    }
+
+    if (message.includes("ETIMEDOUT")) {
+      return {
+        success: false,
+        output: `Connection to N8N timed out. Check network connectivity to ${N8N_WEBHOOK_URL}`,
+        filesChanged: []
+      }
+    }
+
+    return {
+      success: false,
+      output: `Failed to trigger N8N workflow: ${message}`,
+      filesChanged: []
+    }
+  }
+}
+
+/**
+ * Check if N8N is reachable
+ */
+async function checkN8NAvailable(): Promise<boolean> {
+  try {
+    // Try to reach the N8N webhook - expect 404 for GET (webhook only accepts POST)
+    // or 200 if n8n is running with a test endpoint
+    const url = new URL(N8N_WEBHOOK_URL)
+    const healthUrl = `${url.protocol}//${url.host}/healthz`
+
+    const response = await fetch(healthUrl, {
+      method: "GET",
+      signal: AbortSignal.timeout(5000)
+    })
+
+    // N8N returns 200 for health check
+    return response.ok
+  } catch {
+    // If health check fails, try the webhook URL directly with HEAD
+    try {
+      const response = await fetch(N8N_WEBHOOK_URL, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(5000)
+      })
+      // Even a 405 (Method Not Allowed) means n8n is reachable
+      return response.status === 405 || response.ok
+    } catch {
+      return false
+    }
   }
 }
 
@@ -928,21 +1104,40 @@ async function checkRemoteAvailable(): Promise<boolean> {
 
 /**
  * GET endpoint - check execution capability
- * Reports both Local Mode (LM Studio) and Turbo Mode (Claude Code)
+ * Reports Local Mode (LM Studio), Turbo Mode (Claude Code), and N8N Mode
  */
 export async function GET() {
   // Check all backends in parallel
-  const [claudeLocalAvailable, claudeRemoteAvailable, lmStudioServer] = await Promise.all([
+  const [claudeLocalAvailable, claudeRemoteAvailable, lmStudioServer, n8nAvailable] = await Promise.all([
     checkLocalClaudeAvailable(),
     checkRemoteAvailable(),
-    getAvailableServer()
+    getAvailableServer(),
+    checkN8NAvailable()
   ])
 
   const lmStudioAvailable = lmStudioServer !== null
 
+  // Determine recommended mode priority: n8n > local > turbo
+  let recommendedMode: ExecutionMode | "none" = "none"
+  if (n8nAvailable) {
+    recommendedMode = "n8n"
+  } else if (lmStudioAvailable) {
+    recommendedMode = "local"
+  } else if (claudeLocalAvailable || claudeRemoteAvailable) {
+    recommendedMode = "turbo"
+  }
+
   return NextResponse.json({
     // Overall availability
-    available: lmStudioAvailable || claudeLocalAvailable || claudeRemoteAvailable,
+    available: n8nAvailable || lmStudioAvailable || claudeLocalAvailable || claudeRemoteAvailable,
+
+    // N8N Mode - Workflow orchestration with quality loops
+    n8nMode: {
+      available: n8nAvailable,
+      webhookUrl: N8N_WEBHOOK_URL,
+      callbackUrl: CLAUDIA_CALLBACK_URL,
+      description: "Workflow orchestration with quality validation loops"
+    },
 
     // Local Mode (LM Studio) - FREE, works offline
     localMode: {
@@ -962,7 +1157,7 @@ export async function GET() {
     },
 
     // Recommended mode
-    recommendedMode: lmStudioAvailable ? "local" : (claudeLocalAvailable || claudeRemoteAvailable) ? "turbo" : "none",
+    recommendedMode,
 
     // Legacy fields for backward compatibility
     remote: {
@@ -974,6 +1169,7 @@ export async function GET() {
       available: claudeLocalAvailable,
     },
     modes: [
+      ...(n8nAvailable ? ["n8n"] : []),
       ...(lmStudioAvailable ? ["local"] : []),
       ...(claudeLocalAvailable || claudeRemoteAvailable ? ["turbo"] : [])
     ]

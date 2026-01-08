@@ -21,6 +21,7 @@ import {
   Command,
   Layers,
   Star,
+  Workflow,
 } from "lucide-react"
 
 interface NavItem {
@@ -36,6 +37,7 @@ const navItems: NavItem[] = [
   { title: "Activity", href: "/activity", icon: Activity },
   { title: "Packets", href: "/packets", icon: Package },
   { title: "Timeline", href: "/timeline", icon: GitBranch },
+  { title: "N8N", href: "/n8n", icon: Workflow },
   { title: "Quality", href: "/quality", icon: Shield },
   { title: "Approvals", href: "/approvals", icon: CheckCircle, badge: 3 },
   { title: "Costs", href: "/costs", icon: DollarSign },
