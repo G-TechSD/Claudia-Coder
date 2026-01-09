@@ -179,6 +179,26 @@ export const mcpServerTemplates: MCPServerTemplate[] = [
   },
 
   // ============================================
+  // Claudia Integration
+  // ============================================
+  {
+    id: "claudia",
+    name: "Claudia Code",
+    description: "Integrate Claude Code terminal with Claudia - manage packets, run quality gates, submit for approval",
+    command: "npx",
+    args: ["-y", "ts-node", "/home/bill/projects/claudia-admin/scripts/mcp/claudia-mcp-server.ts"],
+    env: {
+      CLAUDIA_API_URL: "https://localhost:3000/api"
+    },
+    envPlaceholders: {
+      CLAUDIA_API_URL: "Claudia API URL (default: https://localhost:3000/api)"
+    },
+    category: "Claudia",
+    icon: "Rocket",
+    documentation: "https://github.com/claudiacode/claudia-mcp-server"
+  },
+
+  // ============================================
   // Documentation & Context
   // ============================================
   {

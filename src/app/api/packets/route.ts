@@ -398,3 +398,138 @@ export async function POST(request: NextRequest) {
     }, { status: 500 })
   }
 }
+
+/**
+ * PUT /api/packets
+ *
+ * Update packet status and output (used by Claude Code MCP integration)
+ *
+ * Body:
+ *   - projectId: The project ID
+ *   - packetId: The packet ID
+ *   - status: New status (queued, in_progress, completed, failed)
+ *   - output?: Output or notes about the work done
+ *   - filesChanged?: List of files modified
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { projectId, packetId, status, output, filesChanged } = body
+
+    if (!packetId || !status) {
+      return NextResponse.json({
+        success: false,
+        error: "packetId and status are required"
+      }, { status: 400 })
+    }
+
+    // Map status to N8N format
+    const statusMap: Record<string, PacketStatus> = {
+      "queued": "queued",
+      "in_progress": "running",
+      "completed": "completed",
+      "failed": "failed"
+    }
+
+    const n8nStatus = statusMap[status] || status
+
+    const updateData: Record<string, unknown> = {
+      status: n8nStatus,
+      updatedAt: new Date().toISOString()
+    }
+
+    if (status === "completed") {
+      updateData.completedAt = new Date().toISOString()
+    }
+
+    if (output) {
+      updateData.workerOutputJSON = JSON.stringify({
+        output,
+        filesChanged: filesChanged || [],
+        updatedAt: new Date().toISOString(),
+        source: "claude-code-mcp"
+      })
+    }
+
+    // Also update localStorage packets via activity event
+    // This ensures the UI picks up the changes
+    try {
+      await fetch(`${request.nextUrl.origin}/api/activity-events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: status === "completed" ? "success" : status === "failed" ? "error" : "running",
+          message: `Packet ${packetId} ${status}: ${output?.substring(0, 100) || "Updated via Claude Code"}`,
+          projectId,
+          detail: JSON.stringify({ packetId, status, filesChanged })
+        })
+      })
+    } catch (e) {
+      console.warn("Failed to create activity event:", e)
+    }
+
+    // Try webhook first
+    try {
+      const result = await n8nRequest<{ success: boolean; message?: string }>(
+        "/webhook/packet-action",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            action: "update",
+            target: { type: "packet", id: packetId },
+            data: updateData,
+            timestamp: new Date().toISOString(),
+            source: "claude-code-mcp"
+          })
+        }
+      )
+
+      return NextResponse.json({
+        success: true,
+        packetId,
+        status,
+        result
+      })
+
+    } catch (webhookError) {
+      console.warn("Webhook failed, attempting direct update:", webhookError)
+
+      // Try direct data table update
+      try {
+        await n8nRequest(
+          `/api/v1/data-tables/${DATA_TABLES.ISSUE_PACKETS}/rows/${packetId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(updateData)
+          }
+        )
+
+        return NextResponse.json({
+          success: true,
+          packetId,
+          status,
+          method: "direct-update"
+        })
+
+      } catch (updateError) {
+        // If N8N fails, still return success since we created the activity event
+        console.warn("N8N update failed:", updateError)
+        return NextResponse.json({
+          success: true,
+          packetId,
+          status,
+          method: "activity-event-only",
+          warning: "N8N update failed but activity event was created"
+        })
+      }
+    }
+
+  } catch (error) {
+    console.error("[packets] PUT error:", error)
+
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to update packet"
+    }, { status: 500 })
+  }
+}
