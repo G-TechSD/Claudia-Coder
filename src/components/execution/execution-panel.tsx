@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GoButton, HeroGoButton } from "./go-button"
 import { ActivityStream, ActivityEvent, ActivityIndicator } from "./activity-stream"
-import { AlertCircle, Settings2, Sparkles, RefreshCw, Cpu, Zap, Wifi, WifiOff, GitBranch, RotateCcw, CheckCircle2, Loader2, Shield, XCircle } from "lucide-react"
+import { AlertCircle, Settings2, Sparkles, RefreshCw, Zap, Wifi, WifiOff, GitBranch, RotateCcw, CheckCircle2, Loader2, Shield, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { updateQualityGatesFromResult, type QualityGateResult } from "@/lib/quality-gates/store"
 

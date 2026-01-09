@@ -26,8 +26,7 @@ import {
   loadQualityRuns,
   resetQualityGates,
   type QualityGate,
-  type QualityGateRun,
-  type GateStatus
+  type QualityGateRun
 } from "@/lib/quality-gates/store"
 
 
@@ -60,43 +59,51 @@ function formatTime(dateStr: string | null): string {
 }
 
 export default function QualityPage() {
-  const [gates, setGates] = useState<QualityGate[]>([])
-  const [runs, setRuns] = useState<QualityGateRun[]>([])
+  // Initialize state with data from localStorage (runs synchronously on first render)
+  const [gates, setGates] = useState<QualityGate[]>(() => {
+    if (typeof window === "undefined") return []
+    return loadQualityGates()
+  })
+  const [runs, setRuns] = useState<QualityGateRun[]>(() => {
+    if (typeof window === "undefined") return []
+    return loadQualityRuns().slice().reverse()
+  })
   const [selectedGate, setSelectedGate] = useState<QualityGate | null>(null)
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
 
-  // Function to refresh data from localStorage
-  const refreshData = useCallback(() => {
-    const storedGates = loadQualityGates()
-    const storedRuns = loadQualityRuns()
-    setGates(storedGates)
-    setRuns(storedRuns.slice().reverse()) // Show most recent first
-    setIsLoading(false)
+  // Set up refresh interval for live updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const updatedGates = loadQualityGates()
+      const updatedRuns = loadQualityRuns()
+      setGates(updatedGates)
+      setRuns(updatedRuns.slice().reverse())
+    }, 5000)
+    return () => clearInterval(interval)
   }, [])
 
-  // Load data on mount and set up refresh interval
-  useEffect(() => {
-    // Initial load
-    refreshData()
-
-    // Refresh data every 5 seconds to pick up new runs
-    const interval = setInterval(refreshData, 5000)
-    return () => clearInterval(interval)
-  }, [refreshData])
-
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     setIsLoading(true)
-    // Use setTimeout to ensure loading state is shown before data refresh
-    setTimeout(refreshData, 100)
-  }
+    // Use setTimeout to show loading state briefly
+    setTimeout(() => {
+      const storedGates = loadQualityGates()
+      const storedRuns = loadQualityRuns()
+      setGates(storedGates)
+      setRuns(storedRuns.slice().reverse())
+      setIsLoading(false)
+    }, 100)
+  }, [])
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     if (confirm("Reset all quality gate data? This will clear all history.")) {
       resetQualityGates()
-      refreshData()
+      const storedGates = loadQualityGates()
+      const storedRuns = loadQualityRuns()
+      setGates(storedGates)
+      setRuns(storedRuns.slice().reverse())
     }
-  }
+  }, [])
 
   const filteredGates = gates.filter(g =>
     categoryFilter === "all" || g.category === categoryFilter

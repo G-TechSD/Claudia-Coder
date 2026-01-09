@@ -179,6 +179,36 @@ export const mcpServerTemplates: MCPServerTemplate[] = [
   },
 
   // ============================================
+  // Documentation & Context
+  // ============================================
+  {
+    id: "context7",
+    name: "Context7",
+    description: "Up-to-date library documentation for LLMs - injects version-specific docs directly into prompts",
+    command: "npx",
+    args: ["-y", "@upstash/context7-mcp"],
+    env: {
+      CONTEXT7_API_KEY: ""
+    },
+    envPlaceholders: {
+      CONTEXT7_API_KEY: "Your Context7 API key (get free at context7.com/dashboard)"
+    },
+    category: "Documentation",
+    icon: "BookOpen",
+    documentation: "https://github.com/upstash/context7"
+  },
+  {
+    id: "codewiki",
+    name: "CodeWiki (Google)",
+    description: "Access Google's CodeWiki documentation for open source repositories",
+    command: "python",
+    args: ["-m", "code_wiki_mcp"],
+    category: "Documentation",
+    icon: "Book",
+    documentation: "https://lobehub.com/mcp/pn7hao-code_wiki_mcp"
+  },
+
+  // ============================================
   // Development Tools
   // ============================================
   {
