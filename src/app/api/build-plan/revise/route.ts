@@ -90,16 +90,17 @@ Return the plan in the same JSON format as before.`
     console.log(`[build-plan/revise] response: server=${localResponse.server}, error=${localResponse.error || 'none'}`)
 
     if (!localResponse.error) {
-      const plan = parseBuildPlanResponse(
+      const result = parseBuildPlanResponse(
         localResponse.content,
         projectId,
         `local:${localResponse.server}:${localResponse.model}`
       )
 
-      if (plan) {
-        const validation = validateBuildPlan(plan)
+      if (result) {
+        const validation = validateBuildPlan(result.plan)
         return NextResponse.json({
-          plan,
+          plan: result.plan,
+          packetSummary: result.packetSummary,
           validation,
           source: "local",
           server: localResponse.server,
@@ -128,16 +129,17 @@ Return the plan in the same JSON format as before.`
           ? response.content[0].text
           : ""
 
-        const plan = parseBuildPlanResponse(
+        const result = parseBuildPlanResponse(
           content,
           projectId,
           "anthropic:claude-sonnet-4"
         )
 
-        if (plan) {
-          const validation = validateBuildPlan(plan)
+        if (result) {
+          const validation = validateBuildPlan(result.plan)
           return NextResponse.json({
-            plan,
+            plan: result.plan,
+            packetSummary: result.packetSummary,
             validation,
             source: "anthropic",
             server: "Anthropic",
