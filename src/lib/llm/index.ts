@@ -33,6 +33,58 @@ export type { LLMServer }
 export { getConfiguredServers, checkServerStatus }
 
 /**
+ * Clean LLM response content to prepare for JSON parsing
+ * Removes special tokens and control characters that can break parsing
+ */
+export function cleanLLMResponse(content: string): string {
+  let cleaned = content.trim()
+
+  // Remove markdown code blocks if present
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "")
+  }
+
+  // Remove special tokens that some models insert
+  cleaned = cleaned.replace(/<s>/g, "")
+  cleaned = cleaned.replace(/<\/s>/g, "")
+  cleaned = cleaned.replace(/<\|endoftext\|>/g, "")
+  cleaned = cleaned.replace(/<\|im_end\|>/g, "")
+  cleaned = cleaned.replace(/<\|im_start\|>/g, "")
+  cleaned = cleaned.replace(/<\|pad\|>/g, "")
+  cleaned = cleaned.replace(/<\|eos\|>/g, "")
+  cleaned = cleaned.replace(/<\|eot_id\|>/g, "")
+  cleaned = cleaned.replace(/<\|start_header_id\|>/g, "")
+  cleaned = cleaned.replace(/<\|end_header_id\|>/g, "")
+
+  // Remove any control characters except newlines and tabs
+  cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
+
+  return cleaned
+}
+
+/**
+ * Parse JSON from LLM response with cleanup
+ */
+export function parseLLMJson<T>(content: string): T | null {
+  try {
+    const cleaned = cleanLLMResponse(content)
+
+    // Try to extract JSON from text (in case there's text before/after)
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0])
+    }
+
+    // Try parsing the cleaned content directly
+    return JSON.parse(cleaned)
+  } catch (error) {
+    console.error("[LLM] Failed to parse JSON:", error)
+    console.error("[LLM] Raw content (first 500 chars):", content.substring(0, 500))
+    return null
+  }
+}
+
+/**
  * Generate text using available LLM
  * Tries local first, only uses paid API if explicitly allowed and local fails
  */
@@ -203,20 +255,24 @@ Respond with ONLY the JSON, no markdown or explanation.`
   }
 
   try {
-    // Clean up response
-    let content = response.content.trim()
-    if (content.startsWith("```")) {
-      content = content.replace(/^```json?\n?/, "").replace(/\n?```$/, "")
-    }
+    const plan = parseLLMJson<{
+      name?: string
+      description?: string
+      features?: string[]
+      techStack?: string[]
+      priority?: string
+    }>(response.content)
 
-    const plan = JSON.parse(content)
+    if (!plan) {
+      throw new Error("Failed to parse JSON")
+    }
 
     return {
       name: plan.name || "New Project",
       description: plan.description || description,
       features: Array.isArray(plan.features) ? plan.features : [],
       techStack: Array.isArray(plan.techStack) ? plan.techStack : [],
-      priority: ["low", "medium", "high", "critical"].includes(plan.priority) ? plan.priority : "medium",
+      priority: ["low", "medium", "high", "critical"].includes(plan.priority || "") ? plan.priority as "low" | "medium" | "high" | "critical" : "medium",
       source: `${response.source}${response.server ? ` (${response.server})` : ""}`
     }
   } catch {
@@ -288,12 +344,16 @@ Only include fields in extractedData that were actually discussed. Respond with 
   }
 
   try {
-    let content = response.content.trim()
-    if (content.startsWith("```")) {
-      content = content.replace(/^```json?\n?/, "").replace(/\n?```$/, "")
-    }
+    const parsed = parseLLMJson<{
+      summary?: string
+      keyPoints?: string[]
+      suggestedActions?: string[]
+      extractedData?: Record<string, unknown>
+    }>(response.content)
 
-    const parsed = JSON.parse(content)
+    if (!parsed) {
+      throw new Error("Failed to parse JSON")
+    }
 
     return {
       summary: parsed.summary || "",

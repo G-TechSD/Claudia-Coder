@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo } from "react"
 import Link from "next/link"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useRouter } from "next/navigation"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -13,6 +14,7 @@ import {
   Lightbulb,
   RefreshCw,
   ArrowUpRight,
+  ArrowLeft,
   Trash2,
   TrendingUp,
   Sparkles,
@@ -21,7 +23,14 @@ import {
   CheckCircle,
   Archive,
   MessageSquare,
-  Rocket
+  Rocket,
+  Building2,
+  Code2,
+  Link2,
+  Loader2,
+  Check,
+  X,
+  Edit2
 } from "lucide-react"
 import {
   getAllBusinessIdeas,
@@ -29,10 +38,17 @@ import {
   archiveBusinessIdea,
   deleteBusinessIdea,
   createBusinessIdea,
+  updateBusinessIdea,
   type BusinessIdea,
   type BusinessIdeaStatus,
   type BusinessIdeaPotential
 } from "@/lib/data/business-ideas"
+import { BrainDumpInput } from "@/components/business-ideas/brain-dump-input"
+import { BusinessIdeaInterview, type BusinessIdeaSummary } from "@/components/business-ideas/business-idea-interview"
+import { ConvertToProjectDialog } from "@/components/business-ideas/convert-to-project-dialog"
+import { VoiceChatPanel } from "@/components/business-ideas/voice-chat-panel"
+
+type PageMode = "list" | "braindump" | "interview" | "review"
 
 const statusConfig: Record<BusinessIdeaStatus, {
   label: string
@@ -71,10 +87,22 @@ function formatDate(dateStr: string): string {
 }
 
 export default function BusinessIdeasPage() {
+  const router = useRouter()
   const [ideas, setIdeas] = useState<BusinessIdea[]>([])
   const [statusFilter, setStatusFilter] = useState<BusinessIdeaStatus | "all">("all")
   const [search, setSearch] = useState("")
   const [isLoading, setIsLoading] = useState(true)
+
+  // Mode state
+  const [mode, setMode] = useState<PageMode>("list")
+  const [brainDumpContent, setBrainDumpContent] = useState("")
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false)
+  const [generatedSummary, setGeneratedSummary] = useState<BusinessIdeaSummary | null>(null)
+  const [newlyCreatedIdea, setNewlyCreatedIdea] = useState<BusinessIdea | null>(null)
+
+  // Convert dialog
+  const [showConvertDialog, setShowConvertDialog] = useState(false)
+  const [ideaToConvert, setIdeaToConvert] = useState<BusinessIdea | null>(null)
 
   // Load ideas
   useEffect(() => {
@@ -121,34 +149,374 @@ export default function BusinessIdeasPage() {
     }
   }
 
-  const handleDelete = (id: string, title: string) => {
-    if (confirm(`Permanently delete "${title}"? This cannot be undone.`)) {
-      deleteBusinessIdea(id)
-      loadIdeas()
+  const handleStartInterview = (content: string) => {
+    setBrainDumpContent(content)
+    setMode("interview")
+  }
+
+  const handleGenerateSummary = async (content: string) => {
+    setBrainDumpContent(content)
+    setIsGeneratingSummary(true)
+
+    try {
+      const response = await fetch("/api/business-ideas/executive-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          initialDescription: content
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to generate summary")
+      }
+
+      const summary: BusinessIdeaSummary = await response.json()
+      summary.messages = []
+      setGeneratedSummary(summary)
+      setMode("review")
+    } catch (error) {
+      console.error("Summary generation error:", error)
+      alert("Failed to generate summary. Please try again.")
+    } finally {
+      setIsGeneratingSummary(false)
     }
   }
 
-  const handleNewIdea = () => {
-    const newIdea = createBusinessIdea({
-      title: "New Business Idea",
-      summary: "A new idea to explore...",
-      potential: "medium",
-      status: "brainstorming",
-      messages: [],
-      tags: []
-    })
-    // Navigate to the new idea
-    window.location.href = `/business-ideas/${newIdea.id}`
+  const handleInterviewComplete = (summary: BusinessIdeaSummary) => {
+    setGeneratedSummary(summary)
+    setMode("review")
   }
 
+  const handleSaveIdea = () => {
+    if (!generatedSummary) return
+
+    const newIdea = createBusinessIdea({
+      title: generatedSummary.title,
+      summary: generatedSummary.summary,
+      potential: generatedSummary.potential,
+      status: "exploring",
+      messages: generatedSummary.messages.map((m, i) => ({
+        id: `msg-${i}`,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp
+      })),
+      tags: [],
+      executiveSummary: generatedSummary.summary,
+      problemStatement: generatedSummary.problemStatement,
+      targetAudience: generatedSummary.targetAudience,
+      valueProposition: generatedSummary.valueProposition,
+      revenueModel: generatedSummary.revenueModel,
+      competitiveAdvantage: generatedSummary.competitiveAdvantage,
+      keyRisks: generatedSummary.keyRisks,
+      nextSteps: generatedSummary.nextSteps
+    })
+
+    setNewlyCreatedIdea(newIdea)
+    loadIdeas()
+  }
+
+  const handleConvertToProject = (idea: BusinessIdea) => {
+    setIdeaToConvert(idea)
+    setShowConvertDialog(true)
+  }
+
+  const handleProjectCreated = (projects: { businessProject?: { id: string; name: string }; devProject?: { id: string; name: string } }) => {
+    loadIdeas()
+
+    // Navigate to the appropriate project
+    if (projects.businessProject) {
+      router.push(`/projects/${projects.businessProject.id}`)
+    } else if (projects.devProject) {
+      router.push(`/projects/${projects.devProject.id}`)
+    }
+  }
+
+  const handleBackToList = () => {
+    setMode("list")
+    setBrainDumpContent("")
+    setGeneratedSummary(null)
+    setNewlyCreatedIdea(null)
+  }
+
+  // Interview mode
+  if (mode === "interview") {
+    return (
+      <div className="h-[calc(100vh-4rem)]">
+        <BusinessIdeaInterview
+          initialDescription={brainDumpContent}
+          onComplete={handleInterviewComplete}
+          onCancel={handleBackToList}
+        />
+      </div>
+    )
+  }
+
+  // Review mode - show generated summary
+  if (mode === "review" && generatedSummary) {
+    return (
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={handleBackToList}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-2xl font-semibold flex items-center gap-2">
+              <Lightbulb className="h-6 w-6 text-yellow-400" />
+              {newlyCreatedIdea ? "Idea Saved!" : "Review Your Idea"}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {newlyCreatedIdea
+                ? "Your business idea has been saved. Continue exploring or convert to a project."
+                : "Review the generated executive summary and save your idea"}
+            </p>
+          </div>
+          {!newlyCreatedIdea ? (
+            <Button onClick={handleSaveIdea} className="gap-2">
+              <Check className="h-4 w-4" />
+              Save Idea
+            </Button>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => router.push(`/business-ideas/${newlyCreatedIdea.id}`)}
+              >
+                View Details
+              </Button>
+              <Button
+                className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => handleConvertToProject(newlyCreatedIdea)}
+              >
+                <Rocket className="h-4 w-4" />
+                Convert to Project
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Summary */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Title and Summary */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    {generatedSummary.title}
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Badge className={cn(potentialConfig[generatedSummary.potential].color)}>
+                      <TrendingUp className="h-3 w-3 mr-1" />
+                      {potentialConfig[generatedSummary.potential].label} Potential
+                    </Badge>
+                    {generatedSummary.projectType && (
+                      <Badge variant="outline">
+                        {generatedSummary.projectType === "dev" && (
+                          <>
+                            <Code2 className="h-3 w-3 mr-1" />
+                            Software
+                          </>
+                        )}
+                        {generatedSummary.projectType === "business" && (
+                          <>
+                            <Building2 className="h-3 w-3 mr-1" />
+                            Business
+                          </>
+                        )}
+                        {generatedSummary.projectType === "both" && (
+                          <>
+                            <Link2 className="h-3 w-3 mr-1" />
+                            Both
+                          </>
+                        )}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <CardDescription className="text-base">
+                  {generatedSummary.summary}
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            {/* Key Details */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Business Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {generatedSummary.problemStatement && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Problem Statement</label>
+                    <p className="text-sm mt-1">{generatedSummary.problemStatement}</p>
+                  </div>
+                )}
+                {generatedSummary.targetAudience && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Target Audience</label>
+                    <p className="text-sm mt-1">{generatedSummary.targetAudience}</p>
+                  </div>
+                )}
+                {generatedSummary.valueProposition && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Value Proposition</label>
+                    <p className="text-sm mt-1">{generatedSummary.valueProposition}</p>
+                  </div>
+                )}
+                {generatedSummary.revenueModel && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Revenue Model</label>
+                    <p className="text-sm mt-1">{generatedSummary.revenueModel}</p>
+                  </div>
+                )}
+                {generatedSummary.competitiveAdvantage && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Competitive Advantage</label>
+                    <p className="text-sm mt-1">{generatedSummary.competitiveAdvantage}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Risks and Next Steps */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Target className="h-4 w-4 text-yellow-400" />
+                    Key Risks
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {generatedSummary.keyRisks.length > 0 ? (
+                    <ul className="space-y-2">
+                      {generatedSummary.keyRisks.map((risk, i) => (
+                        <li key={i} className="text-sm flex items-start gap-2">
+                          <span className="text-yellow-400 mt-1">-</span>
+                          {risk}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No risks identified</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-400" />
+                    Next Steps
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {generatedSummary.nextSteps.length > 0 ? (
+                    <ul className="space-y-2">
+                      {generatedSummary.nextSteps.map((step, i) => (
+                        <li key={i} className="text-sm flex items-start gap-2">
+                          <span className="text-green-400 font-medium">{i + 1}.</span>
+                          {step}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No next steps defined</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          {/* Voice Chat Panel */}
+          <div className="lg:col-span-1">
+            {newlyCreatedIdea ? (
+              <VoiceChatPanel
+                idea={newlyCreatedIdea}
+                onMessageSent={(msg, resp) => {
+                  // Optionally save messages to the idea
+                }}
+                className="h-[600px]"
+              />
+            ) : (
+              <Card className="h-[600px]">
+                <CardContent className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                  <MessageSquare className="h-12 w-12 mb-4 opacity-50" />
+                  <p className="text-center">Save your idea to enable voice chat</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+
+        {/* Convert Dialog */}
+        {ideaToConvert && (
+          <ConvertToProjectDialog
+            open={showConvertDialog}
+            onOpenChange={setShowConvertDialog}
+            idea={ideaToConvert}
+            suggestedType={generatedSummary.projectType}
+            onSuccess={handleProjectCreated}
+          />
+        )}
+      </div>
+    )
+  }
+
+  // Brain dump / new idea mode
+  if (mode === "braindump") {
+    return (
+      <div className="p-6 max-w-3xl mx-auto space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={handleBackToList}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-semibold flex items-center gap-2">
+              <Lightbulb className="h-6 w-6 text-yellow-400" />
+              New Business Idea
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Capture your thoughts freely, then explore or generate a summary
+            </p>
+          </div>
+        </div>
+
+        <BrainDumpInput
+          onStartInterview={handleStartInterview}
+          onGenerateSummary={handleGenerateSummary}
+          isGenerating={isGeneratingSummary}
+        />
+
+        <div className="text-center">
+          <Button variant="ghost" onClick={handleBackToList}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // Default: List mode
   return (
     <div className="flex flex-col gap-4 p-6 h-full">
+      {/* Brain Dump Section - Prominent at top */}
+      <BrainDumpInput
+        onStartInterview={handleStartInterview}
+        onGenerateSummary={handleGenerateSummary}
+        isGenerating={isGeneratingSummary}
+      />
+
       {/* Header */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <Lightbulb className="h-6 w-6 text-yellow-400" />
-            Business Ideas
+            Your Ideas
           </h1>
 
           {/* Inline stats */}
@@ -177,10 +545,6 @@ export default function BusinessIdeasPage() {
           <Button variant="outline" size="sm" onClick={loadIdeas} className="gap-2">
             <RefreshCw className="h-4 w-4" />
             <span className="hidden sm:inline">Refresh</span>
-          </Button>
-          <Button size="sm" className="gap-2" onClick={handleNewIdea}>
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">New Idea</span>
           </Button>
         </div>
       </div>
@@ -239,11 +603,7 @@ export default function BusinessIdeasPage() {
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <Lightbulb className="h-12 w-12 mb-4 opacity-50" />
             <p className="text-lg font-medium">No business ideas yet</p>
-            <p className="text-sm">Start brainstorming your next big idea</p>
-            <Button className="mt-4 gap-2" onClick={handleNewIdea}>
-              <Plus className="h-4 w-4" />
-              New Idea
-            </Button>
+            <p className="text-sm">Use the brain dump above to capture your first idea</p>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -331,6 +691,17 @@ export default function BusinessIdeasPage() {
                         Created {formatDate(idea.createdAt)}
                       </span>
                       <div className="flex items-center gap-1">
+                        {idea.status === "ready" && !idea.convertedProjectId && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-emerald-400 hover:text-emerald-400"
+                            onClick={() => handleConvertToProject(idea)}
+                          >
+                            <Rocket className="h-3.5 w-3.5 mr-1" />
+                            Convert
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
                           <Link href={`/business-ideas/${idea.id}`}>
                             <ArrowUpRight className="h-3.5 w-3.5" />
@@ -357,23 +728,15 @@ export default function BusinessIdeasPage() {
         )}
       </div>
 
-      {/* Empty State CTA */}
-      {ideas.length === 0 && (
-        <Card className="border-dashed">
-          <CardContent className="flex items-center justify-center py-8">
-            <div className="text-center">
-              <Lightbulb className="h-10 w-10 mx-auto mb-3 text-yellow-400" />
-              <h3 className="font-medium mb-1">Start Brainstorming</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Create your first business idea and explore it with AI
-              </p>
-              <Button className="gap-2" onClick={handleNewIdea}>
-                <Plus className="h-4 w-4" />
-                New Idea
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Convert Dialog */}
+      {ideaToConvert && (
+        <ConvertToProjectDialog
+          open={showConvertDialog}
+          onOpenChange={setShowConvertDialog}
+          idea={ideaToConvert}
+          suggestedType={null}
+          onSuccess={handleProjectCreated}
+        />
       )}
     </div>
   )

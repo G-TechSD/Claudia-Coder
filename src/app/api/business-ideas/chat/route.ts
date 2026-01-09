@@ -234,12 +234,25 @@ function cleanContentForDisplay(content: string): string {
   return content.replace(/---PROJECT_PROPOSAL---[\s\S]*?---END_PROPOSAL---/, "").trim()
 }
 
+interface IdeaContext {
+  title: string
+  summary: string
+  problemStatement?: string
+  targetAudience?: string
+  valueProposition?: string
+  revenueModel?: string
+}
+
 /**
  * POST: Send message and get streaming AI response
  */
 export async function POST(request: NextRequest) {
   try {
-    const { messages } = await request.json() as { sessionId: string; messages: ChatMessage[] }
+    const { messages, ideaContext } = await request.json() as {
+      sessionId?: string
+      messages: ChatMessage[]
+      ideaContext?: IdeaContext
+    }
 
     if (!messages || !Array.isArray(messages)) {
       return new Response(
@@ -251,9 +264,23 @@ export async function POST(request: NextRequest) {
     // Find available LLM server
     const server = await findAvailableServer()
 
+    // Build context-aware system prompt
+    let contextualSystemPrompt = SYSTEM_PROMPT
+    if (ideaContext) {
+      contextualSystemPrompt += `\n\n--- CURRENT BUSINESS IDEA CONTEXT ---
+Title: ${ideaContext.title}
+Summary: ${ideaContext.summary}
+${ideaContext.problemStatement ? `Problem Statement: ${ideaContext.problemStatement}` : ""}
+${ideaContext.targetAudience ? `Target Audience: ${ideaContext.targetAudience}` : ""}
+${ideaContext.valueProposition ? `Value Proposition: ${ideaContext.valueProposition}` : ""}
+${ideaContext.revenueModel ? `Revenue Model: ${ideaContext.revenueModel}` : ""}
+
+Use this context to provide relevant, specific advice about this particular business idea.`
+    }
+
     // Prepare messages with system prompt
     const fullMessages = [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: contextualSystemPrompt },
       ...messages.map(m => ({ role: m.role, content: m.content }))
     ]
 

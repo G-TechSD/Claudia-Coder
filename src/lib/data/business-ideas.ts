@@ -42,6 +42,64 @@ export interface BusinessIdea {
 
   // Link to converted project
   convertedProjectId?: string
+
+  // AI-generated Executive Summary (structured data)
+  executiveSummaryData?: {
+    overview: string
+    marketAnalysis: {
+      marketSize: string
+      targetMarket: string
+      marketTrends: string[]
+      competitorLandscape: string
+    }
+    revenueModel: {
+      primaryModel: string
+      pricingStrategy: string
+      revenueStreams: string[]
+      projectedMetrics: string
+    }
+    competitiveLandscape: {
+      directCompetitors: string[]
+      indirectCompetitors: string[]
+      competitiveAdvantages: string[]
+      barriers: string[]
+    }
+    risks: {
+      marketRisks: string[]
+      technicalRisks: string[]
+      financialRisks: string[]
+      mitigationStrategies: string[]
+    }
+    opportunities: {
+      shortTerm: string[]
+      longTerm: string[]
+      partnerships: string[]
+      expansion: string[]
+    }
+    nextSteps: string[]
+    viabilityScore: number
+    viabilityRationale: string
+  }
+
+  // Viability Interview Results
+  viabilityInsights?: {
+    problemValidation: { score: number; insights: string[]; gaps: string[] }
+    customerUnderstanding: { score: number; insights: string[]; gaps: string[] }
+    solutionFit: { score: number; insights: string[]; gaps: string[] }
+    marketOpportunity: { score: number; insights: string[]; gaps: string[] }
+    competitivePosition: { score: number; insights: string[]; gaps: string[] }
+    revenueClarity: { score: number; insights: string[]; gaps: string[] }
+    executionReadiness: { score: number; insights: string[]; gaps: string[] }
+    overallViability: number
+    recommendations: string[]
+    criticalGaps: string[]
+  }
+  viabilityAnswers?: Array<{
+    questionId: string
+    answer: string
+    timestamp: string
+    skipped: boolean
+  }>
 }
 
 // ============ Storage ============

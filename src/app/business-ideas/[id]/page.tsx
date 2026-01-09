@@ -31,7 +31,10 @@ import {
   AlertCircle,
   Plus,
   Loader2,
-  Check
+  Check,
+  Building2,
+  Code2,
+  Link2
 } from "lucide-react"
 import {
   getBusinessIdea,
@@ -44,6 +47,7 @@ import {
   type BusinessIdeaPotential
 } from "@/lib/data/business-ideas"
 import { createProject } from "@/lib/data/projects"
+import type { Project } from "@/lib/data/types"
 import {
   Select,
   SelectContent,
@@ -51,6 +55,10 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select"
+import { VoiceChatPanel } from "@/components/business-ideas/voice-chat-panel"
+import { ConvertToProjectDialog } from "@/components/business-ideas/convert-to-project-dialog"
+import { ExecutiveSummary, ViabilityInterview, type ExecutiveSummaryData } from "@/components/business"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const statusConfig: Record<BusinessIdeaStatus, {
   label: string
@@ -89,6 +97,9 @@ export default function BusinessIdeaDetailPage() {
   const [message, setMessage] = useState("")
   const [isSending, setIsSending] = useState(false)
   const [isCreatingProject, setIsCreatingProject] = useState(false)
+  const [showConvertDialog, setShowConvertDialog] = useState(false)
+  const [activeTab, setActiveTab] = useState<"basics" | "executive" | "interview">("basics")
+  const [executiveSummaryData, setExecutiveSummaryData] = useState<ExecutiveSummaryData | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -183,33 +194,40 @@ export default function BusinessIdeaDetailPage() {
 
   const handleCreateProject = () => {
     if (!idea) return
-
-    setIsCreatingProject(true)
-
-    // Create a new project from the idea
-    const project = createProject({
-      name: idea.title,
-      description: idea.executiveSummary || idea.summary,
-      status: "planning",
-      priority: idea.potential === "very-high" ? "high" :
-                idea.potential === "high" ? "medium" : "low",
-      repos: [],
-      packetIds: [],
-      tags: [...idea.tags, "from-business-idea"]
-    })
-
-    // Mark idea as converted
-    markIdeaAsConverted(idea.id, project.id)
-
-    setIsCreatingProject(false)
-
-    // Navigate to the new project
-    router.push(`/projects/${project.id}`)
+    setShowConvertDialog(true)
   }
 
-  const handleUpdateExecutiveSummary = (field: string, value: string) => {
+  const handleProjectCreated = (projects: { businessProject?: Project; devProject?: Project }) => {
+    // Navigate to the first created project
+    if (projects.businessProject) {
+      router.push(`/projects/${projects.businessProject.id}`)
+    } else if (projects.devProject) {
+      router.push(`/projects/${projects.devProject.id}`)
+    }
+  }
+
+  const handleUpdateExecutiveSummary = (field: string, value: unknown) => {
     if (!idea) return
     const updated = updateBusinessIdea(idea.id, { [field]: value })
+    if (updated) {
+      setIdea(updated)
+      // If updating executive summary data, also update local state
+      if (field === "executiveSummaryData" && value) {
+        setExecutiveSummaryData(value as ExecutiveSummaryData)
+      }
+    }
+  }
+
+  const handleViabilityComplete = (
+    insights: NonNullable<BusinessIdea["viabilityInsights"]>,
+    answers: NonNullable<BusinessIdea["viabilityAnswers"]>
+  ) => {
+    if (!idea) return
+    // Store viability interview results
+    const updated = updateBusinessIdea(idea.id, {
+      viabilityInsights: insights,
+      viabilityAnswers: answers
+    })
     if (updated) setIdea(updated)
   }
 
@@ -296,19 +314,14 @@ export default function BusinessIdeaDetailPage() {
             </>
           ) : (
             <>
-              {idea.status === "ready" && !idea.convertedProjectId && (
+              {!idea.convertedProjectId && (
                 <Button
                   size="sm"
                   className="gap-2 bg-emerald-600 hover:bg-emerald-700"
                   onClick={handleCreateProject}
-                  disabled={isCreatingProject}
                 >
-                  {isCreatingProject ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Rocket className="h-4 w-4" />
-                  )}
-                  Create Project
+                  <Rocket className="h-4 w-4" />
+                  Convert to Project
                 </Button>
               )}
               {idea.convertedProjectId && (
@@ -368,180 +381,198 @@ export default function BusinessIdeaDetailPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Executive Summary */}
-        <Card className="lg:row-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              Executive Summary
-            </CardTitle>
-            <CardDescription>
-              Key details about your business idea
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <EditableField
-              label="Problem Statement"
-              value={idea.problemStatement || ""}
-              placeholder="What problem does this solve?"
-              onSave={(v) => handleUpdateExecutiveSummary("problemStatement", v)}
-            />
-            <EditableField
-              label="Target Audience"
-              value={idea.targetAudience || ""}
-              placeholder="Who is this for?"
-              onSave={(v) => handleUpdateExecutiveSummary("targetAudience", v)}
-            />
-            <EditableField
-              label="Value Proposition"
-              value={idea.valueProposition || ""}
-              placeholder="What unique value does this provide?"
-              onSave={(v) => handleUpdateExecutiveSummary("valueProposition", v)}
-            />
-            <EditableField
-              label="Revenue Model"
-              value={idea.revenueModel || ""}
-              placeholder="How will this make money?"
-              onSave={(v) => handleUpdateExecutiveSummary("revenueModel", v)}
-            />
-            <EditableField
-              label="Competitive Advantage"
-              value={idea.competitiveAdvantage || ""}
-              placeholder="What sets this apart?"
-              onSave={(v) => handleUpdateExecutiveSummary("competitiveAdvantage", v)}
-            />
-            <EditableField
-              label="Full Executive Summary"
-              value={idea.executiveSummary || ""}
-              placeholder="Detailed summary of the business idea..."
-              onSave={(v) => handleUpdateExecutiveSummary("executiveSummary", v)}
-              multiline
-            />
-          </CardContent>
-        </Card>
+      {/* Main Content Tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "basics" | "executive" | "interview")}>
+        <TabsList className="grid w-full grid-cols-3 max-w-md">
+          <TabsTrigger value="basics" className="flex items-center gap-2">
+            <Lightbulb className="h-4 w-4" />
+            Basics
+          </TabsTrigger>
+          <TabsTrigger value="executive" className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4" />
+            Executive
+          </TabsTrigger>
+          <TabsTrigger value="interview" className="flex items-center gap-2">
+            <Target className="h-4 w-4" />
+            Viability
+          </TabsTrigger>
+        </TabsList>
 
-        {/* Chat Interface */}
-        <Card className="flex flex-col h-[600px]">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-blue-400" />
-              Brainstorm Chat
-            </CardTitle>
-            <CardDescription>
-              Explore and develop your idea through conversation
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex-1 flex flex-col overflow-hidden">
-            {/* Messages */}
-            <div className="flex-1 overflow-auto space-y-4 mb-4">
-              {idea.messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                  <Bot className="h-12 w-12 mb-4 opacity-50" />
-                  <p className="text-sm">Start a conversation to explore your idea</p>
-                  <p className="text-xs mt-2">Try asking about market potential, risks, or next steps</p>
-                </div>
-              ) : (
-                <>
-                  {idea.messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={cn(
-                        "flex gap-3",
-                        msg.role === "user" && "flex-row-reverse"
-                      )}
+        {/* Tab: Basics */}
+        <TabsContent value="basics" className="mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Basic Info */}
+            <Card className="lg:row-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Lightbulb className="h-5 w-5 text-primary" />
+                  Idea Details
+                </CardTitle>
+                <CardDescription>
+                  Core information about your business idea
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <EditableField
+                  label="Problem Statement"
+                  value={idea.problemStatement || ""}
+                  placeholder="What problem does this solve?"
+                  onSave={(v) => handleUpdateExecutiveSummary("problemStatement", v)}
+                />
+                <EditableField
+                  label="Target Audience"
+                  value={idea.targetAudience || ""}
+                  placeholder="Who is this for?"
+                  onSave={(v) => handleUpdateExecutiveSummary("targetAudience", v)}
+                />
+                <EditableField
+                  label="Value Proposition"
+                  value={idea.valueProposition || ""}
+                  placeholder="What unique value does this provide?"
+                  onSave={(v) => handleUpdateExecutiveSummary("valueProposition", v)}
+                />
+                <EditableField
+                  label="Revenue Model"
+                  value={idea.revenueModel || ""}
+                  placeholder="How will this make money?"
+                  onSave={(v) => handleUpdateExecutiveSummary("revenueModel", v)}
+                />
+                <EditableField
+                  label="Competitive Advantage"
+                  value={idea.competitiveAdvantage || ""}
+                  placeholder="What sets this apart?"
+                  onSave={(v) => handleUpdateExecutiveSummary("competitiveAdvantage", v)}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Voice Chat Interface */}
+            <VoiceChatPanel
+              idea={idea}
+              onMessageSent={(msg, resp) => {
+                // Add messages to idea for persistence
+                const updatedWithUser = addMessageToIdea(idea.id, {
+                  role: "user",
+                  content: msg
+                })
+                if (updatedWithUser) {
+                  const updatedWithAssistant = addMessageToIdea(idea.id, {
+                    role: "assistant",
+                    content: resp
+                  })
+                  if (updatedWithAssistant) {
+                    setIdea(updatedWithAssistant)
+                  }
+                }
+              }}
+              className="h-[600px]"
+            />
+
+            {/* Key Risks */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-yellow-400" />
+                  Key Risks
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <EditableList
+                  items={idea.keyRisks || []}
+                  placeholder="Add a risk..."
+                  onSave={(items) => handleUpdateExecutiveSummary("keyRisks", items)}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Next Steps */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-green-400" />
+                  Next Steps
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <EditableList
+                  items={idea.nextSteps || []}
+                  placeholder="Add a next step..."
+                  onSave={(items) => handleUpdateExecutiveSummary("nextSteps", items)}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Tab: Executive Summary */}
+        <TabsContent value="executive" className="mt-6">
+          <ExecutiveSummary
+            idea={idea}
+            onUpdate={handleUpdateExecutiveSummary}
+            initialData={executiveSummaryData}
+          />
+        </TabsContent>
+
+        {/* Tab: Viability Interview */}
+        <TabsContent value="interview" className="mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="lg:col-span-1">
+              <ViabilityInterview
+                idea={idea}
+                executiveSummary={executiveSummaryData}
+                onComplete={handleViabilityComplete}
+                onUpdate={handleUpdateExecutiveSummary}
+              />
+            </div>
+            <div className="lg:col-span-1 space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MessageSquare className="h-5 w-5 text-blue-400" />
+                    About Viability Interviews
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 text-sm text-muted-foreground">
+                  <p>
+                    The viability interview helps fill in gaps and strengthen your business case
+                    by asking targeted questions about:
+                  </p>
+                  <ul className="space-y-2 list-disc list-inside">
+                    <li>Problem validation and customer understanding</li>
+                    <li>Solution fit and competitive positioning</li>
+                    <li>Market opportunity and revenue clarity</li>
+                    <li>Execution readiness and next steps</li>
+                  </ul>
+                  <p>
+                    Your answers will be analyzed to generate insights and identify
+                    areas that need more attention before moving forward.
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Quick Access to Executive Summary */}
+              {!executiveSummaryData && (
+                <Card className="border-dashed">
+                  <CardContent className="p-6 text-center">
+                    <Sparkles className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
+                    <h4 className="font-medium mb-2">Generate Executive Summary First</h4>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      We recommend generating an executive summary before the viability interview
+                      for more targeted questions.
+                    </p>
+                    <Button
+                      variant="outline"
+                      onClick={() => setActiveTab("executive")}
                     >
-                      <div className={cn(
-                        "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0",
-                        msg.role === "user" ? "bg-primary" : "bg-muted"
-                      )}>
-                        {msg.role === "user" ? (
-                          <User className="h-4 w-4 text-primary-foreground" />
-                        ) : (
-                          <Bot className="h-4 w-4" />
-                        )}
-                      </div>
-                      <div className={cn(
-                        "max-w-[80%] rounded-2xl px-4 py-3",
-                        msg.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted"
-                      )}>
-                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                        <p className="text-xs opacity-60 mt-1">
-                          {new Date(msg.timestamp).toLocaleTimeString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                  <div ref={messagesEndRef} />
-                </>
+                      Go to Executive Summary
+                    </Button>
+                  </CardContent>
+                </Card>
               )}
             </div>
-
-            {/* Input */}
-            <div className="flex gap-2">
-              <Textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Ask about your idea..."
-                className="min-h-[80px] resize-none"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSendMessage()
-                  }
-                }}
-              />
-              <Button
-                onClick={handleSendMessage}
-                disabled={isSending || !message.trim()}
-                className="self-end"
-              >
-                {isSending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Key Risks */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-yellow-400" />
-              Key Risks
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <EditableList
-              items={idea.keyRisks || []}
-              placeholder="Add a risk..."
-              onSave={(items) => handleUpdateExecutiveSummary("keyRisks", items as unknown as string)}
-            />
-          </CardContent>
-        </Card>
-
-        {/* Next Steps */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-400" />
-              Next Steps
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <EditableList
-              items={idea.nextSteps || []}
-              placeholder="Add a next step..."
-              onSave={(items) => handleUpdateExecutiveSummary("nextSteps", items as unknown as string)}
-            />
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Metadata */}
       <Card>
@@ -562,6 +593,15 @@ export default function BusinessIdeaDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Convert to Project Dialog */}
+      <ConvertToProjectDialog
+        open={showConvertDialog}
+        onOpenChange={setShowConvertDialog}
+        idea={idea}
+        suggestedType={null}
+        onSuccess={handleProjectCreated}
+      />
     </div>
   )
 }

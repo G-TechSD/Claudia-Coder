@@ -10,12 +10,8 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
-import type {
-  PriorArtResearch,
-  CompetitorAnalysis,
-  MarketGapAnalysis,
-  PriorArtRecommendation
-} from "@/lib/data/types"
+import { parseLLMJson } from "@/lib/llm"
+import type { PriorArtResearch } from "@/lib/data/types"
 
 // ============ Types ============
 
@@ -379,25 +375,8 @@ function extractKeywords(text: string): string[] {
 }
 
 function parseJsonResponse(content: string): Partial<PriorArtResearch> | null {
-  try {
-    let jsonStr = content.trim()
-
-    // Remove markdown code blocks if present
-    if (jsonStr.startsWith("```")) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "")
-    }
-
-    // Try to extract JSON from text
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      jsonStr = jsonMatch[0]
-    }
-
-    return JSON.parse(jsonStr)
-  } catch (error) {
-    console.error("[prior-art] Failed to parse JSON response:", error)
-    return null
-  }
+  // Use the shared LLM JSON parser that handles special tokens
+  return parseLLMJson<Partial<PriorArtResearch>>(content)
 }
 
 function generatePlaceholderResearch(
