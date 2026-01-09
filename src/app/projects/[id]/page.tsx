@@ -1589,6 +1589,7 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         linkedRepos={project.repos}
         onRepoLinked={() => refreshProject()}
+        workingDirectory={project.workingDirectory}
       />
     </div>
   )

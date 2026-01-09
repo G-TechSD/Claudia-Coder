@@ -20,7 +20,8 @@ import {
   Link2,
   Check,
   ExternalLink,
-  Settings
+  Settings,
+  FolderOpen
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { listGitLabProjects, hasGitLabToken, type GitLabProject } from "@/lib/gitlab/api"
@@ -33,6 +34,7 @@ interface RepoBrowserProps {
   projectId: string
   linkedRepos: LinkedRepo[]
   onRepoLinked?: (repo: LinkedRepo) => void
+  workingDirectory?: string
 }
 
 export function RepoBrowser({
@@ -40,7 +42,8 @@ export function RepoBrowser({
   onOpenChange,
   projectId,
   linkedRepos,
-  onRepoLinked
+  onRepoLinked,
+  workingDirectory
 }: RepoBrowserProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [repos, setRepos] = useState<GitLabProject[]>([])
@@ -110,7 +113,9 @@ export function RepoBrowser({
         id: repo.id,
         name: repo.name,
         path: repo.path_with_namespace,
-        url: repo.web_url
+        url: repo.web_url,
+        // Auto-fill local path from project's working directory
+        localPath: workingDirectory || undefined
       }
 
       const updated = linkRepoToProject(projectId, linkedRepo)
@@ -157,6 +162,19 @@ export function RepoBrowser({
           </Card>
         ) : (
           <>
+            {/* Working Directory Info */}
+            {workingDirectory && (
+              <Card className="bg-blue-500/10 border-blue-500/30">
+                <CardContent className="p-3 flex items-center gap-2 text-sm">
+                  <FolderOpen className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                  <span className="text-muted-foreground">Local path:</span>
+                  <code className="bg-muted px-2 py-0.5 rounded font-mono text-xs flex-1 truncate">
+                    {workingDirectory}
+                  </code>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
