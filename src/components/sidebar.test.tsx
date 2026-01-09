@@ -1,15 +1,28 @@
+import React from "react"
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from "@testing-library/react"
 import { Sidebar } from "./sidebar"
 
 // Mock Next.js navigation
-jest.mock("next/navigation", () => ({
+vi.mock("next/navigation", () => ({
   usePathname: () => "/",
+}))
+
+// Mock Next.js Link component
+jest.mock("next/link", () => ({
+  __esModule: true,
+  default: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
 }))
 
 // Mock Next.js Image component
 jest.mock("next/image", () => ({
   __esModule: true,
-  default: (props: { alt: string; [key: string]: unknown }) => <img alt={props.alt} />,
+  default: ({ alt, ...props }: { alt: string; [key: string]: unknown }) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img alt={alt} {...props} />
+  ),
 }))
 
 // Mock custom hooks
