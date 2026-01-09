@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, Suspense } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,7 +19,8 @@ import { useSettings } from "@/hooks/useSettings"
 import { useAuth } from "@/components/auth/auth-provider"
 import { LLMStatusBadge } from "@/components/llm/llm-status"
 import { BetaUsageBanner } from "@/components/beta/usage-banner"
-import type { InterviewSession, Project } from "@/lib/data/types"
+import type { InterviewSession, Project, VoiceRecording } from "@/lib/data/types"
+import { getRecording, markProjectCreated } from "@/lib/data/voice-recordings-client"
 import {
   ArrowLeft,
   ArrowRight,
@@ -46,7 +47,8 @@ import {
   ChevronUp,
   ShieldAlert,
   Rocket,
-  DollarSign
+  DollarSign,
+  Mic
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -128,11 +130,15 @@ interface LinearImportData {
   }
 }
 
-export default function NewProjectPage() {
+function NewProjectContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { isBetaTester, betaLimits, refreshBetaLimits } = useAuth()
   const [mode, setMode] = useState<Mode>("choose")
   const [interviewSession, setInterviewSession] = useState<InterviewSession | null>(null)
+
+  // Voice recording support - create project from voice recording
+  const [sourceVoiceRecording, setSourceVoiceRecording] = useState<VoiceRecording | null>(null)
 
   // Quick mode state
   const [quickDescription, setQuickDescription] = useState("")
@@ -211,6 +217,19 @@ export default function NewProjectPage() {
   useEffect(() => {
     setHasToken(hasGitLabToken())
   }, [])
+
+  // Load voice recording if creating from voice
+  useEffect(() => {
+    const voiceRecordingId = searchParams.get("voiceRecordingId")
+    if (voiceRecordingId) {
+      const recording = getRecording(voiceRecordingId)
+      if (recording) {
+        setSourceVoiceRecording(recording)
+        // Pre-populate description with transcription
+        setQuickDescription(recording.transcription)
+      }
+    }
+  }, [searchParams])
 
   // Persist auto-generate build plan preference
   useEffect(() => {
@@ -561,6 +580,15 @@ export default function NewProjectPage() {
         }
       }
 
+      // Link voice recording if project was created from voice
+      if (sourceVoiceRecording) {
+        markProjectCreated(sourceVoiceRecording.id, project.id)
+        // Add "created-from-voice" tag
+        updateProject(project.id, {
+          tags: [...(project.tags || []), "created-from-voice"]
+        })
+      }
+
       setCreatedProject(project)
       setMode("complete")
     } catch (error) {
@@ -731,6 +759,15 @@ export default function NewProjectPage() {
         }
       }
 
+      // Link voice recording if project was created from voice
+      if (sourceVoiceRecording) {
+        markProjectCreated(sourceVoiceRecording.id, project.id)
+        // Add "created-from-voice" tag
+        updateProject(project.id, {
+          tags: [...(project.tags || []), "created-from-voice"]
+        })
+      }
+
       setCreatedProject(project)
       setMode("complete")
     } catch (error) {
@@ -812,6 +849,26 @@ export default function NewProjectPage() {
             current={betaLimits.current.projects}
             limit={betaLimits.limits.projects}
           />
+        )}
+
+        {/* Voice Recording Source Banner */}
+        {sourceVoiceRecording && (
+          <Card className="border-blue-500/30 bg-blue-500/5">
+            <CardContent className="py-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                  <Mic className="h-5 w-5 text-blue-500" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Creating from voice recording</p>
+                  <p className="text-xs text-muted-foreground">{sourceVoiceRecording.title}</p>
+                </div>
+                <Badge variant="outline" className="text-blue-500 border-blue-500/30">
+                  From Voice
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         <Card>
@@ -1807,4 +1864,26 @@ function toRepoName(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .substring(0, 50)
+}
+
+export default function NewProjectPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-6">
+        <Card className="max-w-md w-full">
+          <CardContent className="pt-6 text-center">
+            <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+              <Loader2 className="h-8 w-8 text-primary animate-spin" />
+            </div>
+            <h2 className="text-xl font-semibold mb-2">Loading...</h2>
+            <p className="text-muted-foreground">
+              Preparing project creation...
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <NewProjectContent />
+    </Suspense>
+  )
 }

@@ -24,7 +24,12 @@ import {
   Mail,
   Calendar,
   CheckCircle,
+  DollarSign,
+  Key,
+  RefreshCw,
 } from "lucide-react"
+import { Progress } from "@/components/ui/progress"
+import { Input } from "@/components/ui/input"
 import { useAuth } from "@/components/auth/auth-provider"
 
 interface AdminUser {
@@ -39,6 +44,19 @@ interface AdminUser {
   disabled: number
   createdAt: string
   updatedAt: string
+}
+
+interface BudgetStatus {
+  userId: string
+  apiKeySource: "provided" | "own"
+  hasOwnApiKey: boolean
+  budget: number
+  spent: number
+  remaining: number
+  percentUsed: number
+  resetDate: string
+  daysUntilReset: number
+  isOverBudget: boolean
 }
 
 interface UserStats {
@@ -74,6 +92,14 @@ function formatDateFull(dateString: string): string {
   })
 }
 
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  }).format(amount)
+}
+
 export default function UsersPage() {
   const { user: currentUser } = useAuth()
   const [users, setUsers] = React.useState<AdminUser[]>([])
@@ -83,6 +109,12 @@ export default function UsersPage() {
   const [selectedUser, setSelectedUser] = React.useState<AdminUser | null>(null)
   const [updating, setUpdating] = React.useState<string | null>(null)
   const [roleFilter, setRoleFilter] = React.useState<string>("all")
+
+  // Budget management state
+  const [userBudget, setUserBudget] = React.useState<BudgetStatus | null>(null)
+  const [loadingBudget, setLoadingBudget] = React.useState(false)
+  const [editingBudget, setEditingBudget] = React.useState(false)
+  const [newBudgetAmount, setNewBudgetAmount] = React.useState("")
 
   const fetchUsers = React.useCallback(async () => {
     try {
@@ -132,6 +164,85 @@ export default function UsersPage() {
       await fetchUsers()
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to update user")
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  // Fetch budget status for selected user
+  const fetchUserBudget = React.useCallback(async (userId: string) => {
+    setLoadingBudget(true)
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/budget`)
+      if (res.ok) {
+        const data = await res.json()
+        setUserBudget(data.budget)
+      } else {
+        setUserBudget(null)
+      }
+    } catch {
+      setUserBudget(null)
+    } finally {
+      setLoadingBudget(false)
+    }
+  }, [])
+
+  // Fetch budget when selected user changes (only for beta testers)
+  React.useEffect(() => {
+    if (selectedUser && (selectedUser.role === "beta_tester" || selectedUser.role === "beta")) {
+      fetchUserBudget(selectedUser.id)
+    } else {
+      setUserBudget(null)
+    }
+  }, [selectedUser, fetchUserBudget])
+
+  // Update user budget
+  const updateUserBudget = async (userId: string, newBudget: number) => {
+    setUpdating(userId)
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/budget`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiUsageBudget: newBudget }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "Failed to update budget")
+      }
+
+      // Refresh budget
+      await fetchUserBudget(userId)
+      setEditingBudget(false)
+      setNewBudgetAmount("")
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update budget")
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  // Reset user budget
+  const resetUserBudget = async (userId: string) => {
+    if (!confirm("Reset this user's spent amount to zero?")) return
+
+    setUpdating(userId)
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/budget`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset" }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "Failed to reset budget")
+      }
+
+      // Refresh budget
+      await fetchUserBudget(userId)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to reset budget")
     } finally {
       setUpdating(null)
     }
@@ -463,6 +574,131 @@ export default function UsersPage() {
                     />
                   </div>
                 </div>
+
+                {/* API Budget - Only for beta testers */}
+                {(selectedUser.role === "beta_tester" || selectedUser.role === "beta") && (
+                  <div className="space-y-3 p-4 rounded-lg border border-primary/20 bg-primary/5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-primary" />
+                        <p className="text-sm font-medium">API Budget</p>
+                      </div>
+                      {userBudget?.hasOwnApiKey && (
+                        <Badge variant="success" className="text-xs gap-1">
+                          <Key className="h-3 w-3" />
+                          Own Key
+                        </Badge>
+                      )}
+                    </div>
+
+                    {loadingBudget ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : userBudget ? (
+                      <div className="space-y-3">
+                        {!userBudget.hasOwnApiKey && (
+                          <>
+                            {/* Usage Progress */}
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">
+                                  {formatCurrency(userBudget.spent)} spent
+                                </span>
+                                <span className="text-muted-foreground">
+                                  {formatCurrency(userBudget.budget)} budget
+                                </span>
+                              </div>
+                              <Progress
+                                value={userBudget.percentUsed}
+                                className={cn(
+                                  "h-2",
+                                  userBudget.isOverBudget && "[&>div]:bg-destructive",
+                                  userBudget.percentUsed >= 80 && !userBudget.isOverBudget && "[&>div]:bg-yellow-500"
+                                )}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {userBudget.percentUsed.toFixed(1)}% used - Resets in {userBudget.daysUntilReset} days
+                              </p>
+                            </div>
+
+                            {/* Budget Edit */}
+                            {editingBudget ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm">$</span>
+                                <Input
+                                  type="number"
+                                  value={newBudgetAmount}
+                                  onChange={(e) => setNewBudgetAmount(e.target.value)}
+                                  placeholder={userBudget.budget.toString()}
+                                  className="h-8 w-24"
+                                  step="0.01"
+                                  min="0"
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    if (newBudgetAmount) {
+                                      updateUserBudget(selectedUser.id, parseFloat(newBudgetAmount))
+                                    }
+                                  }}
+                                  disabled={updating === selectedUser.id || !newBudgetAmount}
+                                >
+                                  Save
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setEditingBudget(false)
+                                    setNewBudgetAmount("")
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setEditingBudget(true)
+                                    setNewBudgetAmount(userBudget.budget.toString())
+                                  }}
+                                  disabled={updating === selectedUser.id}
+                                >
+                                  Edit Budget
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => resetUserBudget(selectedUser.id)}
+                                  disabled={updating === selectedUser.id}
+                                  className="gap-1"
+                                >
+                                  <RefreshCw className="h-3 w-3" />
+                                  Reset Spent
+                                </Button>
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                        {userBudget.hasOwnApiKey && (
+                          <p className="text-xs text-muted-foreground">
+                            User is using their own Anthropic API key. No budget limits apply.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No budget data available
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Details */}
                 <div className="space-y-3">

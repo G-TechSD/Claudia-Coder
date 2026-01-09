@@ -40,7 +40,8 @@ import {
   Info,
   Package,
   Rocket,
-  Terminal
+  Terminal,
+  Search
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { BuildPlan, ExistingPacketInfo } from "@/lib/ai/build-plan"
@@ -73,6 +74,7 @@ interface BuildPlanEditorProps {
   selectedProvider: string | null
   onProviderChange: (provider: string) => void
   onKickoffGenerated?: (kickoffPath: string) => void
+  onPriorArtResearch?: () => void  // Callback to trigger prior art research
   className?: string
 }
 
@@ -121,6 +123,7 @@ export function BuildPlanEditor({
   selectedProvider,
   onProviderChange,
   onKickoffGenerated,
+  onPriorArtResearch,
   className
 }: BuildPlanEditorProps) {
   const [storedPlan, setStoredPlan] = useState<StoredBuildPlan | null>(null)
@@ -147,6 +150,7 @@ export function BuildPlanEditor({
   const [isGeneratingPackets, setIsGeneratingPackets] = useState(false)
   const [packetGenerationStatus, setPacketGenerationStatus] = useState("")
   const [userDefaultModel, setUserDefaultModel] = useState<EnabledInstance | null>(null)
+  const [autoResearchPriorArt, setAutoResearchPriorArt] = useState(true)  // Auto-research prior art on acceptance
 
   // Auto-save timer
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -696,11 +700,21 @@ export function BuildPlanEditor({
 
       setPacketGenerationStatus(`Generated ${workPackets.length} packets successfully!`)
 
-      // Show success briefly then clear
-      setTimeout(() => {
-        setPacketGenerationStatus("")
-        setIsGeneratingPackets(false)
-      }, 2000)
+      // Trigger prior art research if enabled
+      if (autoResearchPriorArt && onPriorArtResearch) {
+        setPacketGenerationStatus("Starting prior art research...")
+        setTimeout(() => {
+          onPriorArtResearch()
+          setPacketGenerationStatus("")
+          setIsGeneratingPackets(false)
+        }, 1000)
+      } else {
+        // Show success briefly then clear
+        setTimeout(() => {
+          setPacketGenerationStatus("")
+          setIsGeneratingPackets(false)
+        }, 2000)
+      }
 
     } catch (err) {
       setPacketGenerationStatus("")
@@ -1145,28 +1159,41 @@ export function BuildPlanEditor({
                   <div className="hidden sm:block h-8 w-px bg-border" />
 
                   {/* Right side: Accept Build Plan button */}
-                  <div className="flex items-center gap-3">
-                    <Button
-                      size="default"
-                      className="bg-green-600 hover:bg-green-700 text-white gap-2"
-                      onClick={handleAcceptAndGeneratePackets}
-                      disabled={isGeneratingPackets || packetsToInclude === 0 || storedPlan?.status === "approved"}
-                    >
-                      {isGeneratingPackets ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : storedPlan?.status === "approved" ? (
-                        <CheckCircle2 className="h-4 w-4" />
-                      ) : (
-                        <Rocket className="h-4 w-4" />
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-3">
+                      <Button
+                        size="default"
+                        className="bg-green-600 hover:bg-green-700 text-white gap-2"
+                        onClick={handleAcceptAndGeneratePackets}
+                        disabled={isGeneratingPackets || packetsToInclude === 0 || storedPlan?.status === "approved"}
+                      >
+                        {isGeneratingPackets ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : storedPlan?.status === "approved" ? (
+                          <CheckCircle2 className="h-4 w-4" />
+                        ) : (
+                          <Rocket className="h-4 w-4" />
+                        )}
+                        {storedPlan?.status === "approved"
+                          ? "Packets Added"
+                          : "Accept Build Plan & Add Packets"}
+                      </Button>
+                      {storedPlan?.status !== "approved" && (
+                        <span className="text-xs text-muted-foreground hidden md:inline">
+                          ({packetsToInclude} packets)
+                        </span>
                       )}
-                      {storedPlan?.status === "approved"
-                        ? "Packets Added"
-                        : "Accept Build Plan & Add Packets"}
-                    </Button>
+                    </div>
+                    {/* Auto-research prior art checkbox */}
                     {storedPlan?.status !== "approved" && (
-                      <span className="text-xs text-muted-foreground hidden md:inline">
-                        ({packetsToInclude} packets)
-                      </span>
+                      <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={autoResearchPriorArt}
+                          onCheckedChange={(checked) => setAutoResearchPriorArt(checked === true)}
+                        />
+                        <Search className="h-3 w-3 text-cyan-500" />
+                        <span>Auto-research prior art</span>
+                      </label>
                     )}
                   </div>
                 </div>
@@ -1595,28 +1622,41 @@ export function BuildPlanEditor({
                     <div className="hidden sm:block h-8 w-px bg-border" />
 
                     {/* Right side: Accept Build Plan button */}
-                    <div className="flex items-center gap-3">
-                      <Button
-                        size="default"
-                        className="bg-green-600 hover:bg-green-700 text-white gap-2"
-                        onClick={handleAcceptAndGeneratePackets}
-                        disabled={isGeneratingPackets || packetsToInclude === 0 || storedPlan?.status === "approved"}
-                      >
-                        {isGeneratingPackets ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : storedPlan?.status === "approved" ? (
-                          <CheckCircle2 className="h-4 w-4" />
-                        ) : (
-                          <Rocket className="h-4 w-4" />
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-3">
+                        <Button
+                          size="default"
+                          className="bg-green-600 hover:bg-green-700 text-white gap-2"
+                          onClick={handleAcceptAndGeneratePackets}
+                          disabled={isGeneratingPackets || packetsToInclude === 0 || storedPlan?.status === "approved"}
+                        >
+                          {isGeneratingPackets ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : storedPlan?.status === "approved" ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : (
+                            <Rocket className="h-4 w-4" />
+                          )}
+                          {storedPlan?.status === "approved"
+                            ? "Packets Added"
+                            : "Accept Build Plan & Add Packets"}
+                        </Button>
+                        {storedPlan?.status !== "approved" && (
+                          <span className="text-xs text-muted-foreground hidden md:inline">
+                            ({packetsToInclude} packets)
+                          </span>
                         )}
-                        {storedPlan?.status === "approved"
-                          ? "Packets Added"
-                          : "Accept Build Plan & Add Packets"}
-                      </Button>
+                      </div>
+                      {/* Auto-research prior art checkbox */}
                       {storedPlan?.status !== "approved" && (
-                        <span className="text-xs text-muted-foreground hidden md:inline">
-                          ({packetsToInclude} packets)
-                        </span>
+                        <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground">
+                          <Checkbox
+                            checked={autoResearchPriorArt}
+                            onCheckedChange={(checked) => setAutoResearchPriorArt(checked === true)}
+                          />
+                          <Search className="h-3 w-3 text-cyan-500" />
+                          <span>Auto-research prior art</span>
+                        </label>
                       )}
                     </div>
                   </div>

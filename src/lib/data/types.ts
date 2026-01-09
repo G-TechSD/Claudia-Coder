@@ -7,6 +7,20 @@
 
 export type UserRole = "admin" | "beta_tester" | "user"
 
+// ============ API Key Sources ============
+
+export type ApiKeySource = "provided" | "own"
+
+// ============ User API Budget ============
+
+export interface UserApiBudget {
+  apiKeySource: ApiKeySource           // Whether we provide API key or user brings own
+  anthropicApiKey?: string             // User's own API key (encrypted)
+  apiUsageBudget: number               // Max spend allowed in dollars (e.g., 10.00)
+  apiUsageSpent: number                // Current spend in dollars
+  apiUsageResetDate: string            // ISO date string when budget resets
+}
+
 // ============ Beta Invites ============
 
 export interface BetaInvite {
@@ -627,4 +641,407 @@ export interface BusinessDev {
   updatedAt: string
   approvedAt?: string
   approvedBy?: string
+}
+
+// ============ Patent Search & Generation ============
+
+export type PatentSearchStatus = "pending" | "searching" | "completed" | "failed"
+export type PatentSectionType =
+  | "abstract"
+  | "background"
+  | "summary"
+  | "detailedDescription"
+  | "claims"
+
+export interface PriorArt {
+  id: string
+  title: string
+  patentNumber?: string
+  publicationDate?: string
+  inventors?: string[]
+  assignee?: string
+  abstract: string
+  claims?: string[]
+  url?: string
+  source: "USPTO" | "Google Patents" | "EPO" | "WIPO" | "Other"
+
+  // Similarity analysis
+  similarityScore: number  // 0-100
+  overlapAreas: string[]
+  differentiators: string[]
+  riskLevel: "low" | "medium" | "high"
+}
+
+export interface PatentSearch {
+  id: string
+  inventionTitle: string
+  inventionDescription: string
+  technicalField: string
+  keywords: string[]
+  searchedAt: string
+  status: PatentSearchStatus
+
+  // Results
+  priorArt: PriorArt[]
+  overallPatentabilityScore: number  // 0-100
+  patentabilityAssessment: string
+  recommendations: string[]
+
+  // Generation metadata
+  generatedBy: {
+    server: string
+    model: string
+  }
+
+  error?: string
+}
+
+export interface PatentSection {
+  type: PatentSectionType
+  title: string
+  content: string
+  isEdited: boolean
+  lastEditedAt?: string
+  suggestions?: string[]
+  warnings?: string[]
+}
+
+export type PatentSubmissionStatus = "draft" | "in_progress" | "review" | "completed"
+
+export interface PatentClaim {
+  id: string
+  number: number
+  type: "independent" | "dependent"
+  dependsOn?: number  // For dependent claims
+  content: string
+  isEdited: boolean
+}
+
+export interface PatentSubmission {
+  id: string
+  projectId?: string
+  status: PatentSubmissionStatus
+
+  // Invention details
+  inventionTitle: string
+  inventionDescription: string
+  technicalField: string
+  inventors: Array<{
+    name: string
+    address: string
+    citizenship: string
+  }>
+  applicant?: {
+    name: string
+    address: string
+    type: "individual" | "organization"
+  }
+
+  // Generated sections
+  sections: {
+    abstract?: PatentSection
+    background?: PatentSection
+    summary?: PatentSection
+    detailedDescription?: PatentSection
+  }
+  claims: PatentClaim[]
+
+  // Figures/drawings reference
+  figures?: Array<{
+    number: number
+    title: string
+    description: string
+  }>
+
+  // Prior art reference
+  priorArtSearchId?: string
+  citedReferences?: Array<{
+    type: "patent" | "non-patent"
+    citation: string
+    relevance: string
+  }>
+
+  // Review checklist
+  reviewChecklist: {
+    abstractComplete: boolean
+    backgroundComplete: boolean
+    summaryComplete: boolean
+    detailedDescriptionComplete: boolean
+    claimsComplete: boolean
+    figuresDescribed: boolean
+    priorArtCited: boolean
+    inventorInfoComplete: boolean
+  }
+
+  // Generation metadata
+  generatedBy: {
+    server: string
+    model: string
+  }
+
+  // Timestamps
+  createdAt: string
+  updatedAt: string
+  completedAt?: string
+}
+
+// ============ Patent Research ============
+
+export type PatentResearchStatus = "research" | "drafting" | "review" | "filed" | "approved" | "rejected"
+
+export interface PatentPriorArt {
+  id: string
+  title: string
+  patentNumber?: string
+  applicationNumber?: string
+  inventor?: string
+  assignee?: string
+  filingDate?: string
+  publicationDate?: string
+  abstract?: string
+  url?: string
+  relevance: "low" | "medium" | "high"
+  notes: string
+  addedAt: string
+}
+
+export interface PatentResearchClaim {
+  id: string
+  number: number
+  type: "independent" | "dependent"
+  dependsOn?: number // For dependent claims, references the independent claim number
+  text: string
+  status: "draft" | "reviewed" | "approved"
+  notes?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PatentAttorney {
+  id: string
+  name: string
+  firm?: string
+  email?: string
+  phone?: string
+  specializations: string[]
+  notes?: string
+  rating?: number // 1-5 stars
+  contacted: boolean
+  contactedAt?: string
+}
+
+export interface PatentResearch {
+  id: string
+  title: string
+  status: PatentResearchStatus
+  createdAt: string
+  updatedAt: string
+
+  // Links to other entities
+  projectId?: string
+  businessIdeaId?: string
+
+  // Invention Description
+  inventionDescription: {
+    summary: string
+    background?: string
+    technicalField?: string
+    problemSolved?: string
+    solutionDescription?: string
+    advantages?: string[]
+    embodiments?: string[]
+    drawings?: Array<{
+      id: string
+      name: string
+      description: string
+      filePath?: string
+    }>
+  }
+
+  // Prior Art Search
+  priorArt: PatentPriorArt[]
+  priorArtSearchNotes?: string
+  priorArtSearchCompletedAt?: string
+
+  // Patentability Analysis
+  patentabilityAnalysis?: {
+    noveltyAssessment: string
+    nonObviousnessAssessment: string
+    utilityAssessment: string
+    patentableSubjectMatter: string
+    overallAssessment: "strong" | "moderate" | "weak" | "not-patentable" | "undetermined"
+    recommendations: string[]
+    analyzedAt: string
+  }
+
+  // Claims Draft
+  claims: PatentResearchClaim[]
+  claimsDraftNotes?: string
+
+  // Filing Information
+  filing?: {
+    type: "provisional" | "non-provisional" | "pct" | "continuation" | "divisional"
+    jurisdiction: string // US, EU, PCT, etc.
+    applicationNumber?: string
+    filingDate?: string
+    priorityDate?: string
+    assignee?: string
+    inventors: Array<{
+      name: string
+      address?: string
+      citizenship?: string
+    }>
+    status: "preparing" | "filed" | "pending" | "granted" | "abandoned" | "rejected"
+    notes?: string
+  }
+
+  // Attorney Referrals
+  attorneys: PatentAttorney[]
+  selectedAttorneyId?: string
+
+  // Metadata
+  tags: string[]
+  notes?: string
+  estimatedCost?: string
+  targetFilingDate?: string
+}
+
+// ============ Voice Recordings ============
+
+export interface VoiceRecording {
+  id: string
+  userId: string
+
+  // Audio data
+  audioUrl: string           // Relative path to audio file in storage
+  audioDuration: number      // Duration in seconds
+  audioMimeType: string      // e.g., "audio/webm"
+  audioSize: number          // File size in bytes
+
+  // Transcription
+  transcription: string
+  transcriptionMethod: "whisper-local" | "browser-speech"
+  transcriptionConfidence?: number  // 0-1 for whisper
+
+  // User-editable metadata
+  title: string
+  tags: string[]
+
+  // Linked entities - recordings can be linked to multiple entities
+  linkedProjectId?: string
+  linkedBusinessIdeaId?: string
+  linkedPatentId?: string
+
+  // Tracking
+  createdAt: string
+  updatedAt: string
+
+  // Source context - where was this recording made?
+  sourceContext?: "voice-page" | "project-creation" | "business-idea" | "brain-dump"
+
+  // If a project was created from this recording
+  createdProjectId?: string
+}
+
+// ============ Prior Art Research (Has This Been Done Before?) ============
+
+export type PriorArtRecommendation = "pursue" | "pivot" | "abandon" | "undetermined"
+export type PriorArtResearchStatus = "pending" | "researching" | "completed" | "failed"
+
+export interface CompetitorAnalysis {
+  id: string
+  name: string
+  url?: string
+  description: string
+  category: "direct" | "indirect" | "potential"
+
+  // Features comparison
+  features: string[]
+  missingFeatures?: string[]  // Features our project has that they don't
+
+  // Business model
+  pricing?: string
+  pricingModel?: "free" | "freemium" | "subscription" | "one-time" | "usage-based" | "enterprise"
+
+  // Market position
+  estimatedUsers?: string     // e.g., "10K-50K", "1M+"
+  targetAudience?: string
+  launchDate?: string
+  fundingStatus?: string      // e.g., "Bootstrapped", "Series A", "Public"
+
+  // Strengths and weaknesses
+  strengths: string[]
+  weaknesses: string[]
+
+  // Our advantage over them
+  ourAdvantage?: string
+}
+
+export interface MarketGapAnalysis {
+  gaps: Array<{
+    id: string
+    description: string
+    opportunity: "high" | "medium" | "low"
+    addressedByOurProject: boolean
+  }>
+  underservedSegments: string[]
+  emergingTrends: string[]
+}
+
+export interface PriorArtResearch {
+  id: string
+  projectId: string
+  status: PriorArtResearchStatus
+
+  // Research query context
+  projectName: string
+  projectDescription: string
+  searchQueries: string[]     // Queries used to find prior art
+
+  // Findings
+  competitors: CompetitorAnalysis[]
+  totalCompetitorsFound: number
+
+  // Market analysis
+  marketGapAnalysis?: MarketGapAnalysis
+  marketSaturation: "low" | "medium" | "high" | "oversaturated"
+
+  // Comparison summary
+  comparisonTable?: {
+    features: string[]        // Feature names as columns
+    rows: Array<{
+      name: string            // Competitor or "Your Project"
+      values: Record<string, boolean | string>  // feature -> has/value
+    }>
+  }
+
+  // Assessment
+  recommendation: PriorArtRecommendation
+  confidenceLevel: "low" | "medium" | "high"
+
+  // Reasoning
+  whyPursue: string[]         // Reasons to pursue
+  whyNotPursue: string[]      // Reasons not to pursue
+  whatWouldChange: string[]   // Conditions that would change the assessment
+
+  // Key insights
+  keyInsights: string[]
+  differentiators: string[]   // What makes our project unique
+  risks: string[]             // Competitive risks
+  opportunities: string[]     // Market opportunities
+
+  // Generation metadata
+  generatedBy: {
+    server: string
+    model: string
+  }
+  researchedAt: string
+  updatedAt: string
+
+  // Source tracking
+  sources: Array<{
+    title: string
+    url: string
+    snippet?: string
+  }>
 }

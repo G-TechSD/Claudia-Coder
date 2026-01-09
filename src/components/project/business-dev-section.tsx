@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   ChevronDown,
   ChevronUp,
@@ -22,10 +23,15 @@ import {
   CheckCircle2,
   AlertTriangle,
   Lightbulb,
-  Building2
+  Building2,
+  Brain,
+  Mic,
+  Search
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { BusinessDevEditor } from "./business-dev-editor"
+import { BusinessBrainDump } from "@/components/business/business-brain-dump"
+import { PriorArtSection } from "./prior-art-section"
 
 // Types for Business Development data
 export interface BusinessDevFeature {
@@ -128,6 +134,7 @@ export function BusinessDevSection({
   const [isDownloading, setIsDownloading] = useState(false)
   const [generationStatus, setGenerationStatus] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<"analysis" | "brain-dump" | "prior-art">("analysis")
 
   // Load existing data on mount
   useEffect(() => {
@@ -252,6 +259,56 @@ export function BusinessDevSection({
     }
   }
 
+  // Handle business dev generated from brain dump
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleBrainDumpGenerated = (generatedBusinessDev: any) => {
+    // Map from API response format to BusinessDevData format
+    const businessData: BusinessDevData = {
+      executiveSummary: generatedBusinessDev.executiveSummary || "",
+      valueProposition: generatedBusinessDev.valueProposition || "",
+      targetMarket: generatedBusinessDev.targetMarket || "",
+      competitiveAdvantage: generatedBusinessDev.competitiveAdvantage || "",
+      features: (generatedBusinessDev.features || []).map((f: { id?: string; name: string; description: string; priority: string; status?: string; estimatedValue?: string }, idx: number) => ({
+        id: f.id || `feat-${idx}`,
+        name: f.name,
+        description: f.description,
+        priority: f.priority as "high" | "medium" | "low",
+        status: (f.status || "planned") as "planned" | "in-progress" | "completed",
+        estimatedValue: f.estimatedValue
+      })),
+      marketSegments: (generatedBusinessDev.marketSegments || []).map((s: { name: string; percentage: number; color?: string; description?: string }) => ({
+        name: s.name,
+        percentage: s.percentage,
+        color: s.color || "#3b82f6",
+        description: s.description
+      })),
+      revenueStreams: (generatedBusinessDev.revenueStreams || []).map((r: { name: string; description: string; estimatedRevenue: string; timeframe: string; confidence: string }) => ({
+        name: r.name,
+        description: r.description,
+        estimatedRevenue: r.estimatedRevenue,
+        timeframe: r.timeframe,
+        confidence: r.confidence as "high" | "medium" | "low"
+      })),
+      proForma: generatedBusinessDev.proForma || {
+        revenue: [],
+        expenses: [],
+        summary: { year1Profit: 0, year2Profit: 0, year3Profit: 0, breakEvenMonth: 12 }
+      },
+      risks: generatedBusinessDev.risks || [],
+      opportunities: generatedBusinessDev.opportunities || [],
+      generatedAt: new Date().toISOString(),
+      generatedBy: generatedBusinessDev.generatedBy || "Brain Dump Analysis"
+    }
+
+    setBusinessData(businessData)
+    saveBusinessDevData(projectId, businessData)
+    // Switch to analysis tab to show the generated content
+    setActiveTab("analysis")
+  }
+
+  // Determine if we should show brain dump as primary option
+  const showBrainDumpPrimary = !businessData && !isGenerating
+
   return (
     <Card className={cn("border-purple-500/20", className)}>
       {/* Collapsible Header */}
@@ -292,86 +349,136 @@ export function BusinessDevSection({
       {/* Collapsible Content */}
       {isExpanded && (
         <CardContent className="space-y-6">
-          {/* Actions Bar */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={generateAnalysis}
-                disabled={isGenerating}
-                className="gap-2"
-              >
-                {isGenerating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
+          {/* Tabs for Brain Dump vs Analysis */}
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "analysis" | "brain-dump" | "prior-art")}>
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="brain-dump" className="gap-2">
+                <Brain className="h-4 w-4" />
+                Brain Dump
+                {showBrainDumpPrimary && (
+                  <Badge variant="secondary" className="ml-1 text-xs">Recommended</Badge>
                 )}
-                {businessData ? "Regenerate" : "Generate Analysis"}
-              </Button>
-              {generationStatus && (
-                <span className="text-sm text-muted-foreground">{generationStatus}</span>
-              )}
-            </div>
-            {businessData && (
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsEditing(true)}
-                  className="gap-1"
-                >
-                  <Edit2 className="h-4 w-4" />
-                  Edit
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => downloadSummary("md")}
-                  disabled={isDownloading}
-                  className="gap-1"
-                >
-                  <Download className="h-4 w-4" />
-                  MD
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => downloadSummary("pdf")}
-                  disabled={isDownloading}
-                  className="gap-1"
-                >
-                  <FileText className="h-4 w-4" />
-                  PDF
-                </Button>
+              </TabsTrigger>
+              <TabsTrigger value="analysis" className="gap-2">
+                <Building2 className="h-4 w-4" />
+                Analysis
+                {businessData && (
+                  <Badge variant="outline" className="ml-1 text-xs text-green-500 border-green-500/30">
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="prior-art" className="gap-2">
+                <Search className="h-4 w-4" />
+                Prior Art
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Brain Dump Tab */}
+            <TabsContent value="brain-dump" className="pt-4">
+              <BusinessBrainDump
+                projectId={projectId}
+                projectName={projectName}
+                projectDescription={projectDescription}
+                onBusinessDevGenerated={handleBrainDumpGenerated}
+              />
+            </TabsContent>
+
+            {/* Analysis Tab */}
+            <TabsContent value="analysis" className="space-y-6 pt-4">
+              {/* Actions Bar */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={generateAnalysis}
+                    disabled={isGenerating}
+                    className="gap-2"
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    {businessData ? "Regenerate" : "Generate Analysis"}
+                  </Button>
+                  {generationStatus && (
+                    <span className="text-sm text-muted-foreground">{generationStatus}</span>
+                  )}
+                </div>
+                {businessData && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsEditing(true)}
+                      className="gap-1"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => downloadSummary("md")}
+                      disabled={isDownloading}
+                      className="gap-1"
+                    >
+                      <Download className="h-4 w-4" />
+                      MD
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => downloadSummary("pdf")}
+                      disabled={isDownloading}
+                      className="gap-1"
+                    >
+                      <FileText className="h-4 w-4" />
+                      PDF
+                    </Button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Error Display */}
-          {error && (
-            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              {error}
-              <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto">
-                Dismiss
-              </Button>
-            </div>
-          )}
+              {/* Error Display */}
+              {error && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  {error}
+                  <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto">
+                    Dismiss
+                  </Button>
+                </div>
+              )}
 
-          {/* No Data State */}
-          {!businessData && !isGenerating && !error && (
-            <div className="text-center py-12">
-              <Sparkles className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
-              <p className="text-muted-foreground mb-4">
-                Generate a comprehensive business development analysis for {projectName}
-              </p>
-              <Button onClick={generateAnalysis} className="gap-2">
-                <Sparkles className="h-4 w-4" />
-                Generate Business Analysis
-              </Button>
-            </div>
-          )}
+              {/* No Data State - suggest brain dump */}
+              {!businessData && !isGenerating && !error && (
+                <div className="text-center py-12">
+                  <Brain className="h-12 w-12 mx-auto text-purple-500/30 mb-4" />
+                  <p className="text-muted-foreground mb-2">
+                    No business analysis yet for {projectName}
+                  </p>
+                  <p className="text-sm text-muted-foreground mb-6">
+                    Record a brain dump to share your ideas, or generate an analysis from project data.
+                  </p>
+                  <div className="flex items-center justify-center gap-3">
+                    <Button
+                      onClick={() => setActiveTab("brain-dump")}
+                      className="gap-2"
+                    >
+                      <Mic className="h-4 w-4" />
+                      Start Brain Dump
+                    </Button>
+                    <span className="text-muted-foreground">or</span>
+                    <Button variant="outline" onClick={generateAnalysis} className="gap-2">
+                      <Sparkles className="h-4 w-4" />
+                      Generate from Project
+                    </Button>
+                  </div>
+                </div>
+              )}
 
           {/* Loading State */}
           {isGenerating && (
@@ -717,18 +824,30 @@ export function BusinessDevSection({
             </div>
           )}
 
-          {/* Editor Modal */}
-          {(isEditing || editingSection) && businessData && (
-            <BusinessDevEditor
-              data={businessData}
-              section={editingSection}
-              onSave={handleEditorSave}
-              onCancel={() => {
-                setIsEditing(false)
-                setEditingSection(null)
-              }}
-            />
-          )}
+              {/* Editor Modal */}
+              {(isEditing || editingSection) && businessData && (
+                <BusinessDevEditor
+                  data={businessData}
+                  section={editingSection}
+                  onSave={handleEditorSave}
+                  onCancel={() => {
+                    setIsEditing(false)
+                    setEditingSection(null)
+                  }}
+                />
+              )}
+            </TabsContent>
+
+            {/* Prior Art Tab */}
+            <TabsContent value="prior-art" className="pt-4">
+              <PriorArtSection
+                projectId={projectId}
+                projectName={projectName}
+                projectDescription={projectDescription}
+                embedded={true}
+              />
+            </TabsContent>
+          </Tabs>
         </CardContent>
       )}
     </Card>

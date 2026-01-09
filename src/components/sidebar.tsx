@@ -33,6 +33,8 @@ import {
   FlaskConical,
   ShieldCheck,
   Lightbulb,
+  FileCheck,
+  Search,
 } from "lucide-react"
 
 interface NavItem {
@@ -45,7 +47,9 @@ interface NavItem {
 const navItems: NavItem[] = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Projects", href: "/projects", icon: Layers },
+  { title: "Research", href: "/research", icon: Search },
   { title: "Business Ideas", href: "/business-ideas", icon: Lightbulb },
+  { title: "Patents", href: "/patents", icon: FileCheck },
   { title: "Claude Code", href: "/claude-code", icon: Terminal },
   { title: "Activity", href: "/activity", icon: Activity },
   { title: "Packets", href: "/packets", icon: Package },

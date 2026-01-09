@@ -33,6 +33,11 @@ import {
   incrementExecutionCountServer,
   BETA_MAX_DAILY_EXECUTIONS,
 } from "@/lib/beta/restrictions"
+import {
+  checkBudget,
+  recordUsage,
+  getUserApiKey,
+} from "@/lib/beta/api-budget"
 
 // Path to store activity events for API access (curl calls don't have localStorage)
 const ACTIVITY_EVENTS_FILE = "/home/bill/projects/claudia-admin/.local-storage/activity-events.json"
@@ -322,6 +327,32 @@ export async function POST(request: NextRequest) {
 
         // Increment execution count for beta user
         await incrementExecutionCountServer(userResult.id)
+
+        // Check API budget for beta users
+        const budgetCheck = await checkBudget(userResult.id)
+        if (!budgetCheck.allowed) {
+          emit("error", "API budget exceeded", budgetCheck.message)
+          return NextResponse.json({
+            success: false,
+            events,
+            error: budgetCheck.message || "API budget exceeded. Add your own API key in Settings to continue.",
+            code: "BETA_BUDGET_EXCEEDED",
+            budget: {
+              remaining: budgetCheck.remaining,
+              percentUsed: budgetCheck.percentUsed,
+              usingOwnKey: budgetCheck.usingOwnKey,
+            },
+            duration: Date.now() - startTime
+          }, { status: 429 })
+        }
+
+        // Store user info for later usage recording
+        // @ts-expect-error - Adding custom property to request for later use
+        request.betaUserId = userResult.id
+        // @ts-expect-error - Adding custom property
+        request.isBetaTester = true
+        // @ts-expect-error - Adding custom property
+        request.usingOwnKey = budgetCheck.usingOwnKey
       }
     }
 
@@ -425,6 +456,38 @@ export async function POST(request: NextRequest) {
 
     emit("complete", `Completed: ${packet.title}`, `${result.filesChanged.length} files modified (${result.mode} mode)`, { progress: 100 })
 
+    // Record API usage for beta testers (estimate cost based on duration/mode)
+    // @ts-expect-error - Custom property added earlier
+    const betaUserId = request.betaUserId as string | undefined
+    // @ts-expect-error - Custom property added earlier
+    const isBetaUser = request.isBetaTester as boolean | undefined
+    // @ts-expect-error - Custom property added earlier
+    const usingOwnKey = request.usingOwnKey as boolean | undefined
+
+    let usageInfo: { spent?: number; budget?: number } = {}
+    if (betaUserId && isBetaUser && !usingOwnKey) {
+      // Estimate cost based on execution mode and duration
+      // These are rough estimates - in production, use actual API cost tracking
+      const durationMinutes = (Date.now() - startTime) / 60000
+      let estimatedCost = 0
+
+      if (result.mode === "turbo") {
+        // Claude Code API is approximately $0.015/1K input tokens, $0.075/1K output tokens
+        // Rough estimate: $0.10-$0.50 per execution depending on complexity
+        estimatedCost = Math.min(0.50, 0.10 + (durationMinutes * 0.05))
+      } else if (result.mode === "n8n") {
+        // N8N uses Claude API as well
+        estimatedCost = Math.min(0.30, 0.08 + (durationMinutes * 0.03))
+      }
+      // Local mode (LM Studio) is free, no cost recorded
+
+      if (estimatedCost > 0) {
+        const usageResult = await recordUsage(betaUserId, estimatedCost)
+        usageInfo = { spent: usageResult.newTotal, budget: usageResult.budget }
+        emit("thinking", `API usage recorded: $${estimatedCost.toFixed(3)}`, `Total spent: $${usageResult.newTotal.toFixed(2)}/${usageResult.budget.toFixed(2)}`)
+      }
+    }
+
     // Persist success event
     await persistActivityEvents(events, body.projectId, projectName, packet.id, packet.title, result.mode, true)
 
@@ -436,7 +499,13 @@ export async function POST(request: NextRequest) {
       output: result.output,
       duration: Date.now() - startTime,
       mode: result.mode,
-      qualityGates: result.qualityGates || null
+      qualityGates: result.qualityGates || null,
+      ...(usageInfo.spent !== undefined && {
+        apiUsage: {
+          cost: usageInfo.spent,
+          budget: usageInfo.budget,
+        }
+      })
     })
 
   } catch (error) {

@@ -47,7 +47,8 @@ import {
   Play,
   AlertTriangle,
   RotateCcw,
-  DollarSign
+  DollarSign,
+  Search
 } from "lucide-react"
 import { getProject, updateProject, trashProject, restoreProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar, getEffectiveWorkingDirectory } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
@@ -73,6 +74,7 @@ import { ExecutionPanel, LaunchTestPanel } from "@/components/execution"
 import { ClaudeCodeTerminal } from "@/components/claude-code/terminal"
 import { ClaudiaSyncStatus } from "@/components/project/claudia-sync-status"
 import { BusinessDevSection } from "@/components/project/business-dev-section"
+import { PriorArtSection } from "@/components/project/prior-art-section"
 import {
   Select,
   SelectContent,
@@ -853,6 +855,10 @@ export default function ProjectDetailPage() {
             Business Dev
             <DollarSign className="h-3 w-3 ml-1 text-green-500" />
           </TabsTrigger>
+          <TabsTrigger value="prior-art">
+            Prior Art
+            <Search className="h-3 w-3 ml-1 text-cyan-500" />
+          </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -980,8 +986,19 @@ export default function ProjectDetailPage() {
               <CardContent>
                 <div className="flex flex-wrap gap-2">
                   {project.tags.map((tag) => (
-                    <Badge key={tag} variant="outline">
-                      {tag}
+                    <Badge
+                      key={tag}
+                      variant={tag === "created-from-voice" ? "default" : "outline"}
+                      className={tag === "created-from-voice" ? "bg-blue-500/20 text-blue-500 border-blue-500/30" : undefined}
+                    >
+                      {tag === "created-from-voice" ? (
+                        <span className="flex items-center gap-1">
+                          <Mic className="h-3 w-3" />
+                          Created from Voice
+                        </span>
+                      ) : (
+                        tag
+                      )}
                     </Badge>
                   ))}
                 </div>
@@ -1649,6 +1666,17 @@ export default function ProjectDetailPage() {
             projectId={project.id}
             projectName={project.name}
             projectDescription={project.description}
+          />
+        </TabsContent>
+
+        {/* Prior Art Tab */}
+        <TabsContent value="prior-art" className="space-y-4">
+          <PriorArtSection
+            projectId={project.id}
+            projectName={project.name}
+            projectDescription={project.description}
+            buildPlanObjectives={currentBuildPlan?.originalPlan?.spec?.objectives}
+            techStack={currentBuildPlan?.originalPlan?.spec?.techStack}
           />
         </TabsContent>
       </Tabs>

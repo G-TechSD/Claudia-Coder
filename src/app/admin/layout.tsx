@@ -14,6 +14,7 @@ import {
   ShieldAlert,
   ArrowLeft,
   Loader2,
+  Briefcase,
 } from "lucide-react"
 
 interface NavItem {
@@ -26,6 +27,7 @@ const adminNavItems: NavItem[] = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { title: "Invites", href: "/admin/invites", icon: Mail },
   { title: "Users", href: "/admin/users", icon: Users },
+  { title: "Referrals", href: "/admin/referrals", icon: Briefcase },
   { title: "Security", href: "/admin/security", icon: ShieldAlert },
   { title: "Settings", href: "/admin/settings", icon: Settings },
 ]
