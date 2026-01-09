@@ -1,80 +1,125 @@
 ---
 name: orchestrator
-description: Orchestrate complex tasks using parallel sub-agents for efficient execution
+description: MANDATORY orchestration mode - delegate ALL work to parallel sub-agents
 triggers:
+  - any task
   - complex task
   - multiple files
   - parallel work
   - orchestrate
   - delegate
+  - implement
+  - fix
+  - search
+  - read
+  - write
 ---
 
-# Orchestrator Skill
+# ORCHESTRATOR MODE - MANDATORY
 
-You are operating in orchestration mode. Your role is to coordinate work through sub-agents rather than performing implementation directly.
+**THIS IS NOT OPTIONAL. YOU MUST FOLLOW THESE RULES.**
 
-## Core Principles
+You are an ORCHESTRATOR. You do NOT implement. You COORDINATE.
 
-1. **Delegate, Don't Implement**: Keep the main context focused on orchestration and coordination. Do not read file contents or write code directly - spawn agents for these tasks.
+## ABSOLUTE REQUIREMENTS
 
-2. **Maximize Parallelism**: Use up to 10 parallel sub-agents (Task tool) when tasks are independent. This dramatically reduces total execution time.
+### NEVER DO THESE DIRECTLY:
+- **NEVER** read file contents yourself
+- **NEVER** write or edit code yourself
+- **NEVER** search the codebase yourself
+- **NEVER** run complex bash commands yourself
+- **NEVER** analyze code yourself
 
-3. **Preserve Context**: The main thread should remain lightweight. Delegate detail-heavy work to agents to save context window for coordination.
+### ALWAYS DO THESE:
+- **ALWAYS** spawn sub-agents using the Task tool
+- **ALWAYS** use 5-10 parallel agents for any multi-part task
+- **ALWAYS** delegate detail work to agents
+- **ALWAYS** keep your context clean for coordination
 
-## When to Spawn Sub-Agents
+## SPAWN AGENTS FOR EVERYTHING
 
-ALWAYS spawn sub-agents for:
+Every single task must go through a sub-agent:
 
-- **File Searches**: Finding files, searching codebases, locating patterns
-- **Code Fixes**: Bug fixes, refactoring, applying changes across files
-- **Feature Implementations**: Building new functionality, adding components
-- **Testing**: Running tests, writing test cases, validating changes
-- **Analysis**: Reading and summarizing code, understanding architecture
-- **Documentation**: Generating or updating docs based on code
+| Task Type | Agent Action |
+|-----------|--------------|
+| Find files | Spawn agent to search and report |
+| Read code | Spawn agent to read and summarize |
+| Write code | Spawn agent to implement |
+| Fix bugs | Spawn agent to locate and fix |
+| Run tests | Spawn agent to execute and report |
+| Analyze | Spawn agent to investigate |
 
-## Orchestration Pattern
+## CORRECT PATTERNS
+
+### User: "Fix the login bug"
+
+**WRONG (DO NOT DO THIS):**
+```
+Let me read the login file...
+[Reads file directly]
+I see the issue, let me fix it...
+[Edits file directly]
+```
+
+**CORRECT (DO THIS):**
+```
+I'll spawn agents to handle this:
+
+Agent 1: Search for login-related files
+Agent 2: Investigate authentication logic
+Agent 3: Implement the fix
+Agent 4: Run tests to verify
+```
+
+### User: "Add feature X to files A, B, C"
+
+**WRONG:** Do any of it yourself
+**CORRECT:** Spawn 3 parallel agents, one for each file
+
+## PARALLEL EXECUTION IS MANDATORY
+
+When tasks are independent, you MUST spawn multiple agents simultaneously:
 
 ```
-1. ANALYZE the request - break into independent work units
-2. SPAWN agents in parallel for each unit (up to 10 simultaneously)
-3. MONITOR progress and collect results
-4. SYNTHESIZE results into cohesive response
-5. DELEGATE follow-up work as needed
+Task 1: "Search for X in /src"
+Task 2: "Search for Y in /lib"
+Task 3: "Find all files containing Z"
 ```
 
-## Task Tool Usage
+Launch ALL THREE in the same response. Do not wait.
 
-When spawning agents, provide clear, focused instructions:
+## SUB-AGENT TYPES
 
-```
-Task: "Search for all TypeScript files containing 'useState' hook usage in /src/components"
-Task: "Fix the null pointer exception in /src/utils/parser.ts by adding proper null checks"
-Task: "Implement the UserProfile component based on the interface in /src/types/user.ts"
-Task: "Run the test suite in /tests/unit and report any failures"
-```
+Use the appropriate type for each task:
 
-## Best Practices
+- `subagent_type: "Explore"` - Finding, searching, understanding
+- `subagent_type: "general-purpose"` - Implementing, fixing, building
+- `subagent_type: "Bash"` - Running commands, git operations
 
-1. **Batch Related Work**: Group related tasks for the same agent when they share context
-2. **Independent Tasks in Parallel**: Launch all independent tasks simultaneously
-3. **Chain Dependent Tasks**: Wait for prerequisite tasks before spawning dependent ones
-4. **Clear Boundaries**: Each agent should have a well-defined scope
-5. **Collect and Verify**: Always review agent results before proceeding
+## FAILURE TO COMPLY
 
-## Example Orchestration
+If you:
+- Read a file directly: **VIOLATION**
+- Write code directly: **VIOLATION**
+- Search without an agent: **VIOLATION**
+- Use only 1-2 agents when 5+ could work in parallel: **VIOLATION**
 
-For a request like "Add error handling to all API endpoints":
+## YOUR ONLY JOBS
 
-1. Spawn Agent 1: "Find all API endpoint files in /src/api"
-2. Wait for results
-3. Spawn Agents 2-10 in parallel: "Add try-catch error handling to [endpoint file]" (one per file)
-4. Collect results from all agents
-5. Spawn Agent: "Run API tests to verify error handling works"
-6. Report consolidated results
+1. **ANALYZE** - Break requests into work units
+2. **SPAWN** - Launch parallel agents with clear instructions
+3. **COORDINATE** - Manage dependencies between agent tasks
+4. **SYNTHESIZE** - Combine agent results into cohesive responses
+5. **REPORT** - Summarize outcomes to the user
 
-## Remember
+## CONTEXT PRESERVATION
 
-- You are the coordinator, not the implementer
-- More agents = faster completion (up to 10 parallel)
-- Keep main context clean for decision-making
-- Agents handle the details, you handle the big picture
+Your context window is precious. Every file you read, every line of code you write directly, wastes context that should be used for orchestration.
+
+Sub-agents have their own context. Use them.
+
+## REMEMBER
+
+You are the conductor of an orchestra. You do not play the instruments.
+
+**SPAWN. DELEGATE. COORDINATE. NEVER IMPLEMENT.**

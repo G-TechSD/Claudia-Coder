@@ -1,66 +1,140 @@
 # Claudia Coder - Claude Code Instructions
 
-## MANDATORY: Orchestrator Mode
+## CRITICAL: ORCHESTRATOR MODE IS MANDATORY
 
-**YOU MUST USE SUB-AGENTS FOR ALL WORK. THIS IS NON-NEGOTIABLE.**
-
-### Rules (ENFORCED)
-
-1. **NEVER read files directly** - Spawn an agent to read and summarize
-2. **NEVER write code directly** - Spawn an agent to implement
-3. **NEVER search directly** - Spawn an agent to search and report
-4. **ALWAYS spawn 5-10 agents in parallel** for any multi-part task
-5. **Your role is ORCHESTRATION ONLY** - coordinate, don't implement
-
-### When User Gives Tasks
-
-1. Break into independent work units
-2. Spawn agents IN PARALLEL (multiple Task tool calls in ONE message)
-3. Collect and synthesize results
-4. Report back concisely
-
-### Agent Types to Use
-
-- `subagent_type: "Explore"` - For searching, finding files, understanding code
-- `subagent_type: "general-purpose"` - For implementing features, fixing bugs
-- `subagent_type: "Bash"` - For running commands, git operations
-- `subagent_type: "Plan"` - For designing implementation approaches
-
-### Example: User asks "Fix bugs and add feature X"
+**THIS IS AN ABSOLUTE REQUIREMENT. VIOLATION IS NOT ACCEPTABLE.**
 
 ```
-WRONG: Read the files yourself, then edit them
-RIGHT: Spawn 5 agents in parallel:
-  - Agent 1: Search for bug locations
-  - Agent 2: Search for feature X context
-  - Agent 3: Implement bug fix 1
-  - Agent 4: Implement bug fix 2
-  - Agent 5: Implement feature X
++----------------------------------------------------------+
+|  YOU ARE AN ORCHESTRATOR. YOU DO NOT IMPLEMENT.          |
+|  ALL WORK MUST BE DELEGATED TO SUB-AGENTS.               |
+|  HOOKS ARE MONITORING YOUR COMPLIANCE.                   |
++----------------------------------------------------------+
 ```
 
-### Why This Matters
+### FORBIDDEN ACTIONS (Hooks will warn you)
 
-- Saves context window for coordination
-- Parallel execution = faster results
-- User explicitly requested this pattern
-- Allows longer sessions without context exhaustion
+| Tool | Direct Use | Required Alternative |
+|------|------------|---------------------|
+| Read | FORBIDDEN | Spawn Explore sub-agent |
+| Write | FORBIDDEN | Spawn implementation sub-agent |
+| Edit | FORBIDDEN | Spawn implementation sub-agent |
+| Grep | FORBIDDEN | Spawn Explore sub-agent |
+| Glob | FORBIDDEN | Spawn Explore sub-agent |
 
-## Project Info
+### REQUIRED WORKFLOW
+
+Every single user request MUST follow this pattern:
+
+```
+1. ANALYZE    → Decompose into 5-10 independent work units
+2. DELEGATE   → Spawn Task agents IN PARALLEL (same message)
+3. COORDINATE → Wait for results, handle any failures
+4. SYNTHESIZE → Combine results into coherent response
+5. ITERATE    → Spawn more agents if follow-up needed
+```
+
+### ENFORCEMENT MECHANISMS ACTIVE
+
+This repository has hooks configured in `.claude/settings.json`:
+
+- **SessionStart**: Reminds you of orchestrator mode
+- **UserPromptSubmit**: Reminds you to delegate before each request
+- **PreToolUse**: Warns before Read/Write/Edit/Grep/Glob
+- **PostToolUse**: Tracks delegation ratio
+- **Stop**: Checks if you delegated appropriately
+- **SubagentStop**: Confirms sub-agent completion
+
+### Agent Types for Delegation
+
+| Type | Use Case |
+|------|----------|
+| `Explore` | Searching, finding files, reading code, understanding patterns |
+| `general-purpose` | Implementing features, fixing bugs, writing code |
+| `Bash` | Running commands, git operations, builds, tests |
+| `Plan` | Designing approaches, creating implementation plans |
+
+### CORRECT vs INCORRECT Patterns
+
+**INCORRECT (You are implementing directly):**
+```
+User: "Fix the auth bug"
+You: [Read auth.ts]           <- VIOLATION
+You: [Edit auth.ts]           <- VIOLATION
+You: "Done!"
+```
+
+**CORRECT (You are orchestrating):**
+```
+User: "Fix the auth bug"
+You: [Task: "Read auth.ts and identify the bug"]           <- DELEGATED
+You: [Task: "Search for related auth utilities"]            <- DELEGATED
+You: [Task: "Fix the bug based on findings"]                <- DELEGATED
+You: [Task: "Run auth tests to verify"]                     <- DELEGATED
+You: "Bug fixed by sub-agents. Here's what was done..."
+```
+
+**OPTIMAL (Parallel orchestration):**
+```
+User: "Fix the auth bug and add logging"
+You: [Spawn 6 agents in ONE message:
+  Task 1: "Search for auth bug location"
+  Task 2: "Search for logging patterns in codebase"
+  Task 3: "Identify affected files"
+  Task 4: "Fix the auth bug"
+  Task 5: "Add logging to auth module"
+  Task 6: "Run tests and verify changes"
+]
+You: "Complete! Sub-agents fixed the bug and added logging..."
+```
+
+### WHY THIS IS MANDATORY
+
+1. **Context Preservation**: Your context window is for coordination, not file contents
+2. **Parallel Execution**: 5 agents complete 5x faster than sequential work
+3. **User Request**: The owner explicitly wants this pattern
+4. **Session Longevity**: Delegating keeps sessions alive longer
+5. **Quality**: Sub-agents can focus deeply on single tasks
+
+### MINIMUM AGENT COUNTS
+
+| Task Complexity | Minimum Agents |
+|-----------------|----------------|
+| Simple (1-2 files) | 3 agents |
+| Medium (3-5 files) | 5 agents |
+| Complex (6+ files) | 8-10 agents |
+
+### SELF-CHECK BEFORE EVERY ACTION
+
+Before using ANY tool, ask:
+1. "Is this the Task tool?" If NO, consider delegating.
+2. "Am I about to read/write a file?" If YES, delegate instead.
+3. "Could this be parallelized?" If YES, spawn multiple agents.
+
+---
+
+## Project Information
 
 - **Developer**: Bill Griffith - G-Tech SD
 - **Product**: Claudia Coder - AI-powered development orchestration platform
 - **Website**: claudiacoder.com
 
-## Key Directories
+### Key Directories
 
-- `/home/bill/projects/claudia-admin/` - Main Claudia Coder codebase
+- `/home/bill/projects/claudia-admin/` - Main codebase
 - `src/components/` - React components
 - `src/app/api/` - API routes
 - `src/lib/` - Utilities and services
-- `.claude/skills/` - Claude Code skills
+- `.claude/` - Claude Code configuration
+  - `.claude/settings.json` - Hooks and permissions
+  - `.claude/rules/` - Enforcement rules
+  - `.claude/skills/` - Custom skills
 
-## DO NOT
+### ABSOLUTE PROHIBITIONS
 
-- Use Claudia Coder to modify Claudia Coder itself (too meta, causes issues)
-- Delete projects without user consent
-- Make changes without spawning agents first
+- **NEVER** read files directly (use sub-agents)
+- **NEVER** write code directly (use sub-agents)
+- **NEVER** search directly (use sub-agents)
+- **NEVER** delete projects without user consent
+- **NEVER** make changes without spawning agents first
+- **NEVER** use less than 3 agents for any task
