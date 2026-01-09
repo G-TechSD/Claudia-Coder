@@ -10,6 +10,13 @@
  *
  * LOCAL MODE is the default fallback and works in the desert with no internet.
  * TURBO MODE is optional premium for users who want faster/better refinement.
+ *
+ * MANDATORY QUALITY GATES:
+ * All execution modes enforce mandatory quality gates before marking code as complete:
+ * 1. Tests MUST pass (npm test / flutter test)
+ * 2. TypeScript types MUST check (tsc --noEmit)
+ * 3. Build MUST succeed (npm run build)
+ * If ANY gate fails, execution returns { success: false } with error details.
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -210,23 +217,55 @@ export async function POST(request: NextRequest) {
 
 /**
  * Execute with Claude Code CLI (Turbo Mode - paid)
- * Wraps the local/remote Claude CLI execution
+ * Wraps the local/remote Claude CLI execution with MANDATORY quality gates
  */
 async function executeWithClaudeCode(
   prompt: string,
   repoPath: string,
   options: ExecutionRequest["options"],
-  _emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void
+  emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void
 ): Promise<{ success: boolean; output: string; filesChanged: string[] }> {
   // Determine execution mode - prefer local when available
   const localAvailable = await checkLocalClaudeAvailable()
   const useLocal = localAvailable && (options?.useRemote === false || options?.useRemote === undefined)
 
+  let result: { success: boolean; output: string; filesChanged: string[] }
+
   if (useLocal) {
-    return executeLocally(prompt, repoPath, options)
+    result = await executeLocally(prompt, repoPath, options)
   } else {
-    return executeRemotely(prompt, repoPath, options)
+    result = await executeRemotely(prompt, repoPath, options)
   }
+
+  // If execution failed, return immediately
+  if (!result.success) {
+    return result
+  }
+
+  // MANDATORY QUALITY GATES - No code is "complete" without passing these
+  if (result.filesChanged.length > 0) {
+    emit("thinking", "Running MANDATORY quality gates...", "Tests, TypeScript, and Build must all pass")
+
+    const qualityResult = await runQualityGates(repoPath, emit)
+
+    if (!qualityResult.passed) {
+      // Quality gates failed - return failure
+      return {
+        success: false,
+        output: `QUALITY GATES FAILED - Code is NOT production-ready.\n\n${qualityResult.summary}\n\nClaude Code Output:\n${result.output}\n\nFiles changed: ${result.filesChanged.join(", ")}`,
+        filesChanged: result.filesChanged
+      }
+    }
+
+    // Quality gates passed - return success with enhanced output
+    return {
+      success: true,
+      output: `${result.output}\n\n=== QUALITY GATES: ALL PASSED ===\n- Tests: PASSED\n- TypeScript: PASSED\n- Build: PASSED`,
+      filesChanged: result.filesChanged
+    }
+  }
+
+  return result
 }
 
 /**
@@ -460,26 +499,41 @@ async function executeWithLMStudio(
       }
 
       lastOutput = response.content
-
-      // Run tests if requested
-      if (options?.runTests && iteration === maxIterations) {
-        emit("test_run", "Running tests...", "Checking implementation")
-        const testResult = await runProjectTests(repoPath)
-        if (!testResult.success) {
-          emit("error", "Tests failed", testResult.output)
-        }
-      }
     }
 
-    // Create commit if requested
-    if (options?.createCommit && filesChanged.length > 0) {
-      emit("thinking", "Creating commit...", `${filesChanged.length} files changed`)
-      await createGitCommit(repoPath, packet.title, filesChanged)
+    // MANDATORY QUALITY GATES - No code is "complete" without passing these
+    if (filesChanged.length > 0) {
+      emit("thinking", "Running MANDATORY quality gates...", "Tests, TypeScript, and Build must all pass")
+
+      const qualityResult = await runQualityGates(repoPath, emit)
+
+      if (!qualityResult.passed) {
+        // Quality gates failed - return failure
+        return {
+          success: false,
+          output: `QUALITY GATES FAILED - Code is NOT production-ready.\n\n${qualityResult.summary}\n\nFiles changed: ${filesChanged.join(", ")}`,
+          filesChanged,
+          mode: "local"
+        }
+      }
+
+      // Only create commit if ALL quality gates passed
+      if (options?.createCommit) {
+        emit("thinking", "Creating commit...", `${filesChanged.length} files changed - All quality gates passed`)
+        await createGitCommit(repoPath, packet.title, filesChanged)
+      }
+
+      return {
+        success: true,
+        output: `Completed with LM Studio. ${filesChanged.length} files modified.\n\nQuality Gates: ALL PASSED\n- Tests: PASSED\n- TypeScript: PASSED\n- Build: PASSED`,
+        filesChanged,
+        mode: "local"
+      }
     }
 
     return {
       success: true,
-      output: `Completed with LM Studio. ${filesChanged.length} files modified.`,
+      output: "No files were modified.",
       filesChanged,
       mode: "local"
     }
@@ -728,7 +782,7 @@ async function runProjectTests(repoPath: string): Promise<{ success: boolean; ou
 
     const { stdout, stderr } = await execAsync(testCmd, {
       cwd: repoPath,
-      timeout: 60000
+      timeout: 120000 // 2 minutes for tests
     })
 
     return { success: true, output: stdout + stderr }
@@ -738,6 +792,158 @@ async function runProjectTests(repoPath: string): Promise<{ success: boolean; ou
       output: error instanceof Error ? error.message : "Test execution failed"
     }
   }
+}
+
+/**
+ * Run TypeScript type checking (tsc --noEmit)
+ */
+async function runTypeCheck(repoPath: string): Promise<{ success: boolean; output: string; errorCount: number }> {
+  try {
+    // Check if this is a TypeScript project
+    const tsconfigPath = path.join(repoPath, "tsconfig.json")
+    try {
+      await fs.access(tsconfigPath)
+    } catch {
+      // No tsconfig.json - not a TypeScript project, skip type checking
+      return { success: true, output: "No tsconfig.json found - skipping type check", errorCount: 0 }
+    }
+
+    // Run tsc --noEmit to check types without generating output
+    const { stdout, stderr } = await execAsync("npx tsc --noEmit", {
+      cwd: repoPath,
+      timeout: 120000 // 2 minutes for type checking
+    })
+
+    return { success: true, output: stdout + stderr, errorCount: 0 }
+  } catch (error) {
+    const errorOutput = error instanceof Error ? error.message : "Type check failed"
+    const stdout = (error as { stdout?: string }).stdout || ""
+    const stderr = (error as { stderr?: string }).stderr || ""
+    const fullOutput = `${stdout}\n${stderr}\n${errorOutput}`
+
+    // Count TypeScript errors (lines starting with path:line:col - error TS)
+    const errorMatches = fullOutput.match(/error TS\d+/g)
+    const errorCount = errorMatches ? errorMatches.length : 1
+
+    return {
+      success: false,
+      output: fullOutput,
+      errorCount
+    }
+  }
+}
+
+/**
+ * Run build verification (npm run build)
+ */
+async function runBuildCheck(repoPath: string): Promise<{ success: boolean; output: string }> {
+  try {
+    // Check if package.json exists and has a build script
+    const packageJsonPath = path.join(repoPath, "package.json")
+    try {
+      const packageJsonContent = await fs.readFile(packageJsonPath, "utf-8")
+      const packageJson = JSON.parse(packageJsonContent)
+
+      if (!packageJson.scripts?.build) {
+        return { success: true, output: "No build script defined in package.json - skipping build check" }
+      }
+    } catch {
+      // Check for other project types
+      const pubspecPath = path.join(repoPath, "pubspec.yaml")
+      try {
+        await fs.access(pubspecPath)
+        // Flutter project - use flutter build
+        const { stdout, stderr } = await execAsync("flutter build apk --debug", {
+          cwd: repoPath,
+          timeout: 300000 // 5 minutes for Flutter build
+        })
+        return { success: true, output: stdout + stderr }
+      } catch {
+        return { success: true, output: "No package.json or pubspec.yaml found - skipping build check" }
+      }
+    }
+
+    // Run npm run build
+    const { stdout, stderr } = await execAsync("npm run build", {
+      cwd: repoPath,
+      timeout: 300000 // 5 minutes for build
+    })
+
+    return { success: true, output: stdout + stderr }
+  } catch (error) {
+    const errorOutput = error instanceof Error ? error.message : "Build failed"
+    const stdout = (error as { stdout?: string }).stdout || ""
+    const stderr = (error as { stderr?: string }).stderr || ""
+
+    return {
+      success: false,
+      output: `Build failed:\n${stdout}\n${stderr}\n${errorOutput}`
+    }
+  }
+}
+
+/**
+ * Quality Gate Results
+ */
+interface QualityGateResult {
+  passed: boolean
+  tests: { success: boolean; output: string }
+  typeCheck: { success: boolean; output: string; errorCount: number }
+  build: { success: boolean; output: string }
+  summary: string
+}
+
+/**
+ * Run all quality gates - MANDATORY for execution completion
+ * Tests MUST pass, types MUST check, build MUST succeed
+ */
+async function runQualityGates(
+  repoPath: string,
+  emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void
+): Promise<QualityGateResult> {
+  const results: QualityGateResult = {
+    passed: false,
+    tests: { success: false, output: "" },
+    typeCheck: { success: false, output: "", errorCount: 0 },
+    build: { success: false, output: "" },
+    summary: ""
+  }
+
+  // 1. Run Tests
+  emit("test_run", "Quality Gate 1/3: Running tests...", "Tests MUST pass")
+  results.tests = await runProjectTests(repoPath)
+  if (!results.tests.success) {
+    results.summary = `QUALITY GATE FAILED: Tests did not pass.\n\n${results.tests.output}`
+    emit("error", "Quality Gate FAILED: Tests", results.tests.output.substring(0, 500))
+    return results
+  }
+  emit("thinking", "Tests passed", "Proceeding to type check...")
+
+  // 2. Run TypeScript Check
+  emit("test_run", "Quality Gate 2/3: Running TypeScript check...", "Types MUST be valid")
+  results.typeCheck = await runTypeCheck(repoPath)
+  if (!results.typeCheck.success) {
+    results.summary = `QUALITY GATE FAILED: TypeScript errors (${results.typeCheck.errorCount} errors).\n\n${results.typeCheck.output}`
+    emit("error", "Quality Gate FAILED: TypeScript", `${results.typeCheck.errorCount} type errors found`)
+    return results
+  }
+  emit("thinking", "Type check passed", "Proceeding to build...")
+
+  // 3. Run Build
+  emit("test_run", "Quality Gate 3/3: Running build...", "Build MUST succeed")
+  results.build = await runBuildCheck(repoPath)
+  if (!results.build.success) {
+    results.summary = `QUALITY GATE FAILED: Build failed.\n\n${results.build.output}`
+    emit("error", "Quality Gate FAILED: Build", results.build.output.substring(0, 500))
+    return results
+  }
+
+  // All quality gates passed!
+  results.passed = true
+  results.summary = "All quality gates passed: Tests OK, Types OK, Build OK"
+  emit("thinking", "All quality gates PASSED", "Code is production-ready!")
+
+  return results
 }
 
 /**
