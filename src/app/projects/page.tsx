@@ -85,24 +85,31 @@ export default function ProjectsPage() {
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all")
   const [search, setSearch] = useState("")
   const [isLoading, setIsLoading] = useState(true)
-  const [viewMode, setViewMode] = useState<ViewMode>("list")
+  const [viewMode, setViewMode] = useState<ViewMode | null>(null) // Start as null to avoid hydration mismatch
   const [isLoadingHyperHealth, setIsLoadingHyperHealth] = useState(false)
   const [isLoadingTaskFlow, setIsLoadingTaskFlow] = useState(false)
   const { isStarred, toggleStar, refresh: refreshStarred } = useStarredProjects()
 
-  // Load view preference
+  // Load view preference - sets initial value after mount to avoid hydration mismatch
   useEffect(() => {
     const saved = localStorage.getItem(VIEW_MODE_KEY)
     if (saved === "list" || saved === "grid") {
       setViewMode(saved)
+    } else {
+      setViewMode("list") // Default to list view
     }
   }, [])
 
   // Save view preference
   const handleViewChange = (mode: ViewMode) => {
     setViewMode(mode)
-    localStorage.setItem(VIEW_MODE_KEY, mode)
+    if (typeof window !== "undefined") {
+      localStorage.setItem(VIEW_MODE_KEY, mode)
+    }
   }
+
+  // Derive effective view mode (null becomes list for rendering, but we still show loading)
+  const effectiveViewMode = viewMode ?? "list"
 
   // Load projects
   useEffect(() => {
@@ -315,7 +322,7 @@ export default function ProjectsPage() {
           {/* View Toggle */}
           <div className="flex items-center border rounded-md">
             <Button
-              variant={viewMode === "list" ? "secondary" : "ghost"}
+              variant={effectiveViewMode === "list" ? "secondary" : "ghost"}
               size="sm"
               className="h-8 px-2 rounded-r-none"
               onClick={() => handleViewChange("list")}
@@ -323,7 +330,7 @@ export default function ProjectsPage() {
               <LayoutList className="h-4 w-4" />
             </Button>
             <Button
-              variant={viewMode === "grid" ? "secondary" : "ghost"}
+              variant={effectiveViewMode === "grid" ? "secondary" : "ghost"}
               size="sm"
               className="h-8 px-2 rounded-l-none"
               onClick={() => handleViewChange("grid")}
@@ -439,7 +446,7 @@ export default function ProjectsPage() {
               </Link>
             </Button>
           </div>
-        ) : viewMode === "list" ? (
+        ) : effectiveViewMode === "list" ? (
           /* List View */
           <div className="border rounded-lg divide-y">
             {filteredProjects.map(project => {

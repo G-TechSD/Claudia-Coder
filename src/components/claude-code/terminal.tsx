@@ -3,7 +3,34 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Play, Square, RefreshCw, Loader2, FileText } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+import { Play, Square, RefreshCw, Loader2, FileText, History, Shield, Radio } from "lucide-react"
+
+// LocalStorage key for persistent session settings
+const STORAGE_KEY_NEVER_LOSE_SESSION = "claude-code-never-lose-session"
+const STORAGE_KEY_RECENT_SESSIONS = "claude-code-recent-sessions"
+const STORAGE_KEY_BACKGROUND_SESSIONS = "claude-code-background-sessions"
+
+// Maximum number of recent sessions to store
+const MAX_RECENT_SESSIONS = 10
+
+interface RecentSession {
+  id: string
+  projectId: string
+  projectName: string
+  startedAt: string
+  lastActiveAt: string
+}
+
+interface BackgroundSession {
+  sessionId: string
+  projectId: string
+  projectName: string
+  workingDirectory: string
+  startedAt: string
+  isActive: boolean
+}
 
 interface CurrentPacket {
   id: string
@@ -55,11 +82,136 @@ export function ClaudeCodeTerminal({
   // the current sessionId without needing to re-register handlers
   const sessionIdRef = useRef<string | null>(null)
 
+  // Session management states
+  const [continueSession, setContinueSession] = useState(false)
+  const [resumeSessionId, setResumeSessionId] = useState<string>("")
+  const [neverLoseSession, setNeverLoseSession] = useState(false)
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([])
+  const [backgroundSessions, setBackgroundSessions] = useState<BackgroundSession[]>([])
+  const [showSessionOptions, setShowSessionOptions] = useState(false)
+
   // Keep ref in sync with state
   useEffect(() => {
     sessionIdRef.current = sessionId
     console.log(`[Terminal] sessionId updated: ${sessionId}`)
   }, [sessionId])
+
+  // Load persistent settings from localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      // Load "never lose session" setting
+      const savedNeverLose = localStorage.getItem(STORAGE_KEY_NEVER_LOSE_SESSION)
+      if (savedNeverLose === "true") {
+        setNeverLoseSession(true)
+        setContinueSession(true) // Auto-enable continue when never lose is on
+      }
+
+      // Load recent sessions
+      try {
+        const savedSessions = localStorage.getItem(STORAGE_KEY_RECENT_SESSIONS)
+        if (savedSessions) {
+          const parsed = JSON.parse(savedSessions) as RecentSession[]
+          // Filter to only sessions for this project
+          const projectSessions = parsed.filter(s => s.projectId === projectId)
+          setRecentSessions(projectSessions)
+        }
+      } catch (e) {
+        console.error("[Terminal] Failed to load recent sessions:", e)
+      }
+
+      // Load background sessions
+      try {
+        const savedBackground = localStorage.getItem(STORAGE_KEY_BACKGROUND_SESSIONS)
+        if (savedBackground) {
+          const parsed = JSON.parse(savedBackground) as BackgroundSession[]
+          setBackgroundSessions(parsed)
+        }
+      } catch (e) {
+        console.error("[Terminal] Failed to load background sessions:", e)
+      }
+    }
+  }, [projectId])
+
+  // Save "never lose session" setting when it changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY_NEVER_LOSE_SESSION, neverLoseSession.toString())
+      // Auto-enable continue when never lose is on
+      if (neverLoseSession) {
+        setContinueSession(true)
+      }
+    }
+  }, [neverLoseSession])
+
+  // Save current session to recent sessions when connected
+  useEffect(() => {
+    if (status === "connected" && sessionId && typeof window !== "undefined") {
+      const newSession: RecentSession = {
+        id: sessionId,
+        projectId,
+        projectName,
+        startedAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString()
+      }
+
+      try {
+        const savedSessions = localStorage.getItem(STORAGE_KEY_RECENT_SESSIONS)
+        let sessions: RecentSession[] = savedSessions ? JSON.parse(savedSessions) : []
+
+        // Remove existing session with same ID if exists
+        sessions = sessions.filter(s => s.id !== sessionId)
+
+        // Add new session at the beginning
+        sessions.unshift(newSession)
+
+        // Keep only MAX_RECENT_SESSIONS
+        sessions = sessions.slice(0, MAX_RECENT_SESSIONS)
+
+        localStorage.setItem(STORAGE_KEY_RECENT_SESSIONS, JSON.stringify(sessions))
+
+        // Update local state for this project's sessions
+        setRecentSessions(sessions.filter(s => s.projectId === projectId))
+      } catch (e) {
+        console.error("[Terminal] Failed to save recent session:", e)
+      }
+
+      // Track as background session if never lose is enabled
+      if (neverLoseSession) {
+        const bgSession: BackgroundSession = {
+          sessionId,
+          projectId,
+          projectName,
+          workingDirectory,
+          startedAt: new Date().toISOString(),
+          isActive: true
+        }
+
+        try {
+          const savedBackground = localStorage.getItem(STORAGE_KEY_BACKGROUND_SESSIONS)
+          let bgSessions: BackgroundSession[] = savedBackground ? JSON.parse(savedBackground) : []
+
+          // Remove existing for this project
+          bgSessions = bgSessions.filter(s => s.projectId !== projectId)
+
+          // Add new
+          bgSessions.push(bgSession)
+
+          localStorage.setItem(STORAGE_KEY_BACKGROUND_SESSIONS, JSON.stringify(bgSessions))
+          setBackgroundSessions(bgSessions)
+        } catch (e) {
+          console.error("[Terminal] Failed to save background session:", e)
+        }
+      }
+    }
+  }, [status, sessionId, projectId, projectName, workingDirectory, neverLoseSession])
+
+  // Check for background sessions on mount
+  const hasBackgroundSession = backgroundSessions.some(
+    s => s.projectId === projectId && s.isActive
+  )
+  const currentBackgroundSession = backgroundSessions.find(
+    s => s.projectId === projectId && s.isActive
+  )
 
   // Send input to the terminal - uses ref to always have current sessionId
   const sendInput = useCallback(async (input: string) => {
@@ -193,6 +345,23 @@ export function ClaudeCodeTerminal({
     }
   }, [onSessionEnd]) // Removed sessionId dependency - uses ref
 
+  // Clear background session tracking when session ends
+  const clearBackgroundSession = useCallback(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedBackground = localStorage.getItem(STORAGE_KEY_BACKGROUND_SESSIONS)
+        if (savedBackground) {
+          let bgSessions: BackgroundSession[] = JSON.parse(savedBackground)
+          bgSessions = bgSessions.filter(s => s.projectId !== projectId)
+          localStorage.setItem(STORAGE_KEY_BACKGROUND_SESSIONS, JSON.stringify(bgSessions))
+          setBackgroundSessions(bgSessions)
+        }
+      } catch (e) {
+        console.error("[Terminal] Failed to clear background session:", e)
+      }
+    }
+  }, [projectId])
+
   // Start a new session
   const startSession = useCallback(async () => {
     if (!xtermRef.current) return
@@ -205,6 +374,20 @@ export function ClaudeCodeTerminal({
     term.clear()
     term.write("\x1b[1;36m● Starting Claude Code session...\x1b[0m\r\n")
     term.write(`\x1b[90m  Directory: ${workingDirectory}\x1b[0m\r\n`)
+
+    // Show session options being used
+    const useContinue = continueSession || neverLoseSession
+    const useResume = resumeSessionId && resumeSessionId !== ""
+
+    if (useContinue && !useResume) {
+      term.write("\x1b[90m  Mode: --continue (resuming last session)\x1b[0m\r\n")
+    } else if (useResume) {
+      term.write(`\x1b[90m  Mode: --resume ${resumeSessionId}\x1b[0m\r\n`)
+    }
+
+    if (neverLoseSession) {
+      term.write("\x1b[90m  Persistent session: enabled\x1b[0m\r\n")
+    }
 
     // Generate KICKOFF.md before starting the session
     term.write("\x1b[90m  Generating KICKOFF.md...\x1b[0m\r\n")
@@ -222,7 +405,9 @@ export function ClaudeCodeTerminal({
         body: JSON.stringify({
           projectId,
           workingDirectory,
-          bypassPermissions
+          bypassPermissions,
+          continueSession: useContinue,
+          resumeSessionId: useResume ? resumeSessionId : undefined
         })
       })
 

@@ -402,7 +402,7 @@ export function FolderInitializer({
               className="flex items-center gap-2 text-sm font-medium w-full text-left hover:text-primary transition-colors"
             >
               {showPreview ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              Preview ({preview.filesCreated.length} files, {preview.directoriesCreated.length} directories)
+              Preview ({preview.filesCreated?.length ?? 0} files, {preview.directoriesCreated?.length ?? 0} directories)
             </button>
 
             {showPreview && (
@@ -414,7 +414,7 @@ export function FolderInitializer({
                     Files to Create
                   </h4>
                   <div className="space-y-2">
-                    {preview.filesCreated.map(file => (
+                    {(preview.filesCreated ?? []).map(file => (
                       <div key={file.path} className="border rounded-lg overflow-hidden">
                         <button
                           onClick={() => toggleFilePreview(file.path)}
@@ -449,7 +449,7 @@ export function FolderInitializer({
                     Directories to Create
                   </h4>
                   <div className="flex flex-wrap gap-2">
-                    {preview.directoriesCreated.map(dir => (
+                    {(preview.directoriesCreated ?? []).map(dir => (
                       <Badge key={dir} variant="outline" className="font-mono text-xs">
                         {dir}/
                       </Badge>
