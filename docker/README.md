@@ -316,6 +316,108 @@ docker run --rm -v claudia-data:/data -v $(pwd)/backups:/backup alpine \
   tar xzf /backup/YYYYMMDD/claudia-data.tar.gz -C /
 ```
 
+## Multi-User n8n Architecture
+
+This deployment uses a **single shared n8n instance** with user isolation via tags and namespaces. This approach balances simplicity with proper multi-tenant support.
+
+### How User Isolation Works
+
+Each user's workflows are isolated through a combination of:
+
+1. **Workflow Tags**: Every workflow is tagged with the user's ID (e.g., `user:123`)
+2. **Folder Namespaces**: Workflows are organized into user-specific folders
+3. **Credential Isolation**: Each user's credentials are scoped to their workflows only
+4. **API Key Scoping**: User API calls are filtered to only show their tagged workflows
+
+**Workflow Naming Convention:**
+```
+[UserID] - Workflow Name
+```
+
+**Tag Structure:**
+- `user:<user_id>` - Primary ownership tag
+- `shared` - Workflows available to all users (admin-created templates)
+- `team:<team_id>` - Team-shared workflows (optional)
+
+### Admin Visibility
+
+**Administrators have full visibility into all workflows:**
+
+| Access Level | Can View | Can Edit | Can Execute |
+|-------------|----------|----------|-------------|
+| User | Own workflows only | Own workflows only | Own workflows only |
+| Admin | All workflows | All workflows | All workflows |
+
+Admins can:
+- Monitor all user workflow executions
+- Debug workflow issues across accounts
+- Create shared template workflows
+- Manage credentials at a system level
+- View execution logs for any workflow
+
+### Connecting Your Own n8n Instance
+
+Users can optionally connect their own self-hosted n8n instance instead of using the shared one:
+
+1. **Configure your n8n instance** to allow external webhooks
+2. **Generate an n8n API key** in your instance settings
+3. **In Claudia Settings**, add your n8n connection:
+   ```
+   n8n URL: https://your-n8n-instance.com
+   API Key: your-api-key
+   ```
+
+**Benefits of using your own instance:**
+- Complete control over your workflows
+- Private credentials not shared with the system
+- Custom node installations
+- Independent scaling and resources
+
+**Requirements for external n8n:**
+- n8n version 1.0 or higher
+- HTTPS enabled (recommended)
+- API access enabled
+- Network reachable from Claudia server
+
+### Architecture Diagram
+
+```
+                    ┌─────────────────────────────────────────┐
+                    │           Claudia Admin Panel           │
+                    │         (User Management + UI)          │
+                    └──────────────┬──────────────────────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              │                    │                    │
+              ▼                    ▼                    ▼
+    ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+    │  Shared n8n      │ │  User's Own n8n  │ │  User's Own n8n  │
+    │  (Tag Isolation) │ │  (Self-Hosted)   │ │  (Cloud Hosted)  │
+    │                  │ │                  │ │                  │
+    │  user:1 workflows│ │  Full Control    │ │  Full Control    │
+    │  user:2 workflows│ │                  │ │                  │
+    │  user:3 workflows│ │                  │ │                  │
+    │  shared workflows│ │                  │ │                  │
+    └──────────────────┘ └──────────────────┘ └──────────────────┘
+```
+
+### Alternative: Per-User n8n Containers
+
+For deployments requiring stricter isolation, you can run separate n8n containers per user. This is more complex but provides complete isolation:
+
+```bash
+# Example: Creating a user-specific n8n instance
+docker compose -f docker-compose.yml -f docker-compose.user-n8n.yml up -d
+```
+
+This approach requires:
+- Dynamic container orchestration
+- More memory per user (additional ~500MB-1GB each)
+- Additional PostgreSQL databases per user
+- Load balancer for routing
+
+For most deployments, the shared instance with tag isolation is recommended.
+
 ## Security Notes
 
 1. **Change all default passwords** in `.env`
@@ -323,6 +425,7 @@ docker run --rm -v claudia-data:/data -v $(pwd)/backups:/backup alpine \
 3. **Do not expose to internet** without proper security
 4. **Keep Docker updated** for security patches
 5. **Backup regularly** - volumes contain all your data
+6. **n8n API keys are sensitive** - treat them like passwords
 
 ## Support
 

@@ -58,6 +58,13 @@ services:
   # ==========================================
   # n8n Workflow Automation
   # ==========================================
+  # MULTI-USER ARCHITECTURE:
+  # This is a shared n8n instance with user isolation via tags/namespaces.
+  # - Each user's workflows are tagged with user:<user_id>
+  # - Admins have visibility into all workflows
+  # - Users can optionally connect their own external n8n instance
+  # See README.md "Multi-User n8n Architecture" section for details.
+  # ==========================================
   n8n:
     image: n8nio/n8n:latest
     container_name: claudia-n8n
@@ -81,6 +88,9 @@ services:
       - DB_POSTGRESDB_USER=${POSTGRES_USER:-claudia}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-claudia_secure_password}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-change-this-encryption-key}
+      # Multi-user support settings
+      - N8N_USER_MANAGEMENT_DISABLED=false
+      - N8N_PUBLIC_API_DISABLED=false
     volumes:
       - n8n-data:/home/node/.n8n
       - n8n-files:/files

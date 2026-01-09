@@ -5,6 +5,10 @@
  * Note: N8N is running with HTTPS and a self-signed certificate.
  * Health checks and API calls are proxied through the server-side
  * /api/n8n-status endpoint to handle the self-signed cert.
+ *
+ * For per-user n8n isolation, use the UserWorkflowService from
+ * @/lib/n8n/user-workflows instead. This service is for the
+ * shared/global n8n instance.
  */
 
 const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
@@ -22,6 +26,8 @@ interface N8NWebhookPayload {
   data: Record<string, unknown>
   timestamp: string
   source: "admin-panel"
+  // User identification for shared instance isolation
+  userId?: string
 }
 
 interface N8NWorkflow {
@@ -30,6 +36,7 @@ interface N8NWorkflow {
   active: boolean
   createdAt: string
   updatedAt: string
+  tags?: string[]
 }
 
 interface N8NExecution {
@@ -42,9 +49,20 @@ interface N8NExecution {
   status: "running" | "success" | "error" | "waiting"
 }
 
+/**
+ * User credentials for personal n8n instances
+ */
+interface UserN8NCredentials {
+  baseUrl: string
+  apiKey: string
+}
+
 class N8NApiService {
   private baseUrl: string
   private apiKey: string
+  private userCredentials: UserN8NCredentials | null = null
+  private userId: string | null = null
+  private userWorkflowTag: string | null = null
 
   constructor() {
     this.baseUrl = N8N_BASE_URL
@@ -52,24 +70,95 @@ class N8NApiService {
   }
 
   /**
+   * Configure the service for a specific user.
+   * This enables user-specific workflow filtering on the shared instance.
+   */
+  setUserContext(userId: string, workflowTag: string): void {
+    this.userId = userId
+    this.userWorkflowTag = workflowTag
+    this.userCredentials = null
+  }
+
+  /**
+   * Configure the service for a user with their own n8n instance.
+   */
+  setUserCredentials(userId: string, credentials: UserN8NCredentials): void {
+    this.userId = userId
+    this.userCredentials = credentials
+    this.userWorkflowTag = null  // No tag filtering needed for personal instance
+  }
+
+  /**
+   * Clear user context (return to shared instance mode)
+   */
+  clearUserContext(): void {
+    this.userId = null
+    this.userCredentials = null
+    this.userWorkflowTag = null
+  }
+
+  /**
+   * Get the current effective base URL
+   */
+  getBaseUrl(): string {
+    return this.userCredentials?.baseUrl || this.baseUrl
+  }
+
+  /**
+   * Check if using a personal instance
+   */
+  isUsingPersonalInstance(): boolean {
+    return !!this.userCredentials
+  }
+
+  /**
+   * Get current user context
+   */
+  getUserContext(): { userId: string | null; isPersonal: boolean; tag: string | null } {
+    return {
+      userId: this.userId,
+      isPersonal: !!this.userCredentials,
+      tag: this.userWorkflowTag,
+    }
+  }
+
+  /**
    * Make a request to N8N API through the server-side proxy.
    * This handles self-signed certificates properly.
+   * Supports both shared instance (via /api/n8n-status) and
+   * user personal instances (via /api/n8n/user-proxy).
    */
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    // Use the server-side proxy for N8N API calls
-    const response = await fetch("/api/n8n-status", {
+    // Determine which proxy to use
+    const proxyUrl = this.userCredentials
+      ? "/api/n8n/user-proxy"
+      : "/api/n8n-status"
+
+    // Build request body
+    const requestBody: Record<string, unknown> = {
+      endpoint,
+      method: options.method || "GET",
+      data: options.body ? JSON.parse(options.body as string) : undefined,
+    }
+
+    // Add user context for personal instances
+    if (this.userCredentials) {
+      requestBody.userId = this.userId
+      requestBody.credentials = {
+        baseUrl: this.userCredentials.baseUrl,
+        apiKey: this.userCredentials.apiKey,
+      }
+    }
+
+    const response = await fetch(proxyUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        endpoint,
-        method: options.method || "GET",
-        data: options.body ? JSON.parse(options.body as string) : undefined,
-      }),
+      body: JSON.stringify(requestBody),
     })
 
     if (!response.ok) {
@@ -83,6 +172,34 @@ class N8NApiService {
     }
 
     return result.data as T
+  }
+
+  /**
+   * Check if a workflow belongs to the current user (for shared instance filtering)
+   */
+  private isUserWorkflow(workflow: N8NWorkflow): boolean {
+    // No filtering needed for personal instances
+    if (this.userCredentials) {
+      return true
+    }
+
+    // No user context set - return all workflows
+    if (!this.userWorkflowTag) {
+      return true
+    }
+
+    // Check if workflow has the user's tag
+    if (workflow.tags?.includes(this.userWorkflowTag)) {
+      return true
+    }
+
+    // Check if workflow name has the user prefix
+    const prefix = this.userWorkflowTag.replace("claudia-", "[").replace("-", "-") + "]"
+    if (workflow.name.includes(prefix)) {
+      return true
+    }
+
+    return false
   }
 
   // Webhook endpoints for triggering workflows
@@ -147,24 +264,56 @@ class N8NApiService {
   // Workflow management
   async getWorkflows(): Promise<N8NWorkflow[]> {
     const response = await this.request<{ data: N8NWorkflow[] } | N8NWorkflow[]>("/api/v1/workflows")
+
+    let workflows: N8NWorkflow[]
+
     // Handle double-nested response structure from proxy
     // The proxy wraps the N8N response in result.data, and N8N may also wrap workflows in data
     if (Array.isArray(response)) {
-      return response
-    }
-    if (response && typeof response === 'object' && 'data' in response) {
+      workflows = response
+    } else if (response && typeof response === 'object' && 'data' in response) {
       const inner = response.data
       // Check for triple nesting (proxy.data.data.data)
       if (inner && typeof inner === 'object' && 'data' in inner && Array.isArray((inner as { data: N8NWorkflow[] }).data)) {
-        return (inner as { data: N8NWorkflow[] }).data
+        workflows = (inner as { data: N8NWorkflow[] }).data
+      } else if (Array.isArray(inner)) {
+        workflows = inner
+      } else {
+        console.warn('Unexpected workflow response structure:', response)
+        workflows = []
       }
-      if (Array.isArray(inner)) {
-        return inner
-      }
+    } else {
+      // Fallback: return empty array if structure is unexpected
+      console.warn('Unexpected workflow response structure:', response)
+      workflows = []
     }
-    // Fallback: return empty array if structure is unexpected
-    console.warn('Unexpected workflow response structure:', response)
-    return []
+
+    // Filter workflows to only show user's workflows (for shared instance)
+    if (this.userWorkflowTag) {
+      workflows = workflows.filter(w => this.isUserWorkflow(w))
+    }
+
+    return workflows
+  }
+
+  /**
+   * Get workflows for a specific user.
+   * Convenience method that sets user context temporarily.
+   */
+  async getWorkflowsForUser(userId: string, workflowTag: string): Promise<N8NWorkflow[]> {
+    const previousUserId = this.userId
+    const previousTag = this.userWorkflowTag
+    const previousCreds = this.userCredentials
+
+    try {
+      this.setUserContext(userId, workflowTag)
+      return await this.getWorkflows()
+    } finally {
+      // Restore previous context
+      this.userId = previousUserId
+      this.userWorkflowTag = previousTag
+      this.userCredentials = previousCreds
+    }
   }
 
   async getWorkflow(id: string): Promise<N8NWorkflow> {
@@ -328,5 +477,8 @@ class N8NApiService {
 // Export singleton instance
 export const n8nApi = new N8NApiService()
 
+// Export the class for creating user-specific instances
+export { N8NApiService }
+
 // Export types
-export type { N8NWebhookPayload, N8NWorkflow, N8NExecution }
+export type { N8NWebhookPayload, N8NWorkflow, N8NExecution, UserN8NCredentials }

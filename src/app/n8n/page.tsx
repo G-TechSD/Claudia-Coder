@@ -5,9 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { useN8NHealth, useWorkflows } from "@/lib/api/hooks"
+import { useN8NHealth, useWorkflows, useUserWorkflows, useUserExecutions } from "@/lib/api/hooks"
 import { n8nApi, type N8NExecution } from "@/lib/api"
 import { Textarea } from "@/components/ui/textarea"
+import { useAuth } from "@/components/auth/auth-provider"
+import Link from "next/link"
 import {
   Workflow,
   ExternalLink,
@@ -28,7 +30,10 @@ import {
   Sparkles,
   Copy,
   Download,
-  Check
+  Check,
+  Settings,
+  User,
+  Share2,
 } from "lucide-react"
 
 // Use environment variable or fallback (local N8N with HTTPS)
@@ -56,10 +61,37 @@ const executionStatusConfig = {
 }
 
 export default function N8NPlaygroundPage() {
+  const { user, isAuthenticated } = useAuth()
+  const userId = user?.id || null
+
+  // Use user-specific workflows if authenticated, otherwise fall back to global
+  const {
+    workflows: userWorkflows,
+    isLoading: userWorkflowsLoading,
+    refresh: refreshUserWorkflows,
+    activate: activateUserWorkflow,
+    deactivate: deactivateUserWorkflow,
+    connectionStatus,
+    checkConnection
+  } = useUserWorkflows(userId)
+
+  // Use user-specific executions
+  const {
+    executions: userExecutions,
+    isLoading: userExecutionsLoading,
+    refresh: refreshUserExecutions
+  } = useUserExecutions(userId)
+
+  // Fall back to global for unauthenticated users
   const { isHealthy, check: checkHealth, isChecking } = useN8NHealth()
-  const { workflows, isLoading: workflowsLoading, refresh: refreshWorkflows, activate, deactivate } = useWorkflows()
-  const [executions, setExecutions] = useState<N8NExecution[]>([])
-  const [executionsLoading, setExecutionsLoading] = useState(false)
+  const { workflows: globalWorkflows, isLoading: globalWorkflowsLoading, refresh: refreshGlobalWorkflows, activate: activateGlobal, deactivate: deactivateGlobal } = useWorkflows()
+
+  // Determine which data to use based on auth state
+  const workflows = isAuthenticated ? userWorkflows : globalWorkflows
+  const workflowsLoading = isAuthenticated ? userWorkflowsLoading : globalWorkflowsLoading
+  const executions = isAuthenticated ? userExecutions : []
+  const executionsLoading = isAuthenticated ? userExecutionsLoading : false
+
   const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null)
 
   // Workflow generator state
@@ -71,31 +103,50 @@ export default function N8NPlaygroundPage() {
 
   // Initial data fetch
   useEffect(() => {
-    checkHealth()
-    refreshWorkflows()
-    fetchExecutions()
-  }, [])
+    if (isAuthenticated) {
+      refreshUserWorkflows()
+      refreshUserExecutions()
+      checkConnection()
+    } else {
+      checkHealth()
+      refreshGlobalWorkflows()
+    }
+  }, [isAuthenticated])
+
+  // Refresh all data
+  const refreshWorkflows = isAuthenticated ? refreshUserWorkflows : refreshGlobalWorkflows
+
+  // Activate/deactivate handlers
+  const activate = isAuthenticated ? activateUserWorkflow : activateGlobal
+  const deactivate = isAuthenticated ? deactivateUserWorkflow : deactivateGlobal
 
   const fetchExecutions = useCallback(async () => {
-    setExecutionsLoading(true)
-    try {
-      const data = await n8nApi.getExecutions()
-      setExecutions(data.slice(0, 20)) // Limit to 20 most recent
-    } catch (err) {
-      console.error("Failed to fetch executions:", err)
-      setExecutions([])
-    } finally {
-      setExecutionsLoading(false)
+    if (isAuthenticated) {
+      await refreshUserExecutions()
+    } else {
+      // For unauthenticated, we don't show executions
     }
-  }, [])
+  }, [isAuthenticated, refreshUserExecutions])
 
   const handleRefreshAll = useCallback(async () => {
-    await Promise.all([
-      checkHealth(),
-      refreshWorkflows(),
-      fetchExecutions()
-    ])
-  }, [checkHealth, refreshWorkflows, fetchExecutions])
+    if (isAuthenticated) {
+      await Promise.all([
+        checkConnection(),
+        refreshUserWorkflows(),
+        refreshUserExecutions()
+      ])
+    } else {
+      await Promise.all([
+        checkHealth(),
+        refreshGlobalWorkflows()
+      ])
+    }
+  }, [isAuthenticated, checkConnection, refreshUserWorkflows, refreshUserExecutions, checkHealth, refreshGlobalWorkflows])
+
+  // Determine n8n URL based on user config
+  const effectiveN8NUrl = connectionStatus?.url || N8N_URL
+  const effectiveIsHealthy = isAuthenticated ? connectionStatus?.healthy : isHealthy
+  const isConnectionChecking = isAuthenticated ? !connectionStatus : isChecking
 
   const handleToggleWorkflow = async (id: string, active: boolean) => {
     if (active) {
@@ -237,18 +288,31 @@ Generate a complete, valid JSON workflow that can be imported directly into N8N.
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {isAuthenticated && (
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              className="gap-2"
+            >
+              <Link href="/settings/n8n">
+                <Settings className="h-4 w-4" />
+                Settings
+              </Link>
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
             onClick={handleRefreshAll}
-            disabled={isChecking || workflowsLoading}
+            disabled={isConnectionChecking || workflowsLoading}
             className="gap-2"
           >
-            <RefreshCw className={cn("h-4 w-4", (isChecking || workflowsLoading) && "animate-spin")} />
+            <RefreshCw className={cn("h-4 w-4", (isConnectionChecking || workflowsLoading) && "animate-spin")} />
             Refresh
           </Button>
           <Button asChild className="gap-2">
-            <a href={N8N_URL} target="_blank" rel="noopener noreferrer">
+            <a href={effectiveN8NUrl} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="h-4 w-4" />
               Open N8N Editor
             </a>
@@ -256,25 +320,56 @@ Generate a complete, valid JSON workflow that can be imported directly into N8N.
         </div>
       </div>
 
+      {/* User Context Banner */}
+      {isAuthenticated && connectionStatus && (
+        <div className={cn(
+          "flex items-center justify-between rounded-lg p-3",
+          connectionStatus.mode === "personal"
+            ? "bg-purple-500/10 border border-purple-500/20"
+            : "bg-blue-500/10 border border-blue-500/20"
+        )}>
+          <div className="flex items-center gap-3">
+            {connectionStatus.mode === "personal" ? (
+              <User className="h-5 w-5 text-purple-400" />
+            ) : (
+              <Share2 className="h-5 w-5 text-blue-400" />
+            )}
+            <div>
+              <p className="text-sm font-medium">
+                {connectionStatus.mode === "personal" ? "Your Personal N8N Instance" : "Claudia Shared N8N"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {connectionStatus.mode === "personal"
+                  ? "You are using your own n8n server"
+                  : "Your workflows are isolated with tags"}
+              </p>
+            </div>
+          </div>
+          <Badge variant={connectionStatus.healthy ? "success" : "destructive"}>
+            {connectionStatus.healthy ? "Connected" : "Disconnected"}
+          </Badge>
+        </div>
+      )}
+
       {/* Connection Status */}
       <Card className={cn(
         "border-2 transition-colors",
-        isHealthy === true && "border-green-500/50 bg-green-500/5",
-        isHealthy === false && "border-red-500/50 bg-red-500/5",
-        isHealthy === null && "border-muted"
+        effectiveIsHealthy === true && "border-green-500/50 bg-green-500/5",
+        effectiveIsHealthy === false && "border-red-500/50 bg-red-500/5",
+        effectiveIsHealthy === null && "border-muted"
       )}>
         <CardContent className="pt-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className={cn(
                 "flex h-12 w-12 items-center justify-center rounded-lg",
-                isHealthy === true && "bg-green-500/20",
-                isHealthy === false && "bg-red-500/20",
-                isHealthy === null && "bg-muted"
+                effectiveIsHealthy === true && "bg-green-500/20",
+                effectiveIsHealthy === false && "bg-red-500/20",
+                effectiveIsHealthy === null && "bg-muted"
               )}>
-                {isChecking ? (
+                {isConnectionChecking ? (
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                ) : isHealthy ? (
+                ) : effectiveIsHealthy ? (
                   <Server className="h-6 w-6 text-green-400" />
                 ) : (
                   <Server className="h-6 w-6 text-red-400" />
@@ -283,11 +378,11 @@ Generate a complete, valid JSON workflow that can be imported directly into N8N.
               <div>
                 <div className="flex items-center gap-2">
                   <p className="font-semibold">N8N Server</p>
-                  <Badge variant={isHealthy ? "success" : isHealthy === false ? "destructive" : "secondary"}>
-                    {isChecking ? "Checking..." : isHealthy ? "Connected" : isHealthy === false ? "Disconnected" : "Unknown"}
+                  <Badge variant={effectiveIsHealthy ? "success" : effectiveIsHealthy === false ? "destructive" : "secondary"}>
+                    {isConnectionChecking ? "Checking..." : effectiveIsHealthy ? "Connected" : effectiveIsHealthy === false ? "Disconnected" : "Unknown"}
                   </Badge>
                 </div>
-                <p className="text-sm text-muted-foreground font-mono">{N8N_URL}</p>
+                <p className="text-sm text-muted-foreground font-mono">{effectiveN8NUrl}</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -311,14 +406,14 @@ Generate a complete, valid JSON workflow that can be imported directly into N8N.
           className="h-auto p-4 flex flex-col items-start gap-2 hover:bg-accent/50"
           asChild
         >
-          <a href={N8N_URL} target="_blank" rel="noopener noreferrer">
+          <a href={effectiveN8NUrl} target="_blank" rel="noopener noreferrer">
             <div className="flex items-center gap-2 w-full">
               <Terminal className="h-5 w-5 text-orange-400" />
               <span className="font-medium">Open N8N Editor</span>
               <ExternalLink className="h-4 w-4 ml-auto text-muted-foreground" />
             </div>
             <p className="text-xs text-muted-foreground text-left">
-              Visual workflow editor at {N8N_URL}
+              Visual workflow editor at {effectiveN8NUrl}
             </p>
           </a>
         </Button>
@@ -658,19 +753,19 @@ Generate a complete, valid JSON workflow that can be imported directly into N8N.
             <div className="space-y-1">
               <p className="text-muted-foreground">Git Actions</p>
               <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-                {N8N_URL}/webhook/git-action
+                {effectiveN8NUrl}/webhook/git-action
               </code>
             </div>
             <div className="space-y-1">
               <p className="text-muted-foreground">Packet Actions</p>
               <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-                {N8N_URL}/webhook/packet-action
+                {effectiveN8NUrl}/webhook/packet-action
               </code>
             </div>
             <div className="space-y-1">
               <p className="text-muted-foreground">Agent Control</p>
               <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-                {N8N_URL}/webhook/agent-action
+                {effectiveN8NUrl}/webhook/agent-action
               </code>
             </div>
           </div>

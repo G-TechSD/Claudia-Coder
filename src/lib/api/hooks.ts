@@ -1,8 +1,17 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useMemo } from "react"
 import { n8nApi } from "./n8n"
 import { gitlabApi, GitLabProject, GitLabCommit, GitLabBranch, GitLabTreeItem, GitLabMergeRequest, GitLabPipeline } from "./gitlab"
+import {
+  createUserWorkflowService,
+  type UserWorkflow,
+  type UserExecution,
+} from "@/lib/n8n/user-workflows"
+import {
+  getUserWorkflowTag,
+  getUserN8NConfig,
+} from "@/lib/data/user-settings"
 
 type ActionType = "rollback" | "comment" | "approve" | "reject" | "flag"
 
@@ -200,6 +209,228 @@ export function useWorkflows(): UseWorkflowsResult {
   }, [refresh])
 
   return { workflows, isLoading, error, refresh, activate, deactivate }
+}
+
+// ============ User-Specific N8N Hooks ============
+
+interface UseUserWorkflowsResult {
+  workflows: UserWorkflow[]
+  isLoading: boolean
+  error: Error | null
+  refresh: () => Promise<void>
+  activate: (id: string) => Promise<void>
+  deactivate: (id: string) => Promise<void>
+  createWorkflow: (params: { name: string; nodes: unknown[]; connections: Record<string, unknown> }) => Promise<UserWorkflow>
+  deleteWorkflow: (id: string) => Promise<boolean>
+  connectionStatus: {
+    healthy: boolean
+    mode: "shared" | "personal"
+    url: string
+    message: string
+  } | null
+  checkConnection: () => Promise<void>
+}
+
+/**
+ * Hook for managing user-specific workflows.
+ * Uses the UserWorkflowService for proper isolation.
+ *
+ * @param userId - The ID of the current user
+ * @param autoFetch - Whether to automatically fetch workflows on mount (default: true)
+ */
+export function useUserWorkflows(userId: string | null, autoFetch = true): UseUserWorkflowsResult {
+  const [workflows, setWorkflows] = useState<UserWorkflow[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<UseUserWorkflowsResult["connectionStatus"]>(null)
+
+  // Create a memoized service instance
+  const service = useMemo(() => {
+    if (!userId) return null
+    return createUserWorkflowService(userId)
+  }, [userId])
+
+  const refresh = useCallback(async () => {
+    if (!service) return
+
+    setIsLoading(true)
+    setError(null)
+    try {
+      const data = await service.getWorkflows()
+      setWorkflows(data)
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to load workflows"))
+      setWorkflows([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [service])
+
+  const checkConnection = useCallback(async () => {
+    if (!service) return
+
+    try {
+      const status = await service.getStatus()
+      setConnectionStatus(status)
+    } catch (err) {
+      setConnectionStatus({
+        healthy: false,
+        mode: "shared",
+        url: "",
+        message: err instanceof Error ? err.message : "Connection check failed",
+      })
+    }
+  }, [service])
+
+  const activate = useCallback(async (id: string) => {
+    if (!service) throw new Error("No user context")
+    await service.activateWorkflow(id)
+    await refresh()
+  }, [service, refresh])
+
+  const deactivate = useCallback(async (id: string) => {
+    if (!service) throw new Error("No user context")
+    await service.deactivateWorkflow(id)
+    await refresh()
+  }, [service, refresh])
+
+  const createWorkflow = useCallback(async (params: {
+    name: string
+    nodes: unknown[]
+    connections: Record<string, unknown>
+  }) => {
+    if (!service) throw new Error("No user context")
+    const workflow = await service.createWorkflow(params)
+    await refresh()
+    return workflow
+  }, [service, refresh])
+
+  const deleteWorkflow = useCallback(async (id: string) => {
+    if (!service) throw new Error("No user context")
+    const result = await service.deleteWorkflow(id)
+    if (result) {
+      await refresh()
+    }
+    return result
+  }, [service, refresh])
+
+  // Auto-fetch on mount if enabled
+  useEffect(() => {
+    if (autoFetch && service) {
+      refresh()
+      checkConnection()
+    }
+  }, [autoFetch, service, refresh, checkConnection])
+
+  return {
+    workflows,
+    isLoading,
+    error,
+    refresh,
+    activate,
+    deactivate,
+    createWorkflow,
+    deleteWorkflow,
+    connectionStatus,
+    checkConnection,
+  }
+}
+
+interface UseUserExecutionsResult {
+  executions: UserExecution[]
+  isLoading: boolean
+  error: Error | null
+  refresh: () => Promise<void>
+}
+
+/**
+ * Hook for viewing user-specific workflow executions.
+ *
+ * @param userId - The ID of the current user
+ * @param workflowId - Optional workflow ID to filter executions
+ * @param autoFetch - Whether to automatically fetch on mount (default: true)
+ */
+export function useUserExecutions(
+  userId: string | null,
+  workflowId?: string,
+  autoFetch = true
+): UseUserExecutionsResult {
+  const [executions, setExecutions] = useState<UserExecution[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+
+  const service = useMemo(() => {
+    if (!userId) return null
+    return createUserWorkflowService(userId)
+  }, [userId])
+
+  const refresh = useCallback(async () => {
+    if (!service) return
+
+    setIsLoading(true)
+    setError(null)
+    try {
+      const data = await service.getExecutions(workflowId)
+      setExecutions(data)
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to load executions"))
+      setExecutions([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [service, workflowId])
+
+  useEffect(() => {
+    if (autoFetch && service) {
+      refresh()
+    }
+  }, [autoFetch, service, refresh])
+
+  return { executions, isLoading, error, refresh }
+}
+
+interface UseUserN8NConfigResult {
+  config: ReturnType<typeof getUserN8NConfig> | null
+  workflowTag: string | null
+  isPersonalInstance: boolean
+  refresh: () => void
+}
+
+/**
+ * Hook for accessing user's n8n configuration.
+ *
+ * @param userId - The ID of the current user
+ */
+export function useUserN8NConfig(userId: string | null): UseUserN8NConfigResult {
+  const [config, setConfig] = useState<ReturnType<typeof getUserN8NConfig> | null>(null)
+
+  const refresh = useCallback(() => {
+    if (userId) {
+      setConfig(getUserN8NConfig(userId))
+    } else {
+      setConfig(null)
+    }
+  }, [userId])
+
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
+  const workflowTag = useMemo(() => {
+    if (!userId) return null
+    return getUserWorkflowTag(userId)
+  }, [userId])
+
+  const isPersonalInstance = useMemo(() => {
+    return config?.mode === "personal" && !!config.personalInstance?.baseUrl
+  }, [config])
+
+  return {
+    config,
+    workflowTag,
+    isPersonalInstance,
+    refresh,
+  }
 }
 
 // ============ GitLab Hooks ============
