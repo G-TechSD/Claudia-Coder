@@ -12,10 +12,7 @@ export const auth = betterAuth({
   // App name used as issuer for TOTP authenticator apps
   appName: "Claudia Admin",
 
-  database: {
-    type: "sqlite",
-    db: db,
-  },
+  database: db,
 
   // Email/password authentication
   emailAndPassword: {
