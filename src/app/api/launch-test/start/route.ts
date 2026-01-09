@@ -1,13 +1,25 @@
 /**
  * Start Application API
  * POST /api/launch-test/start
+ *
+ * Launches a development server for the project in the specified directory.
  */
 
 import { NextRequest, NextResponse } from "next/server"
 import { spawn, ChildProcess, exec } from "child_process"
 import { promisify } from "util"
+import * as fs from "fs/promises"
 
 const execAsync = promisify(exec)
+
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(path)
+    return stat.isDirectory()
+  } catch {
+    return false
+  }
+}
 
 // Store running processes globally
 declare global {
@@ -36,6 +48,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Validate the directory exists
+    const dirExists = await directoryExists(repoPath)
+    if (!dirExists) {
+      console.log(`[Launch] Directory does not exist: ${repoPath}`)
+      return NextResponse.json({
+        success: false,
+        error: `Working directory does not exist: ${repoPath}`,
+        suggestion: "Set the working directory in project settings or ensure the local path is correct"
+      })
+    }
+
+    console.log(`[Launch] Directory validated: ${repoPath}`)
+
     // Check if already running for this project
     const entries = Array.from(global.launchTestProcesses.entries())
     for (const [processId, info] of entries) {

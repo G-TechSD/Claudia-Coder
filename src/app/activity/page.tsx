@@ -169,10 +169,64 @@ export default function ActivityPage() {
   const [selectedActivity, setSelectedActivity] = useState<ActivityItem | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Fetch real GitLab data only - no simulated activity
+  // Fetch real GitLab data and localStorage events
   const { projects, isLoading: projectsLoading, refresh: refreshProjects } = useGitLabProjects()
   const [gitLabActivities, setGitLabActivities] = useState<ActivityItem[]>([])
+  const [localActivities, setLocalActivities] = useState<ActivityItem[]>([])
   const [loadingCommits, setLoadingCommits] = useState(false)
+
+  // Load activities from localStorage (execution events)
+  useEffect(() => {
+    function loadLocalActivities() {
+      if (typeof window === "undefined") return
+
+      try {
+        const eventsData = localStorage.getItem("claudia_activity_events")
+        if (eventsData) {
+          const events = JSON.parse(eventsData)
+          const activities: ActivityItem[] = events.map((event: {
+            id?: string
+            type?: string
+            message?: string
+            timestamp?: string
+            projectId?: string
+          }) => ({
+            id: event.id || Math.random().toString(36).slice(2),
+            type: (event.type === "success" || event.type === "error" || event.type === "pending" || event.type === "running" || event.type === "info")
+              ? event.type as ActivityType
+              : "info",
+            category: "general" as ActivityCategory,
+            source: "Execution",
+            message: event.message || "Activity",
+            timestamp: new Date(event.timestamp || Date.now()),
+            isReal: false
+          }))
+          setLocalActivities(activities)
+        }
+      } catch (error) {
+        console.error("Failed to load local activities:", error)
+      }
+    }
+
+    loadLocalActivities()
+
+    // Listen for storage changes
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "claudia_activity_events") {
+        loadLocalActivities()
+      }
+    }
+
+    window.addEventListener("storage", handleStorageChange)
+
+    // Also poll periodically to catch same-tab updates
+    const interval = setInterval(loadLocalActivities, 3000)
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      clearInterval(interval)
+    }
+  }, [])
 
   // Fetch commits from all projects
   useEffect(() => {
@@ -205,10 +259,11 @@ export default function ActivityPage() {
     fetchAllCommits()
   }, [projects])
 
-  // Real activities only, sorted by timestamp
+  // Merge GitLab and local activities, sorted by timestamp
   const activities = useMemo(() => {
-    return gitLabActivities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-  }, [gitLabActivities])
+    const allActivities = [...gitLabActivities, ...localActivities]
+    return allActivities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+  }, [gitLabActivities, localActivities])
 
   // Action modal state
   const [actionModal, setActionModal] = useState<ActionModalState | null>(null)
@@ -365,7 +420,7 @@ export default function ActivityPage() {
                 <span className="relative flex h-2 w-2">
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" />
                 </span>
-                <span className="text-xs font-normal text-muted-foreground">Real events only</span>
+                <span className="text-xs font-normal text-muted-foreground">Live</span>
               </span>
             </CardTitle>
             <span className="text-sm text-muted-foreground">

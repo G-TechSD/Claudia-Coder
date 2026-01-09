@@ -1452,6 +1452,7 @@ export default function ProjectDetailPage() {
               id: project.id,
               name: project.name,
               description: project.description,
+              workingDirectory: getEffectiveWorkingDirectory(project),
               repos: project.repos
             }}
           />
@@ -1598,7 +1599,7 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         linkedRepos={project.repos}
         onRepoLinked={() => refreshProject()}
-        workingDirectory={project.workingDirectory}
+        workingDirectory={getEffectiveWorkingDirectory(project)}
       />
     </div>
   )

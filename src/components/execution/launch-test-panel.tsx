@@ -29,29 +29,50 @@ import {
   Terminal
 } from "lucide-react"
 
-// Project type detection patterns
+// Project type configurations with run commands
 const PROJECT_TYPES = {
   flutter: {
     name: "Flutter",
-    detect: ["pubspec.yaml"],
     runCommand: "flutter run -d chrome --web-port=8080",
     devCommand: "flutter run -d chrome --web-port=8080",
     buildCommand: "flutter build web",
     defaultPort: 8080,
     icon: "mobile"
   },
+  rust: {
+    name: "Rust",
+    runCommand: "cargo run",
+    devCommand: "cargo watch -x run",
+    buildCommand: "cargo build --release",
+    defaultPort: 8080,
+    icon: "rust"
+  },
   nextjs: {
     name: "Next.js",
-    detect: ["next.config.js", "next.config.mjs", "next.config.ts"],
     runCommand: "npm run dev",
     devCommand: "npm run dev",
     buildCommand: "npm run build",
     defaultPort: 3000,
     icon: "react"
   },
+  nuxt: {
+    name: "Nuxt",
+    runCommand: "npm run dev",
+    devCommand: "npm run dev",
+    buildCommand: "npm run build",
+    defaultPort: 3000,
+    icon: "vue"
+  },
+  svelte: {
+    name: "SvelteKit",
+    runCommand: "npm run dev",
+    devCommand: "npm run dev",
+    buildCommand: "npm run build",
+    defaultPort: 5173,
+    icon: "svelte"
+  },
   react: {
     name: "React",
-    detect: ["src/App.tsx", "src/App.jsx", "src/App.js"],
     runCommand: "npm start",
     devCommand: "npm start",
     buildCommand: "npm run build",
@@ -60,7 +81,6 @@ const PROJECT_TYPES = {
   },
   vue: {
     name: "Vue",
-    detect: ["vue.config.js", "vite.config.ts", "src/App.vue"],
     runCommand: "npm run dev",
     devCommand: "npm run dev",
     buildCommand: "npm run build",
@@ -69,7 +89,6 @@ const PROJECT_TYPES = {
   },
   node: {
     name: "Node.js",
-    detect: ["server.js", "app.js", "index.js"],
     runCommand: "npm start",
     devCommand: "npm run dev",
     buildCommand: "npm run build",
@@ -78,7 +97,6 @@ const PROJECT_TYPES = {
   },
   python: {
     name: "Python",
-    detect: ["main.py", "app.py", "manage.py", "requirements.txt"],
     runCommand: "python main.py",
     devCommand: "python main.py",
     buildCommand: "pip install -r requirements.txt",
@@ -87,7 +105,6 @@ const PROJECT_TYPES = {
   },
   django: {
     name: "Django",
-    detect: ["manage.py", "settings.py"],
     runCommand: "python manage.py runserver 0.0.0.0:8000",
     devCommand: "python manage.py runserver 0.0.0.0:8000",
     buildCommand: "pip install -r requirements.txt",
@@ -96,11 +113,18 @@ const PROJECT_TYPES = {
   },
   fastapi: {
     name: "FastAPI",
-    detect: ["main.py"],
     runCommand: "uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
     devCommand: "uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
     buildCommand: "pip install -r requirements.txt",
     defaultPort: 8000,
+    icon: "python"
+  },
+  flask: {
+    name: "Flask",
+    runCommand: "flask run --host=0.0.0.0 --port=5000",
+    devCommand: "flask run --host=0.0.0.0 --port=5000 --debug",
+    buildCommand: "pip install -r requirements.txt",
+    defaultPort: 5000,
     icon: "python"
   }
 } as const
@@ -121,6 +145,7 @@ interface LaunchTestPanelProps {
     id: string
     name: string
     description: string
+    workingDirectory?: string
     repos: Array<{
       provider: string
       id: number
@@ -180,41 +205,71 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
     display: ":1"
   }
 
-  const repoPath = project.repos[0]?.localPath || project.repos[0]?.path || `/tmp/projects/${project.id}`
-
-  // Detect project type on mount
-  React.useEffect(() => {
-    if (project.repos.length > 0) {
-      detectProjectType()
+  // Get working directory - priority: workingDirectory > repo localPath > fallback
+  // NOTE: repo.path is the REMOTE path (e.g., "user/repo"), not local!
+  const workingDirectory = React.useMemo(() => {
+    // 1. Project's explicit working directory (best option)
+    if (project.workingDirectory) {
+      return project.workingDirectory
     }
-  }, [project.repos])
+    // 2. Repo's local path (if cloned locally)
+    const repoWithLocalPath = project.repos.find(r => r.localPath)
+    if (repoWithLocalPath?.localPath) {
+      return repoWithLocalPath.localPath
+    }
+    // 3. Fallback - but this likely won't work
+    return null
+  }, [project.workingDirectory, project.repos])
+
+  // For backwards compatibility
+  const repoPath = workingDirectory || `/tmp/claudia-projects/${project.id}`
+
+  // Detect project type on mount - only if we have a valid working directory
+  React.useEffect(() => {
+    if (workingDirectory) {
+      detectProjectType()
+    } else {
+      addLog("No working directory configured - set it in project settings or link a repo with local path")
+    }
+  }, [workingDirectory])
 
   const addLog = (message: string) => {
     setLaunchLogs(prev => [...prev.slice(-50), `[${new Date().toLocaleTimeString()}] ${message}`])
   }
 
   const detectProjectType = async () => {
+    if (!workingDirectory) {
+      addLog("Cannot detect project type: no working directory set")
+      return
+    }
+
     setAppStatus("detecting")
-    addLog("Detecting project type...")
+    addLog(`Scanning: ${workingDirectory}`)
 
     try {
       const response = await fetch("/api/launch-test/detect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          repoPath,
+          repoPath: workingDirectory,
           projectId: project.id
         })
       })
 
       const data = await response.json()
 
-      if (data.projectType) {
+      if (data.projectType && PROJECT_TYPES[data.projectType as ProjectType]) {
         setProjectType(data.projectType)
         setAppPort(PROJECT_TYPES[data.projectType as ProjectType]?.defaultPort || 3000)
-        addLog(`Detected: ${PROJECT_TYPES[data.projectType as ProjectType]?.name || data.projectType}`)
+        const detectedBy = data.detectedBy ? ` (via ${data.detectedBy})` : ""
+        addLog(`Detected: ${PROJECT_TYPES[data.projectType as ProjectType]?.name}${detectedBy}`)
+      } else if (data.error) {
+        addLog(`Detection failed: ${data.error}`)
+        if (data.suggestion) {
+          addLog(`Suggestion: ${data.suggestion}`)
+        }
       } else {
-        addLog("Could not auto-detect project type")
+        addLog("Could not auto-detect project type - select manually")
       }
 
       setAppStatus("idle")
@@ -230,9 +285,14 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       return
     }
 
+    if (!workingDirectory) {
+      setLaunchError("No working directory configured. Set it in project settings or link a repo with local path.")
+      return
+    }
+
     setAppStatus("launching")
     setLaunchError(null)
-    addLog(`Launching ${PROJECT_TYPES[projectType].name} app...`)
+    addLog(`Launching ${PROJECT_TYPES[projectType].name} app in ${workingDirectory}...`)
 
     try {
       const response = await fetch("/api/launch-test/start", {
@@ -240,7 +300,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId: project.id,
-          repoPath,
+          repoPath: workingDirectory,
           projectType,
           command: PROJECT_TYPES[projectType].runCommand,
           port: appPort
@@ -258,6 +318,9 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
         setLaunchError(data.error || "Failed to launch app")
         setAppStatus("error")
         addLog(`Launch failed: ${data.error}`)
+        if (data.stderr) {
+          addLog(`stderr: ${data.stderr.substring(0, 200)}`)
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Launch failed"
@@ -554,6 +617,27 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
 
   return (
     <div className={cn("space-y-6", className)}>
+      {/* Warning if no working directory */}
+      {!workingDirectory && (
+        <Card className="border-yellow-500/30 bg-yellow-500/10">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5" />
+              <div>
+                <p className="font-medium text-yellow-400">No Working Directory Configured</p>
+                <p className="text-sm text-yellow-400/70 mt-1">
+                  To launch and test your app, you need to configure a working directory:
+                </p>
+                <ul className="text-sm text-yellow-400/70 mt-2 ml-4 list-disc space-y-1">
+                  <li>Set the local path for a linked repository in the Repos tab</li>
+                  <li>Or initialize a project folder in the Overview tab</li>
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Launch Section */}
       <Card className="border-blue-500/20 bg-gradient-to-br from-blue-950/30 to-gray-900/50">
         <CardHeader>
@@ -561,6 +645,11 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
             <Rocket className="h-5 w-5 text-blue-400" />
             Launch & Test
           </CardTitle>
+          {workingDirectory && (
+            <p className="text-xs text-muted-foreground font-mono mt-1">
+              {workingDirectory}
+            </p>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Project Type Detection */}
@@ -585,7 +674,8 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
                   variant="outline"
                   size="icon"
                   onClick={detectProjectType}
-                  disabled={appStatus === "detecting" || appStatus === "running"}
+                  disabled={!workingDirectory || appStatus === "detecting" || appStatus === "running"}
+                  title={!workingDirectory ? "Set working directory first" : "Re-detect project type"}
                 >
                   <RefreshCw className={cn("h-4 w-4", appStatus === "detecting" && "animate-spin")} />
                 </Button>
@@ -614,7 +704,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
                   : "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500"
               )}
               onClick={appStatus === "running" ? handleStop : handleLaunch}
-              disabled={!projectType || appStatus === "launching" || appStatus === "building"}
+              disabled={!workingDirectory || !projectType || appStatus === "launching" || appStatus === "building"}
             >
               {appStatus === "running" ? (
                 <>

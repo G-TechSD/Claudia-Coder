@@ -45,11 +45,23 @@ const priorityConfig: Record<Packet["priority"], { label: string; variant: "defa
   critical: { label: "Critical", variant: "error" }
 }
 
-const statusConfig: Record<Packet["status"], { label: string; color: string; icon: React.ElementType }> = {
+type StatusConfigValue = { label: string; color: string; icon: React.ElementType }
+
+const defaultStatusConfig: StatusConfigValue = {
+  label: "Unknown",
+  color: "text-muted-foreground",
+  icon: Circle
+}
+
+const statusConfig: Record<Packet["status"], StatusConfigValue> = {
   pending: { label: "Pending", color: "text-muted-foreground", icon: Circle },
   in_progress: { label: "In Progress", color: "text-blue-400", icon: Loader2 },
   completed: { label: "Completed", color: "text-green-400", icon: CheckCircle2 },
   failed: { label: "Failed", color: "text-red-400", icon: Circle }
+}
+
+function getStatusConfig(status: string): StatusConfigValue {
+  return statusConfig[status as Packet["status"]] ?? defaultStatusConfig
 }
 
 export function PacketCard({ packet, onStart, onStop, isExecuting }: PacketCardProps) {
@@ -57,9 +69,9 @@ export function PacketCard({ packet, onStart, onStop, isExecuting }: PacketCardP
   const totalTasks = packet.tasks.length
   const progressPercent = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0
 
-  const StatusIcon = statusConfig[packet.status].icon
+  const statusInfo = getStatusConfig(packet.status)
+  const StatusIcon = statusInfo.icon
   const priorityInfo = priorityConfig[packet.priority]
-  const statusInfo = statusConfig[packet.status]
 
   return (
     <Card className="relative overflow-hidden">
