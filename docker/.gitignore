@@ -1,0 +1,11 @@
+# Docker environment file (contains secrets)
+.env
+
+# Backup files
+*.bak
+*.backup
+
+# Editor files
+*.swp
+*.swo
+*~

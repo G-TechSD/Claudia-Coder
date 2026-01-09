@@ -174,11 +174,11 @@ export default function LoginPage() {
         </Button>
       </form>
 
-      {/* Sign Up Link */}
+      {/* Invite Only Notice */}
       <p className="text-center text-sm text-muted-foreground">
         Don&apos;t have an account?{" "}
         <Link href="/auth/signup" className="text-primary hover:underline font-medium">
-          Create one
+          Learn about access
         </Link>
       </p>
     </div>

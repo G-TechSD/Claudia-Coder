@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
 import { useApprovals } from "@/hooks/useApprovals"
 import { useAuth } from "@/components/auth/auth-provider"
@@ -15,14 +16,6 @@ import { UserMenu } from "@/components/auth/user-menu"
 import { BetaUsageSummary } from "@/components/beta/usage-banner"
 import {
   LayoutDashboard,
-  Activity,
-  Package,
-  GitBranch,
-  Shield,
-  CheckCircle,
-  DollarSign,
-  Settings,
-  Mic,
   ChevronLeft,
   Command,
   Layers,
@@ -35,36 +28,191 @@ import {
   Lightbulb,
   FileCheck,
   Search,
+  ChevronDown,
+  FolderKanban,
+  Wrench,
+  Mic,
+  Settings,
+  Users,
+  UserPlus,
+  Gift,
+  Briefcase,
+  ExternalLink,
+  GitBranch,
 } from "lucide-react"
 
 interface NavItem {
   title: string
   href: string
   icon: React.ElementType
-  badgeKey?: string // Key to look up dynamic badge count
+  badgeKey?: string
+  external?: boolean
 }
 
-const navItems: NavItem[] = [
+interface NavCategory {
+  id: string
+  title: string
+  icon: React.ElementType
+  items: NavItem[]
+  adminOnly?: boolean
+}
+
+// Projects category items
+const projectsItems: NavItem[] = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Projects", href: "/projects", icon: Layers },
-  { title: "Research", href: "/research", icon: Search },
   { title: "Business Ideas", href: "/business-ideas", icon: Lightbulb },
-  { title: "Patents", href: "/patents", icon: FileCheck },
-  { title: "Claude Code", href: "/claude-code", icon: Terminal },
-  { title: "Activity", href: "/activity", icon: Activity },
-  { title: "Packets", href: "/packets", icon: Package },
-  { title: "Timeline", href: "/timeline", icon: GitBranch },
-  { title: "N8N", href: "/n8n", icon: Workflow },
-  { title: "Quality", href: "/quality", icon: Shield },
-  { title: "Approvals", href: "/approvals", icon: CheckCircle, badgeKey: "pendingApprovals" },
-  { title: "Costs", href: "/costs", icon: DollarSign },
-]
-
-const bottomNavItems: NavItem[] = [
-  { title: "Trash", href: "/projects/trash", icon: Trash2, badgeKey: "trashedProjects" },
-  { title: "Settings", href: "/settings", icon: Settings },
+  { title: "Business Dev", href: "/business-dev", icon: Briefcase },
   { title: "Voice", href: "/voice", icon: Mic },
 ]
+
+// Tools category items
+const toolsItems: NavItem[] = [
+  { title: "Claude Code", href: "/claude-code", icon: Terminal },
+  { title: "Research", href: "/research", icon: Search },
+  { title: "Patents", href: "/patents", icon: FileCheck },
+  { title: "GitLab", href: "https://gitlab.com", icon: GitBranch, external: true },
+  { title: "n8n", href: "/n8n", icon: Workflow, external: false },
+]
+
+// Admin category items
+const adminItems: NavItem[] = [
+  { title: "Users", href: "/admin/users", icon: Users },
+  { title: "Invites", href: "/admin/invites", icon: UserPlus },
+  { title: "Referrals", href: "/admin/referrals", icon: Gift },
+  { title: "Settings", href: "/settings", icon: Settings },
+]
+
+const STORAGE_KEY = "sidebar-accordion-state"
+
+function getStoredAccordionState(): Record<string, boolean> {
+  if (typeof window === "undefined") return {}
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    return stored ? JSON.parse(stored) : {}
+  } catch {
+    return {}
+  }
+}
+
+function setStoredAccordionState(state: Record<string, boolean>) {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+interface NavCategoryAccordionProps {
+  category: NavCategory
+  collapsed: boolean
+  pathname: string
+  badgeCounts: Record<string, number>
+  isOpen: boolean
+  onToggle: (id: string) => void
+}
+
+function NavCategoryAccordion({
+  category,
+  collapsed,
+  pathname,
+  badgeCounts,
+  isOpen,
+  onToggle,
+}: NavCategoryAccordionProps) {
+  const hasActiveItem = category.items.some(
+    (item) => pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
+  )
+
+  if (collapsed) {
+    // In collapsed mode, show just the category icon
+    return (
+      <div className="space-y-0.5">
+        <div
+          className={cn(
+            "flex items-center justify-center rounded-md px-2 py-2 text-sm font-medium",
+            hasActiveItem
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground"
+          )}
+          title={category.title}
+        >
+          <category.icon className="h-4 w-4" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={() => onToggle(category.id)}>
+      <CollapsibleTrigger asChild>
+        <button
+          className={cn(
+            "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+            hasActiveItem ? "text-primary" : "text-muted-foreground"
+          )}
+        >
+          <category.icon className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">{category.title}</span>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 transition-transform duration-200",
+              isOpen ? "rotate-180" : ""
+            )}
+          />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+        <nav className="ml-4 mt-1 space-y-0.5 border-l pl-3">
+          {category.items.map((item) => {
+            const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
+
+            if (item.external) {
+              return (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                    "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  <item.icon className="h-4 w-4 shrink-0" />
+                  <span className="flex-1">{item.title}</span>
+                  <ExternalLink className="h-3 w-3 shrink-0 opacity-50" />
+                </a>
+              )
+            }
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+              >
+                <item.icon className="h-4 w-4 shrink-0" />
+                <span className="flex-1">{item.title}</span>
+                {item.badgeKey && badgeCounts[item.badgeKey] > 0 && (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+                    {badgeCounts[item.badgeKey]}
+                  </span>
+                )}
+              </Link>
+            )
+          })}
+        </nav>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -74,6 +222,27 @@ export function Sidebar() {
   const { user, isBetaTester, betaLimits } = useAuth()
   const isAdmin = user?.role === "admin"
   const [trashedCount, setTrashedCount] = React.useState(0)
+  const [accordionState, setAccordionState] = React.useState<Record<string, boolean>>({
+    projects: true,
+    tools: true,
+    admin: false,
+  })
+
+  // Initialize accordion state from localStorage
+  React.useEffect(() => {
+    const stored = getStoredAccordionState()
+    if (Object.keys(stored).length > 0) {
+      setAccordionState(stored)
+    }
+  }, [])
+
+  const handleAccordionToggle = React.useCallback((id: string) => {
+    setAccordionState((prev) => {
+      const newState = { ...prev, [id]: !prev[id] }
+      setStoredAccordionState(newState)
+      return newState
+    })
+  }, [])
 
   // Refresh trashed count periodically and on path changes
   React.useEffect(() => {
@@ -82,13 +251,11 @@ export function Sidebar() {
     }
     updateTrashedCount()
 
-    // Listen for storage changes to update trash count
     const handleStorageChange = () => {
       updateTrashedCount()
     }
     window.addEventListener("storage", handleStorageChange)
 
-    // Also poll every few seconds to catch in-app changes
     const interval = setInterval(updateTrashedCount, 2000)
 
     return () => {
@@ -101,6 +268,33 @@ export function Sidebar() {
   const badgeCounts: Record<string, number> = {
     pendingApprovals,
     trashedProjects: trashedCount,
+  }
+
+  // Define navigation categories
+  const navCategories: NavCategory[] = [
+    {
+      id: "projects",
+      title: "Projects",
+      icon: FolderKanban,
+      items: projectsItems,
+    },
+    {
+      id: "tools",
+      title: "Tools",
+      icon: Wrench,
+      items: toolsItems,
+    },
+  ]
+
+  // Add admin category only for admin users
+  if (isAdmin) {
+    navCategories.push({
+      id: "admin",
+      title: "Admin",
+      icon: ShieldCheck,
+      items: adminItems,
+      adminOnly: true,
+    })
   }
 
   return (
@@ -188,89 +382,49 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* Main Navigation */}
-      <nav className="flex-1 space-y-1 p-2">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                collapsed && "justify-center px-2"
-              )}
-            >
-              <item.icon className="h-4 w-4 shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="flex-1">{item.title}</span>
-                  {item.badgeKey && badgeCounts[item.badgeKey] > 0 && (
-                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
-                      {badgeCounts[item.badgeKey]}
-                    </span>
-                  )}
-                </>
-              )}
-            </Link>
-          )
-        })}
-
-        {/* Admin Link - Only visible to admins */}
-        {isAdmin && (
-          <Link
-            href="/admin"
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              pathname.startsWith("/admin")
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              collapsed && "justify-center px-2"
-            )}
-            title={collapsed ? "Admin" : undefined}
-          >
-            <ShieldCheck className="h-4 w-4 shrink-0" />
-            {!collapsed && <span className="flex-1">Admin</span>}
-          </Link>
-        )}
+      {/* Main Navigation with Accordion Categories */}
+      <nav className="flex-1 space-y-2 overflow-y-auto p-2">
+        {navCategories.map((category) => (
+          <NavCategoryAccordion
+            key={category.id}
+            category={category}
+            collapsed={collapsed}
+            pathname={pathname}
+            badgeCounts={badgeCounts}
+            isOpen={accordionState[category.id] ?? true}
+            onToggle={handleAccordionToggle}
+          />
+        ))}
       </nav>
 
       {/* Divider */}
       <div className="mx-4 border-t" />
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation - Trash */}
       <nav className="space-y-1 p-2">
-        {bottomNavItems.map((item) => {
-          const isActive = pathname === item.href
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                collapsed && "justify-center px-2"
+        <Link
+          href="/projects/trash"
+          className={cn(
+            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            pathname === "/projects/trash"
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            collapsed && "justify-center px-2"
+          )}
+          title={collapsed ? "Trash" : undefined}
+        >
+          <Trash2 className="h-4 w-4 shrink-0" />
+          {!collapsed && (
+            <>
+              <span className="flex-1">Trash</span>
+              {trashedCount > 0 && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs text-white">
+                  {trashedCount}
+                </span>
               )}
-            >
-              <item.icon className="h-4 w-4 shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="flex-1">{item.title}</span>
-                  {item.badgeKey && badgeCounts[item.badgeKey] > 0 && (
-                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs text-white">
-                      {badgeCounts[item.badgeKey]}
-                    </span>
-                  )}
-                </>
-              )}
-            </Link>
-          )
-        })}
+            </>
+          )}
+        </Link>
       </nav>
 
       {/* Beta Usage Summary */}

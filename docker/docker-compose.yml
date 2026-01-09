@@ -1,0 +1,301 @@
+# ============================================
+# Claudia Coder - Docker Compose
+# Complete local deployment stack
+# ============================================
+# PRIVATE DEPLOYMENT ONLY - DO NOT PUSH TO PUBLIC REGISTRY
+
+version: '3.9'
+
+services:
+  # ==========================================
+  # Claudia Next.js Application
+  # ==========================================
+  claudia-app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: claudia-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_WHISPER_URL=http://whisper:8000
+      - NEXT_PUBLIC_N8N_URL=http://n8n:5678
+      - NEXT_PUBLIC_GITLAB_URL=http://gitlab:80
+      - NEXT_PUBLIC_LMSTUDIO_URL=${LMSTUDIO_HOST:-http://host.docker.internal:1234}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+    volumes:
+      - claudia-data:/app/.local-storage
+      - claudia-db:/app/data
+    networks:
+      - claudia-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # ==========================================
+  # n8n Workflow Automation
+  # ==========================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: claudia-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=${TIMEZONE:-America/New_York}
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-changeme}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-claudia}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-claudia_secure_password}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-change-this-encryption-key}
+    volumes:
+      - n8n-data:/home/node/.n8n
+      - n8n-files:/files
+    networks:
+      - claudia-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # ==========================================
+  # GitLab Community Edition
+  # ==========================================
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    container_name: claudia-gitlab
+    restart: unless-stopped
+    hostname: gitlab.local
+    ports:
+      - "8080:80"
+      - "8443:443"
+      - "2222:22"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:8080'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2222
+        # Reduce memory usage for local deployment
+        puma['worker_processes'] = 2
+        sidekiq['max_concurrency'] = 5
+        prometheus_monitoring['enable'] = false
+        grafana['enable'] = false
+        # PostgreSQL settings
+        postgresql['shared_buffers'] = "256MB"
+        postgresql['max_worker_processes'] = 4
+        # Disable unnecessary features
+        gitlab_kas['enable'] = false
+        registry['enable'] = false
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    networks:
+      - claudia-network
+    shm_size: '256m'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/-/readiness"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # ==========================================
+  # Whisper Speech-to-Text (faster-whisper)
+  # ==========================================
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cpu
+    container_name: claudia-whisper
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - WHISPER__MODEL=base
+      - WHISPER__INFERENCE_DEVICE=cpu
+      - WHISPER__COMPUTE_TYPE=int8
+    volumes:
+      - whisper-models:/root/.cache/huggingface
+    networks:
+      - claudia-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ==========================================
+  # LM Studio Proxy (Optional)
+  # Allows containerized access to host LM Studio
+  # ==========================================
+  lmstudio-proxy:
+    image: nginx:alpine
+    container_name: claudia-lmstudio-proxy
+    restart: unless-stopped
+    ports:
+      - "11434:80"
+    volumes:
+      - ./nginx-lmstudio.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - claudia-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - lmstudio
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ==========================================
+  # PostgreSQL Database
+  # Used by n8n and GitLab
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: claudia-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-claudia}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-claudia_secure_password}
+      - POSTGRES_DB=claudia
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - claudia-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-claudia} -d claudia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # ==========================================
+  # Redis Cache
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: claudia-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - claudia-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+# ==========================================
+# Networks
+# ==========================================
+networks:
+  claudia-network:
+    driver: bridge
+    name: claudia-network
+
+# ==========================================
+# Volumes (Persistent Storage)
+# ==========================================
+volumes:
+  claudia-data:
+    name: claudia-data
+  claudia-db:
+    name: claudia-db
+  n8n-data:
+    name: claudia-n8n-data
+  n8n-files:
+    name: claudia-n8n-files
+  gitlab-config:
+    name: claudia-gitlab-config
+  gitlab-logs:
+    name: claudia-gitlab-logs
+  gitlab-data:
+    name: claudia-gitlab-data
+  whisper-models:
+    name: claudia-whisper-models
+  postgres-data:
+    name: claudia-postgres-data
+  redis-data:
+    name: claudia-redis-data
