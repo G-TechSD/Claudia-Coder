@@ -16,20 +16,20 @@ export function AppShell({ children }: AppShellProps) {
     setMounted(true)
   }, [])
 
-  // Don't render until mounted to avoid hydration issues
-  if (!mounted) {
-    return null
-  }
-
-  // Setup is now handled inline on the dashboard - no blocking wizard
+  // Render the layout structure immediately to prevent black screen
+  // Only conditionally render client-only components (CommandPalette, GlobalVoiceButton)
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />
       <main className="flex-1 overflow-auto">
         {children}
       </main>
-      <CommandPalette />
-      <GlobalVoiceButton />
+      {mounted && (
+        <>
+          <CommandPalette />
+          <GlobalVoiceButton />
+        </>
+      )}
     </div>
   )
 }
