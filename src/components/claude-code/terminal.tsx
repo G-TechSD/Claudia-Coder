@@ -5,16 +5,94 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
-import { Play, Square, RefreshCw, Loader2, FileText, History, Shield, Radio, Zap } from "lucide-react"
+import { Play, Square, RefreshCw, Loader2, FileText, History, Shield, Radio, Zap, Users, PanelRight, PanelBottom, Layers, GripVertical } from "lucide-react"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { MiniMePanel } from "./mini-me-panel"
+import { MiniMeAgent, MiniMeStatus } from "./mini-me"
 
 // LocalStorage key for persistent session settings
 const STORAGE_KEY_NEVER_LOSE_SESSION = "claude-code-never-lose-session"
 const STORAGE_KEY_RECENT_SESSIONS = "claude-code-recent-sessions"
 const STORAGE_KEY_BACKGROUND_SESSIONS = "claude-code-background-sessions"
 const STORAGE_KEY_AUTO_KICKOFF = "claude-code-auto-kickoff"
+const STORAGE_KEY_MINI_ME_MODE = "claude-code-mini-me-mode"
+const STORAGE_KEY_MINI_ME_LAYOUT = "claude-code-mini-me-layout"
+const STORAGE_KEY_MINI_ME_PANEL_SIZE = "claude-code-mini-me-panel-size"
+
+// Mini-Me panel layout types
+type MiniMePanelLayout = "side" | "bottom" | "floating"
 
 // Maximum number of recent sessions to store
 const MAX_RECENT_SESSIONS = 10
+
+/**
+ * Resize Handle component for resizable panels
+ */
+function ResizeHandle({
+  direction,
+  onResize
+}: {
+  direction: "horizontal" | "vertical"
+  onResize: (delta: number) => void
+}) {
+  const [isDragging, setIsDragging] = useState(false)
+  const startPosRef = useRef(0)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+    startPosRef.current = direction === "horizontal" ? e.clientX : e.clientY
+  }
+
+  useEffect(() => {
+    if (!isDragging) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const currentPos = direction === "horizontal" ? e.clientX : e.clientY
+      const delta = direction === "horizontal"
+        ? startPosRef.current - currentPos  // For side panel, moving left = larger
+        : startPosRef.current - currentPos  // For bottom panel, moving up = larger
+      onResize(delta)
+      startPosRef.current = currentPos
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+    }
+
+    document.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mouseup", handleMouseUp)
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
+    }
+  }, [isDragging, direction, onResize])
+
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      className={cn(
+        "flex items-center justify-center transition-colors hover:bg-cyan-500/30 flex-shrink-0",
+        isDragging && "bg-cyan-500/50",
+        direction === "horizontal"
+          ? "w-1.5 cursor-col-resize"
+          : "h-1.5 cursor-row-resize"
+      )}
+    >
+      <GripVertical className={cn(
+        "h-4 w-4 text-gray-600",
+        direction === "vertical" && "rotate-90",
+        isDragging && "text-cyan-400"
+      )} />
+    </div>
+  )
+}
 
 interface RecentSession {
   id: string
@@ -91,6 +169,15 @@ export function ClaudeCodeTerminal({
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>([])
   const [backgroundSessions, setBackgroundSessions] = useState<BackgroundSession[]>([])
   const [showSessionOptions, setShowSessionOptions] = useState(false)
+  const [miniMeMode, setMiniMeMode] = useState(false)
+  const [activeSubAgents, setActiveSubAgents] = useState(0)
+
+  // Mini-Me Panel states
+  const [miniMeAgents, setMiniMeAgents] = useState<MiniMeAgent[]>([])
+  const [miniMePanelLayout, setMiniMePanelLayout] = useState<MiniMePanelLayout>("side")
+  const [miniMePanelSize, setMiniMePanelSize] = useState(320)
+  const [showMiniMePanel, setShowMiniMePanel] = useState(false)
+  const miniMeIdCounterRef = useRef(0)
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -112,6 +199,27 @@ export function ClaudeCodeTerminal({
       const savedAutoKickoff = localStorage.getItem(STORAGE_KEY_AUTO_KICKOFF)
       if (savedAutoKickoff === "true") {
         setAutoKickoff(true)
+      }
+
+      // Load "mini-me mode" setting
+      const savedMiniMeMode = localStorage.getItem(STORAGE_KEY_MINI_ME_MODE)
+      if (savedMiniMeMode === "true") {
+        setMiniMeMode(true)
+      }
+
+      // Load Mini-Me panel layout
+      const savedLayout = localStorage.getItem(STORAGE_KEY_MINI_ME_LAYOUT) as MiniMePanelLayout | null
+      if (savedLayout && ["side", "bottom", "floating"].includes(savedLayout)) {
+        setMiniMePanelLayout(savedLayout)
+      }
+
+      // Load Mini-Me panel size
+      const savedPanelSize = localStorage.getItem(STORAGE_KEY_MINI_ME_PANEL_SIZE)
+      if (savedPanelSize) {
+        const size = parseInt(savedPanelSize, 10)
+        if (!isNaN(size) && size >= 200 && size <= 600) {
+          setMiniMePanelSize(size)
+        }
       }
 
       // Load recent sessions
@@ -157,6 +265,31 @@ export function ClaudeCodeTerminal({
       localStorage.setItem(STORAGE_KEY_AUTO_KICKOFF, autoKickoff.toString())
     }
   }, [autoKickoff])
+
+  // Save "mini-me mode" setting when it changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY_MINI_ME_MODE, miniMeMode.toString())
+      // Auto-show panel when mode is enabled
+      if (miniMeMode) {
+        setShowMiniMePanel(true)
+      }
+    }
+  }, [miniMeMode])
+
+  // Save Mini-Me panel layout when it changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY_MINI_ME_LAYOUT, miniMePanelLayout)
+    }
+  }, [miniMePanelLayout])
+
+  // Save Mini-Me panel size when it changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY_MINI_ME_PANEL_SIZE, miniMePanelSize.toString())
+    }
+  }, [miniMePanelSize])
 
   // Save current session to recent sessions when connected
   useEffect(() => {
@@ -395,6 +528,131 @@ export function ClaudeCodeTerminal({
     }
   }, [projectId])
 
+  // Parse terminal output to detect Mini-Me (Task tool) events
+  const parseTerminalOutputForMiniMe = useCallback((content: string) => {
+    if (!miniMeMode) return
+
+    // Detection patterns for Task tool / agent spawning
+    // Pattern 1: "Task:" or "Spawning agent" - new Mini-Me
+    const taskSpawnPatterns = [
+      /Task:\s*(.+?)(?:\n|$)/i,
+      /Spawning\s+(?:agent|task)[:\s]*(.+?)(?:\n|$)/i,
+      /Starting\s+(?:sub-?)?agent[:\s]*(.+?)(?:\n|$)/i,
+      /(?:Task|Agent)\s+spawned[:\s]*(.+?)(?:\n|$)/i,
+      /Running\s+parallel\s+task[:\s]*(.+?)(?:\n|$)/i,
+      /TodoWrite.*"content":\s*"([^"]+)"/i,
+    ]
+
+    // Pattern 2: Agent ID extraction
+    const agentIdPattern = /(?:agent[_-]?id|task[_-]?id)[:\s]*([a-zA-Z0-9_-]+)/i
+
+    // Pattern 3: "Agent completed" or task result - update to completed
+    const completionPatterns = [
+      /Agent\s+completed[:\s]*(.+?)(?:\n|$)/i,
+      /Task\s+(?:completed|finished)[:\s]*(.+?)(?:\n|$)/i,
+      /Sub-?agent\s+finished[:\s]*(.+?)(?:\n|$)/i,
+      /completed\s+successfully/i,
+      /Task\s+result[:\s]*(.+?)(?:\n|$)/i,
+    ]
+
+    // Pattern 4: "Agent failed" or error - update to failed
+    const failurePatterns = [
+      /Agent\s+failed[:\s]*(.+?)(?:\n|$)/i,
+      /Task\s+(?:failed|error)[:\s]*(.+?)(?:\n|$)/i,
+      /Sub-?agent\s+error[:\s]*(.+?)(?:\n|$)/i,
+      /Error\s+in\s+(?:task|agent)[:\s]*(.+?)(?:\n|$)/i,
+    ]
+
+    // Check for new task spawn
+    for (const pattern of taskSpawnPatterns) {
+      const match = content.match(pattern)
+      if (match) {
+        const taskDescription = match[1]?.trim() || "Sub-agent task"
+        const idMatch = content.match(agentIdPattern)
+        const agentId = idMatch?.[1] || `agent-${Date.now().toString(36)}-${(miniMeIdCounterRef.current++).toString(36)}`
+
+        // Don't add duplicate agents
+        setMiniMeAgents(prev => {
+          const exists = prev.some(a => a.id === agentId || (a.task === taskDescription && a.status !== "completed" && a.status !== "failed"))
+          if (exists) return prev
+
+          const newAgent: MiniMeAgent = {
+            id: agentId,
+            status: "spawning",
+            task: taskDescription,
+            startedAt: new Date()
+          }
+
+          // Transition to "running" after a brief delay
+          setTimeout(() => {
+            setMiniMeAgents(agents =>
+              agents.map(a =>
+                a.id === agentId && a.status === "spawning"
+                  ? { ...a, status: "running" as MiniMeStatus }
+                  : a
+              )
+            )
+          }, 800)
+
+          return [...prev, newAgent]
+        })
+
+        setActiveSubAgents(prev => prev + 1)
+        break
+      }
+    }
+
+    // Check for completion
+    for (const pattern of completionPatterns) {
+      if (pattern.test(content)) {
+        // Mark the most recent running/spawning agent as completed
+        setMiniMeAgents(prev => {
+          const runningIdx = prev.findIndex(a => a.status === "running" || a.status === "spawning")
+          if (runningIdx === -1) return prev
+
+          return prev.map((a, i) =>
+            i === runningIdx
+              ? { ...a, status: "completed" as MiniMeStatus, completedAt: new Date() }
+              : a
+          )
+        })
+        setActiveSubAgents(prev => Math.max(0, prev - 1))
+        break
+      }
+    }
+
+    // Check for failure
+    for (const pattern of failurePatterns) {
+      const match = content.match(pattern)
+      if (match) {
+        const errorMsg = match[1]?.trim() || "Task execution failed"
+        // Mark the most recent running/spawning agent as failed
+        setMiniMeAgents(prev => {
+          const runningIdx = prev.findIndex(a => a.status === "running" || a.status === "spawning")
+          if (runningIdx === -1) return prev
+
+          return prev.map((a, i) =>
+            i === runningIdx
+              ? { ...a, status: "failed" as MiniMeStatus, completedAt: new Date(), error: errorMsg }
+              : a
+          )
+        })
+        setActiveSubAgents(prev => Math.max(0, prev - 1))
+        break
+      }
+    }
+  }, [miniMeMode])
+
+  // Handle Mini-Me panel resize
+  const handleMiniMePanelResize = useCallback((delta: number) => {
+    setMiniMePanelSize(prev => {
+      const newSize = miniMePanelLayout === "side"
+        ? Math.max(200, Math.min(600, prev + delta))
+        : Math.max(150, Math.min(400, prev + delta))
+      return newSize
+    })
+  }, [miniMePanelLayout])
+
   // Start a new session
   const startSession = useCallback(async () => {
     if (!xtermRef.current) return
@@ -473,6 +731,9 @@ export function ClaudeCodeTerminal({
             if (status !== "connected") {
               setStatus("connected")
             }
+
+            // Parse terminal output for Mini-Me agent detection when enabled
+            parseTerminalOutputForMiniMe(message.content as string)
           } else if (message.type === "status") {
             if (message.status === "running") {
               setStatus("connected")
@@ -482,6 +743,8 @@ export function ClaudeCodeTerminal({
           } else if (message.type === "exit") {
             term.write(`\r\n\x1b[1;33m● Session ended (code: ${message.code})\x1b[0m\r\n`)
             setStatus("closed")
+            setActiveSubAgents(0) // Reset sub-agent count on session end
+            // Don't clear miniMeAgents - keep history visible
             onSessionEnd?.()
             eventSource.close()
             eventSourceRef.current = null
@@ -517,7 +780,7 @@ export function ClaudeCodeTerminal({
       setStatus("error")
       term.write(`\x1b[1;31m● Error: ${message}\x1b[0m\r\n`)
     }
-  }, [projectId, workingDirectory, bypassPermissions, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt, continueSession, neverLoseSession, resumeSessionId])
+  }, [projectId, workingDirectory, bypassPermissions, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt, continueSession, neverLoseSession, resumeSessionId, parseTerminalOutputForMiniMe])
 
   // Initialize xterm.js
   useEffect(() => {
@@ -676,6 +939,20 @@ export function ClaudeCodeTerminal({
               <span>Background session active</span>
             </div>
           )}
+
+          {/* Mini-Me mode active indicator */}
+          {miniMeMode && status === "connected" && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-cyan-500/20 text-cyan-400">
+              <Users className="h-3 w-3" />
+              <span>Mini-Me Mode</span>
+              {activeSubAgents > 0 && (
+                <span className="flex items-center gap-1 px-1 py-0.5 rounded bg-cyan-500/30 text-[10px] font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  {activeSubAgents}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Session Options Toggle */}
@@ -811,15 +1088,179 @@ export function ClaudeCodeTerminal({
               Auto Kickoff
             </label>
           </div>
+
+          {/* Mini-Me Mode Toggle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2">
+                  <Users className={cn("h-3.5 w-3.5", miniMeMode ? "text-cyan-400" : "text-[#6e7681]")} />
+                  <Switch
+                    checked={miniMeMode}
+                    onCheckedChange={setMiniMeMode}
+                    className="data-[state=checked]:bg-cyan-600"
+                  />
+                  <label
+                    className="text-xs text-[#8b949e] cursor-pointer"
+                    onClick={() => setMiniMeMode(!miniMeMode)}
+                  >
+                    Mini-Me Mode
+                  </label>
+                  {miniMeMode && activeSubAgents > 0 && (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 text-[10px] font-medium">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      {activeSubAgents} active
+                    </span>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <p>Enable parallel sub-agent processing. Sub-agents appear as Mini-Me&apos;s working in parallel.</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Mini-Me Panel Layout Selector (when Mini-Me mode is enabled) */}
+          {miniMeMode && (
+            <div className="flex items-center gap-1 ml-2 pl-2 border-l border-[#30363d]">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setMiniMePanelLayout("side")}
+                      className={cn(
+                        "p-1 rounded hover:bg-gray-700/50",
+                        miniMePanelLayout === "side" ? "bg-gray-700/50 text-cyan-400" : "text-gray-500"
+                      )}
+                    >
+                      <PanelRight className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Side panel</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setMiniMePanelLayout("bottom")}
+                      className={cn(
+                        "p-1 rounded hover:bg-gray-700/50",
+                        miniMePanelLayout === "bottom" ? "bg-gray-700/50 text-cyan-400" : "text-gray-500"
+                      )}
+                    >
+                      <PanelBottom className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Bottom panel</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setMiniMePanelLayout("floating")}
+                      className={cn(
+                        "p-1 rounded hover:bg-gray-700/50",
+                        miniMePanelLayout === "floating" ? "bg-gray-700/50 text-cyan-400" : "text-gray-500"
+                      )}
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Floating panel</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <button
+                onClick={() => setShowMiniMePanel(!showMiniMePanel)}
+                className={cn(
+                  "ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors",
+                  showMiniMePanel
+                    ? "bg-cyan-500/20 text-cyan-400"
+                    : "bg-gray-700/50 text-gray-400 hover:text-gray-300"
+                )}
+              >
+                {showMiniMePanel ? "Hide" : "Show"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Terminal container */}
-      <div
-        ref={terminalRef}
-        className="flex-1 w-full"
-        style={{ minHeight: "400px" }}
-      />
+      {/* Main content area - handles side panel layout */}
+      <div className={cn(
+        "flex-1 flex overflow-hidden",
+        miniMePanelLayout === "side" && showMiniMePanel && miniMeMode ? "flex-row" : "flex-col"
+      )}>
+        {/* Terminal + Bottom Panel wrapper */}
+        <div className={cn(
+          "flex flex-col flex-1 min-w-0",
+          miniMePanelLayout === "bottom" && showMiniMePanel && miniMeMode && "overflow-hidden"
+        )}>
+          {/* Terminal container */}
+          <div
+            ref={terminalRef}
+            className="flex-1 w-full"
+            style={{ minHeight: miniMePanelLayout === "bottom" && showMiniMePanel && miniMeMode ? "200px" : "400px" }}
+          />
+
+          {/* Bottom Panel with Resize Handle */}
+          {miniMeMode && showMiniMePanel && miniMePanelLayout === "bottom" && (
+            <>
+              {/* Resize Handle for Bottom Panel */}
+              <ResizeHandle
+                direction="vertical"
+                onResize={handleMiniMePanelResize}
+              />
+              <div
+                className="border-t border-[#30363d] bg-[#0d1117] overflow-hidden"
+                style={{ height: miniMePanelSize }}
+              >
+                <MiniMePanel
+                  agents={miniMeAgents}
+                  defaultExpanded={true}
+                  title={`Mini-Me's (${activeSubAgents} active)`}
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Side Panel with Resize Handle */}
+        {miniMeMode && showMiniMePanel && miniMePanelLayout === "side" && (
+          <>
+            {/* Resize Handle for Side Panel */}
+            <ResizeHandle
+              direction="horizontal"
+              onResize={handleMiniMePanelResize}
+            />
+            <div
+              className="border-l border-[#30363d] bg-[#0d1117] overflow-y-auto"
+              style={{ width: miniMePanelSize }}
+            >
+              <MiniMePanel
+                agents={miniMeAgents}
+                defaultExpanded={true}
+                title={`Mini-Me's (${activeSubAgents} active)`}
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Floating Panel */}
+      {miniMeMode && showMiniMePanel && miniMePanelLayout === "floating" && (
+        <div
+          className="absolute bottom-4 right-4 z-50 rounded-lg border border-[#30363d] bg-[#0d1117] shadow-2xl overflow-hidden"
+          style={{ width: 360, maxHeight: 400 }}
+        >
+          <MiniMePanel
+            agents={miniMeAgents}
+            defaultExpanded={true}
+            title={`Mini-Me's (${activeSubAgents} active)`}
+          />
+        </div>
+      )}
 
       {/* Error banner */}
       {error && status === "error" && (

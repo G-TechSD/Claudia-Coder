@@ -226,3 +226,150 @@ textarea,
 .animate-blink {
   animation: blink 1s step-end infinite;
 }
+
+/* ============================================
+   Mini-Me Animations - Fun & Professional
+   ============================================ */
+
+/* Mini-Me Spawn - Fade in + slide up entrance */
+@keyframes mini-me-spawn {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.9);
+  }
+  50% {
+    transform: translateY(-5px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.mini-me-spawn {
+  animation: mini-me-spawn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Mini-Me Working - Pulse animation when running */
+@keyframes mini-me-working {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+  }
+}
+
+.mini-me-working {
+  animation: mini-me-working 2s ease-in-out infinite;
+}
+
+/* Mini-Me Complete - Success celebration effect */
+@keyframes mini-me-complete {
+  0% {
+    transform: scale(1);
+  }
+  15% {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+  }
+  30% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: none;
+  }
+}
+
+.mini-me-complete {
+  animation: mini-me-complete 0.6s ease-out;
+}
+
+/* Mini-Me Fail - Shake animation on failure */
+@keyframes mini-me-fail {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-4px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(4px);
+  }
+}
+
+.mini-me-fail {
+  animation: mini-me-fail 0.5s ease-in-out;
+}
+
+/* Sparkle particle animation for completion celebration */
+@keyframes mini-me-sparkle {
+  0% {
+    opacity: 1;
+    transform: scale(0) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2) rotate(180deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.5) rotate(360deg) translateY(-20px);
+  }
+}
+
+.mini-me-sparkle-particle {
+  animation: mini-me-sparkle 0.8s ease-out forwards;
+}
+
+/* Mini-Me Panel active state - subtle border glow */
+@keyframes mini-me-panel-glow {
+  0%, 100% {
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+  50% {
+    border-color: rgba(59, 130, 246, 0.6);
+  }
+}
+
+.mini-me-panel-active {
+  animation: mini-me-panel-glow 3s ease-in-out infinite;
+}
+
+/* Mini-Me Indicator active animation */
+@keyframes mini-me-indicator-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.mini-me-indicator-active {
+  animation: mini-me-indicator-pulse 2s ease-in-out infinite;
+}
+
+/* Staggered entrance utility - for use with inline delay */
+.mini-me-stagger {
+  animation: mini-me-spawn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-fill-mode: backwards;
+}
+
+/* Robot bounce for running state */
+@keyframes mini-me-robot-work {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-2px) rotate(-5deg);
+  }
+  75% {
+    transform: translateY(-2px) rotate(5deg);
+  }
+}
+
+.mini-me-robot-working {
+  animation: mini-me-robot-work 0.6s ease-in-out infinite;
+}
