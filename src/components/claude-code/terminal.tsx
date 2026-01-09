@@ -335,6 +335,21 @@ export function ClaudeCodeTerminal({
       }
     }
 
+    // Clear background session tracking
+    if (typeof window !== "undefined") {
+      try {
+        const savedBackground = localStorage.getItem(STORAGE_KEY_BACKGROUND_SESSIONS)
+        if (savedBackground) {
+          let bgSessions: BackgroundSession[] = JSON.parse(savedBackground)
+          bgSessions = bgSessions.filter(s => s.projectId !== projectId)
+          localStorage.setItem(STORAGE_KEY_BACKGROUND_SESSIONS, JSON.stringify(bgSessions))
+          setBackgroundSessions(bgSessions)
+        }
+      } catch (e) {
+        console.error("[Terminal] Failed to clear background session:", e)
+      }
+    }
+
     setStatus("closed")
     setSessionId(null)
     sessionIdRef.current = null
@@ -343,7 +358,7 @@ export function ClaudeCodeTerminal({
     if (xtermRef.current) {
       xtermRef.current.write("\r\n\x1b[1;33m● Session stopped\x1b[0m\r\n")
     }
-  }, [onSessionEnd]) // Removed sessionId dependency - uses ref
+  }, [onSessionEnd, projectId]) // Added projectId for background session cleanup
 
   // Clear background session tracking when session ends
   const clearBackgroundSession = useCallback(() => {
@@ -482,7 +497,7 @@ export function ClaudeCodeTerminal({
       setStatus("error")
       term.write(`\x1b[1;31m● Error: ${message}\x1b[0m\r\n`)
     }
-  }, [projectId, workingDirectory, bypassPermissions, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt])
+  }, [projectId, workingDirectory, bypassPermissions, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt, continueSession, neverLoseSession, resumeSessionId])
 
   // Initialize xterm.js
   useEffect(() => {

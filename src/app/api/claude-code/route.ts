@@ -1,9 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
 import { spawn, IPty } from "node-pty"
-import { existsSync } from "fs"
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { EventEmitter } from "events"
+import path from "path"
 
-// Store active sessions with PTY
+// Session storage file path
+const SESSIONS_FILE = "/home/bill/projects/claudia-admin/.local-storage/claude-sessions.json"
+
+// Stored session info (persisted to file)
+interface StoredSession {
+  id: string
+  projectId: string
+  workingDirectory: string
+  bypassPermissions: boolean
+  startedAt: string // ISO date string
+  status: "starting" | "running" | "stopped" | "error" | "background"
+  isBackground: boolean
+  claudeSessionId?: string // Claude's internal session ID for --resume
+  lastActivity?: string // ISO date string
+}
+
+// Active session with PTY (in-memory only)
 interface ClaudeSession {
   id: string
   pty: IPty
@@ -11,9 +28,11 @@ interface ClaudeSession {
   workingDirectory: string
   bypassPermissions: boolean
   startedAt: Date
-  status: "starting" | "running" | "stopped" | "error"
+  status: "starting" | "running" | "stopped" | "error" | "background"
   emitter: EventEmitter
   outputBuffer: string[]
+  isBackground: boolean
+  claudeSessionId?: string // Claude's internal session ID for --resume
 }
 
 const sessions = new Map<string, ClaudeSession>()
@@ -25,6 +44,100 @@ const CLAUDE_PATHS = [
   "/usr/bin/claude",
   "claude"
 ]
+
+/**
+ * Load stored sessions from JSON file
+ */
+function loadStoredSessions(): StoredSession[] {
+  try {
+    if (existsSync(SESSIONS_FILE)) {
+      const data = readFileSync(SESSIONS_FILE, "utf-8")
+      return JSON.parse(data)
+    }
+  } catch (error) {
+    console.error("[claude-code] Error loading stored sessions:", error)
+  }
+  return []
+}
+
+/**
+ * Save sessions to JSON file
+ */
+function saveStoredSessions(storedSessions: StoredSession[]): void {
+  try {
+    // Ensure directory exists
+    const dir = path.dirname(SESSIONS_FILE)
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true })
+    }
+    writeFileSync(SESSIONS_FILE, JSON.stringify(storedSessions, null, 2))
+    console.log(`[claude-code] Saved ${storedSessions.length} sessions to storage`)
+  } catch (error) {
+    console.error("[claude-code] Error saving sessions:", error)
+  }
+}
+
+/**
+ * Add or update a session in storage
+ */
+function updateStoredSession(session: ClaudeSession): void {
+  const stored = loadStoredSessions()
+  const index = stored.findIndex(s => s.id === session.id)
+
+  const storedSession: StoredSession = {
+    id: session.id,
+    projectId: session.projectId,
+    workingDirectory: session.workingDirectory,
+    bypassPermissions: session.bypassPermissions,
+    startedAt: session.startedAt.toISOString(),
+    status: session.status,
+    isBackground: session.isBackground,
+    claudeSessionId: session.claudeSessionId,
+    lastActivity: new Date().toISOString()
+  }
+
+  if (index >= 0) {
+    stored[index] = storedSession
+  } else {
+    stored.push(storedSession)
+  }
+
+  saveStoredSessions(stored)
+}
+
+/**
+ * Update just the status of a stored session
+ */
+function updateStoredSessionStatus(sessionId: string, status: StoredSession["status"], claudeSessionId?: string): void {
+  const stored = loadStoredSessions()
+  const session = stored.find(s => s.id === sessionId)
+
+  if (session) {
+    session.status = status
+    session.lastActivity = new Date().toISOString()
+    if (claudeSessionId) {
+      session.claudeSessionId = claudeSessionId
+    }
+    saveStoredSessions(stored)
+  }
+}
+
+/**
+ * Remove a session from storage
+ */
+function removeStoredSession(sessionId: string): void {
+  const stored = loadStoredSessions()
+  const filtered = stored.filter(s => s.id !== sessionId)
+  saveStoredSessions(filtered)
+}
+
+/**
+ * Get sessions for a specific project
+ */
+function getProjectSessions(projectId: string): StoredSession[] {
+  const stored = loadStoredSessions()
+  return stored.filter(s => s.projectId === projectId)
+}
 
 /**
  * Find the claude executable
@@ -45,24 +158,50 @@ setInterval(() => {
   const now = new Date()
   for (const [id, session] of sessions.entries()) {
     const age = now.getTime() - session.startedAt.getTime()
-    // Clean up sessions older than 2 hours or stopped sessions older than 5 minutes
+
+    // Don't auto-cleanup background sessions unless they're very old (24 hours)
+    if (session.isBackground) {
+      if (age > 24 * 60 * 60 * 1000) {
+        console.log(`[claude-code] Auto-cleaning old background session: ${id}`)
+        cleanupSession(id, true)
+      }
+      continue
+    }
+
+    // Clean up non-background sessions older than 2 hours or stopped sessions older than 5 minutes
     if (age > 2 * 60 * 60 * 1000 ||
         (session.status === "stopped" && age > 5 * 60 * 1000)) {
       console.log(`[claude-code] Auto-cleaning old session: ${id}`)
-      cleanupSession(id)
+      cleanupSession(id, true)
     }
   }
 }, 60000)
 
 /**
- * POST - Start a new Claude Code session with full PTY
+ * POST - Start a new Claude Code session or resume an existing one
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { projectId, workingDirectory, bypassPermissions = false, sessionId } = body
+    const {
+      projectId,
+      workingDirectory,
+      bypassPermissions = false,
+      sessionId,
+      isBackground = false,
+      resume = false,
+      resumeSessionId // Claude's internal session ID to resume
+    } = body
 
-    console.log("[claude-code] POST request received:", { projectId, workingDirectory, bypassPermissions, sessionId })
+    console.log("[claude-code] POST request received:", {
+      projectId,
+      workingDirectory,
+      bypassPermissions,
+      sessionId,
+      isBackground,
+      resume,
+      resumeSessionId
+    })
 
     if (!projectId || !workingDirectory) {
       return NextResponse.json(
@@ -81,12 +220,19 @@ export async function POST(request: NextRequest) {
 
     const id = sessionId || `session-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-    // Check if session already exists
+    // Check if session already exists in memory
     if (sessions.has(id)) {
-      return NextResponse.json(
-        { error: "Session already exists", sessionId: id },
-        { status: 409 }
-      )
+      const existingSession = sessions.get(id)!
+      // If it exists and is running, return it
+      if (existingSession.status === "running" || existingSession.status === "starting") {
+        return NextResponse.json({
+          success: true,
+          sessionId: id,
+          message: "Reconnected to existing session",
+          reconnected: true,
+          status: existingSession.status
+        })
+      }
     }
 
     // Find claude executable
@@ -101,12 +247,20 @@ export async function POST(request: NextRequest) {
     console.log(`[claude-code] Starting PTY session ${id}`)
     console.log(`[claude-code] Using claude at: ${claudePath}`)
     console.log(`[claude-code] Working directory: ${workingDirectory}`)
+    console.log(`[claude-code] Background mode: ${isBackground}`)
+    console.log(`[claude-code] Resume mode: ${resume}, resumeSessionId: ${resumeSessionId}`)
 
     // Build command arguments
     const args: string[] = []
 
     if (bypassPermissions) {
       args.push("--dangerously-skip-permissions")
+    }
+
+    // Add resume flag if resuming a session
+    if (resume && resumeSessionId) {
+      args.push("--resume", resumeSessionId)
+      console.log(`[claude-code] Resuming session with --resume ${resumeSessionId}`)
     }
 
     // Create event emitter for this session
@@ -151,10 +305,18 @@ export async function POST(request: NextRequest) {
       startedAt: new Date(),
       status: "starting",
       emitter,
-      outputBuffer: []
+      outputBuffer: [],
+      isBackground,
+      claudeSessionId: resumeSessionId
     }
 
     sessions.set(id, session)
+
+    // Save to persistent storage
+    updateStoredSession(session)
+
+    // Try to extract Claude's session ID from output
+    let sessionIdExtracted = false
 
     // Handle PTY data (stdout + stderr combined)
     pty.onData((data: string) => {
@@ -164,10 +326,24 @@ export async function POST(request: NextRequest) {
         session.outputBuffer.shift()
       }
 
+      // Try to extract Claude's internal session ID from the output
+      // Claude typically outputs something like "Session: abc123..." or similar
+      if (!sessionIdExtracted && !session.claudeSessionId) {
+        // Look for patterns like "session_id: xyz" or "Session ID: xyz"
+        const sessionMatch = data.match(/(?:session[_\s]?id|Session ID)[:\s]+([a-zA-Z0-9_-]+)/i)
+        if (sessionMatch) {
+          session.claudeSessionId = sessionMatch[1]
+          sessionIdExtracted = true
+          updateStoredSession(session)
+          console.log(`[claude-code][${id}] Extracted Claude session ID: ${session.claudeSessionId}`)
+        }
+      }
+
       // Update status to running after first output
       if (session.status === "starting") {
-        session.status = "running"
-        console.log(`[claude-code][${id}] Status changed to running`)
+        session.status = isBackground ? "background" : "running"
+        updateStoredSessionStatus(id, session.status)
+        console.log(`[claude-code][${id}] Status changed to ${session.status}`)
       }
 
       // Emit to all connected SSE clients
@@ -178,18 +354,21 @@ export async function POST(request: NextRequest) {
     pty.onExit(({ exitCode, signal }) => {
       console.log(`[claude-code][${id}] PTY exited with code ${exitCode}, signal ${signal}`)
       session.status = "stopped"
+      updateStoredSessionStatus(id, "stopped")
       emitter.emit("message", { type: "exit", code: exitCode, signal })
 
-      // Cleanup after a delay
-      setTimeout(() => cleanupSession(id), 5000)
+      // Cleanup after a delay (but keep in storage for history)
+      setTimeout(() => cleanupSession(id, false), 5000)
     })
 
     return NextResponse.json({
       success: true,
       sessionId: id,
-      message: "Claude Code session started",
+      message: resume ? "Claude Code session resumed" : "Claude Code session started",
       claudePath,
-      pid: pty.pid
+      pid: pty.pid,
+      isBackground,
+      resumed: resume && !!resumeSessionId
     })
 
   } catch (error) {
@@ -204,18 +383,66 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET - Stream output from a session via Server-Sent Events
+ * GET - Stream output from a session via Server-Sent Events OR list sessions
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const sessionId = searchParams.get("sessionId")
+  const listSessions = searchParams.get("list")
+  const projectId = searchParams.get("projectId")
 
+  // Handle session listing request
+  if (listSessions === "true" || projectId) {
+    console.log(`[claude-code] Listing sessions${projectId ? ` for project ${projectId}` : " (all)"}`)
+
+    const storedSessions = projectId
+      ? getProjectSessions(projectId)
+      : loadStoredSessions()
+
+    // Enrich with live status from in-memory sessions
+    const enrichedSessions = storedSessions.map(stored => {
+      const liveSession = sessions.get(stored.id)
+      return {
+        ...stored,
+        isActive: !!liveSession,
+        liveStatus: liveSession?.status || stored.status,
+        hasConnectedClients: liveSession ? liveSession.emitter.listenerCount("message") > 0 : false
+      }
+    })
+
+    // Sort by lastActivity descending (most recent first)
+    enrichedSessions.sort((a, b) => {
+      const aTime = a.lastActivity ? new Date(a.lastActivity).getTime() : 0
+      const bTime = b.lastActivity ? new Date(b.lastActivity).getTime() : 0
+      return bTime - aTime
+    })
+
+    return NextResponse.json({
+      success: true,
+      sessions: enrichedSessions,
+      totalCount: enrichedSessions.length,
+      activeCount: enrichedSessions.filter(s => s.isActive).length
+    })
+  }
+
+  // Handle SSE streaming for a specific session
   if (!sessionId) {
     return NextResponse.json({ error: "sessionId is required" }, { status: 400 })
   }
 
   const session = sessions.get(sessionId)
   if (!session) {
+    // Check if it exists in storage (could be a background session that needs revival)
+    const stored = loadStoredSessions().find(s => s.id === sessionId)
+    if (stored && stored.status === "background") {
+      console.log(`[claude-code][${sessionId}] Session found in storage but not in memory. It may need to be resumed.`)
+      return NextResponse.json({
+        error: "Session not active in memory",
+        stored: true,
+        canResume: !!stored.claudeSessionId,
+        claudeSessionId: stored.claudeSessionId
+      }, { status: 410 }) // 410 Gone
+    }
     console.error(`[claude-code][${sessionId}] SSE: Session not found - Available: ${Array.from(sessions.keys()).join(", ") || "none"}`)
     return NextResponse.json({ error: "Session not found" }, { status: 404 })
   }
@@ -364,7 +591,7 @@ export async function PUT(request: NextRequest) {
     // Handle input
     if (input !== undefined) {
       // Check session status
-      if (session.status !== "running" && session.status !== "starting") {
+      if (session.status !== "running" && session.status !== "starting" && session.status !== "background") {
         console.warn(`[claude-code][${sessionId}] Cannot send input - session status: ${session.status}`)
         return NextResponse.json(
           { error: `Session is not running (status: ${session.status})` },
@@ -376,6 +603,10 @@ export async function PUT(request: NextRequest) {
       try {
         console.log(`[claude-code][${sessionId}] Writing input (${input.length} chars): ${JSON.stringify(input.slice(0, 50))}${input.length > 50 ? "..." : ""}`)
         session.pty.write(input)
+
+        // Update last activity
+        updateStoredSessionStatus(sessionId, session.status)
+
         return NextResponse.json({ success: true, message: "Input sent" })
       } catch (writeError) {
         console.error(`[claude-code][${sessionId}] PTY write failed:`, writeError)
@@ -386,6 +617,7 @@ export async function PUT(request: NextRequest) {
         } catch {
           console.error(`[claude-code][${sessionId}] PTY appears to be dead`)
           session.status = "error"
+          updateStoredSessionStatus(sessionId, "error")
         }
         return NextResponse.json({
           error: "Failed to write to PTY",
@@ -410,6 +642,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const sessionId = searchParams.get("sessionId")
+    const removeFromStorage = searchParams.get("removeFromStorage") === "true"
 
     if (!sessionId) {
       return NextResponse.json({ error: "sessionId is required" }, { status: 400 })
@@ -417,11 +650,17 @@ export async function DELETE(request: NextRequest) {
 
     const session = sessions.get(sessionId)
     if (!session) {
+      // Check if it exists in storage only
+      const stored = loadStoredSessions().find(s => s.id === sessionId)
+      if (stored && removeFromStorage) {
+        removeStoredSession(sessionId)
+        return NextResponse.json({ success: true, message: "Session removed from storage" })
+      }
       return NextResponse.json({ error: "Session not found" }, { status: 404 })
     }
 
     console.log(`[claude-code][${sessionId}] DELETE request - stopping session`)
-    cleanupSession(sessionId)
+    cleanupSession(sessionId, removeFromStorage)
 
     return NextResponse.json({ success: true, message: "Session stopped" })
 
@@ -435,7 +674,7 @@ export async function DELETE(request: NextRequest) {
 /**
  * Clean up a session
  */
-function cleanupSession(sessionId: string) {
+function cleanupSession(sessionId: string, removeFromStorageFile: boolean = false) {
   const session = sessions.get(sessionId)
   if (!session) return
 
@@ -452,7 +691,14 @@ function cleanupSession(sessionId: string) {
   session.emitter.emit("message", { type: "complete" })
   session.emitter.removeAllListeners()
 
-  // Remove from store
+  // Update status in storage (don't remove, keep for history)
+  if (removeFromStorageFile) {
+    removeStoredSession(sessionId)
+  } else {
+    updateStoredSessionStatus(sessionId, "stopped")
+  }
+
+  // Remove from in-memory store
   sessions.delete(sessionId)
-  console.log(`[claude-code][${sessionId}] Session removed`)
+  console.log(`[claude-code][${sessionId}] Session removed from memory`)
 }
