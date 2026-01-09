@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -18,37 +18,18 @@ import {
   TestTube,
   GitPullRequest,
   Lock,
-  Gauge
+  Gauge,
+  Trash2
 } from "lucide-react"
+import {
+  loadQualityGates,
+  loadQualityRuns,
+  resetQualityGates,
+  type QualityGate,
+  type QualityGateRun,
+  type GateStatus
+} from "@/lib/quality-gates/store"
 
-type GateStatus = "passed" | "failed" | "warning" | "pending" | "skipped"
-
-interface QualityGate {
-  id: string
-  name: string
-  description: string
-  category: "code" | "test" | "security" | "review" | "performance"
-  status: GateStatus
-  required: boolean
-  lastRun: Date | null
-  details: {
-    passed: number
-    failed: number
-    warnings: number
-  }
-  threshold?: string
-}
-
-interface GateRun {
-  id: string
-  gateId: string
-  gateName: string
-  packetId: string
-  status: GateStatus
-  timestamp: Date
-  duration: number
-  message?: string
-}
 
 const statusConfig = {
   passed: { label: "Passed", color: "text-green-400", bg: "bg-green-400", icon: CheckCircle },
@@ -66,16 +47,12 @@ const categoryConfig = {
   performance: { label: "Performance", icon: Gauge, color: "text-cyan-400" }
 }
 
-// Quality gates will be populated when code generation runs quality checks
-// Empty by default - populated by execution pipeline
-const initialGates: QualityGate[] = []
-
-const initialRuns: GateRun[] = []
-
-function formatTime(date: Date | null): string {
-  if (!date) return "Never"
+function formatTime(dateStr: string | null): string {
+  if (!dateStr) return "Never"
+  const date = new Date(dateStr)
   const diff = Date.now() - date.getTime()
   const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return "Just now"
   if (minutes < 60) return `${minutes}m ago`
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours}h ago`
@@ -83,10 +60,43 @@ function formatTime(date: Date | null): string {
 }
 
 export default function QualityPage() {
-  const [gates] = useState<QualityGate[]>(initialGates)
-  const [runs] = useState<GateRun[]>(initialRuns)
+  const [gates, setGates] = useState<QualityGate[]>([])
+  const [runs, setRuns] = useState<QualityGateRun[]>([])
   const [selectedGate, setSelectedGate] = useState<QualityGate | null>(null)
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Function to refresh data from localStorage
+  const refreshData = useCallback(() => {
+    const storedGates = loadQualityGates()
+    const storedRuns = loadQualityRuns()
+    setGates(storedGates)
+    setRuns(storedRuns.slice().reverse()) // Show most recent first
+    setIsLoading(false)
+  }, [])
+
+  // Load data on mount and set up refresh interval
+  useEffect(() => {
+    // Initial load
+    refreshData()
+
+    // Refresh data every 5 seconds to pick up new runs
+    const interval = setInterval(refreshData, 5000)
+    return () => clearInterval(interval)
+  }, [refreshData])
+
+  const handleRefresh = () => {
+    setIsLoading(true)
+    // Use setTimeout to ensure loading state is shown before data refresh
+    setTimeout(refreshData, 100)
+  }
+
+  const handleReset = () => {
+    if (confirm("Reset all quality gate data? This will clear all history.")) {
+      resetQualityGates()
+      refreshData()
+    }
+  }
 
   const filteredGates = gates.filter(g =>
     categoryFilter === "all" || g.category === categoryFilter
@@ -116,13 +126,24 @@ export default function QualityPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2">
-            <RefreshCw className="h-4 w-4" />
-            Run All
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={handleRefresh}
+            disabled={isLoading}
+          >
+            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+            Refresh
           </Button>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Settings className="h-4 w-4" />
-            Configure
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={handleReset}
+          >
+            <Trash2 className="h-4 w-4" />
+            Reset
           </Button>
         </div>
       </div>
@@ -322,7 +343,11 @@ export default function QualityPage() {
 
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground uppercase tracking-wider">Last Run</p>
-                    <p className="text-sm font-mono">{selectedGate.lastRun?.toLocaleString() || "Never"}</p>
+                    <p className="text-sm font-mono">
+                      {selectedGate.lastRun
+                        ? new Date(selectedGate.lastRun).toLocaleString()
+                        : "Never"}
+                    </p>
                   </div>
 
                   <div className="flex items-center justify-between">
@@ -365,27 +390,39 @@ export default function QualityPage() {
           <CardTitle className="text-base font-medium">Recent Gate Runs</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {runs.map(run => {
-              const config = statusConfig[run.status]
-              const Icon = config.icon
-              return (
-                <div
-                  key={run.id}
-                  className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors"
-                >
-                  <Icon className={cn("h-4 w-4 shrink-0", config.color)} />
-                  <Badge variant="outline" className="font-mono text-xs">{run.packetId}</Badge>
-                  <span className="font-medium text-sm">{run.gateName}</span>
-                  {run.message && (
-                    <span className="text-xs sm:text-sm text-muted-foreground truncate flex-1 basis-full sm:basis-auto order-last sm:order-none mt-1 sm:mt-0 pl-6 sm:pl-0">{run.message}</span>
-                  )}
-                  <span className="text-xs text-muted-foreground ml-auto sm:ml-0">{run.duration}s</span>
-                  <span className="text-xs text-muted-foreground hidden sm:inline">{formatTime(run.timestamp)}</span>
-                </div>
-              )
-            })}
-          </div>
+          {runs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+              <Clock className="h-8 w-8 mb-2 opacity-50" />
+              <p className="text-sm">No quality gate runs yet</p>
+              <p className="text-xs mt-1">Execute a packet to see quality gate results</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {runs.slice(0, 20).map(run => {
+                const config = statusConfig[run.status]
+                const Icon = config.icon
+                return (
+                  <div
+                    key={run.id}
+                    className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors"
+                  >
+                    <Icon className={cn("h-4 w-4 shrink-0", config.color)} />
+                    <Badge variant="outline" className="font-mono text-xs">
+                      {run.packetId.length > 12 ? `${run.packetId.slice(0, 12)}...` : run.packetId}
+                    </Badge>
+                    <span className="font-medium text-sm">{run.gateName}</span>
+                    {run.message && (
+                      <span className="text-xs sm:text-sm text-muted-foreground truncate flex-1 basis-full sm:basis-auto order-last sm:order-none mt-1 sm:mt-0 pl-6 sm:pl-0">{run.message}</span>
+                    )}
+                    <span className="text-xs text-muted-foreground ml-auto sm:ml-0">
+                      {run.duration < 1000 ? `${run.duration}ms` : `${Math.round(run.duration / 1000)}s`}
+                    </span>
+                    <span className="text-xs text-muted-foreground hidden sm:inline">{formatTime(run.timestamp)}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

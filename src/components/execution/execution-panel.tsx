@@ -5,8 +5,9 @@ import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GoButton, HeroGoButton } from "./go-button"
 import { ActivityStream, ActivityEvent, ActivityIndicator } from "./activity-stream"
-import { AlertCircle, Settings2, Sparkles, RefreshCw, Cpu, Zap, Wifi, WifiOff, GitBranch, RotateCcw, CheckCircle2, Loader2 } from "lucide-react"
+import { AlertCircle, Settings2, Sparkles, RefreshCw, Cpu, Zap, Wifi, WifiOff, GitBranch, RotateCcw, CheckCircle2, Loader2, Shield, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { updateQualityGatesFromResult, type QualityGateResult } from "@/lib/quality-gates/store"
 
 type ExecutionMode = "local" | "turbo" | "auto" | "n8n"
 
@@ -32,6 +33,7 @@ interface WorkPacket {
 }
 
 interface Project {
+  workingDirectory?: string
   id: string
   name: string
   description: string
@@ -77,6 +79,19 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
     maxIterations: 5,
     qualityScore: null,
     validatorFeedback: null
+  })
+  const [qualityGatesStatus, setQualityGatesStatus] = React.useState<{
+    lastRun: string | null
+    passed: boolean | null
+    tests: boolean | null
+    typeCheck: boolean | null
+    build: boolean | null
+  }>({
+    lastRun: null,
+    passed: null,
+    tests: null,
+    typeCheck: null,
+    build: null
   })
 
   // Persist events to localStorage whenever they change
@@ -191,6 +206,36 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
             qualityScore: result.n8nStatus.qualityScore ?? prev.qualityScore,
             validatorFeedback: result.n8nStatus.validatorFeedback || prev.validatorFeedback
           }))
+        }
+
+        // Save quality gate results if present
+        if (result.qualityGates) {
+          const qgResult: QualityGateResult = {
+            id: `qg-${Date.now()}`,
+            packetId: packet.id,
+            packetTitle: packet.title,
+            projectId: project.id,
+            projectName: project.name,
+            timestamp: new Date().toISOString(),
+            duration: result.duration || 0,
+            passed: result.qualityGates.passed,
+            mode: result.mode || "unknown",
+            gates: {
+              tests: result.qualityGates.tests,
+              typeCheck: result.qualityGates.typeCheck,
+              build: result.qualityGates.build
+            }
+          }
+          updateQualityGatesFromResult(qgResult)
+
+          // Update local quality gates status
+          setQualityGatesStatus({
+            lastRun: new Date().toISOString(),
+            passed: result.qualityGates.passed,
+            tests: result.qualityGates.tests?.success ?? null,
+            typeCheck: result.qualityGates.typeCheck?.success ?? null,
+            build: result.qualityGates.build?.success ?? null
+          })
         }
 
         if (!result.success) {
@@ -511,6 +556,96 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
                   <p className="text-xs text-gray-300">{n8nStatus.validatorFeedback}</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Quality Gates Status */}
+          {qualityGatesStatus.lastRun && (
+            <div className={cn(
+              "mt-4 p-4 rounded-xl border",
+              qualityGatesStatus.passed
+                ? "bg-gradient-to-r from-green-500/10 to-emerald-500/10 border-green-500/30"
+                : "bg-gradient-to-r from-red-500/10 to-orange-500/10 border-red-500/30"
+            )}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Shield className={cn(
+                    "h-5 w-5",
+                    qualityGatesStatus.passed ? "text-green-400" : "text-red-400"
+                  )} />
+                  <span className={cn(
+                    "font-medium",
+                    qualityGatesStatus.passed ? "text-green-300" : "text-red-300"
+                  )}>
+                    Quality Gates {qualityGatesStatus.passed ? "Passed" : "Failed"}
+                  </span>
+                </div>
+                <a
+                  href="/quality"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  View Details
+                </a>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {/* Tests */}
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded-full text-xs",
+                  qualityGatesStatus.tests === null
+                    ? "bg-gray-700/50 text-gray-500"
+                    : qualityGatesStatus.tests
+                    ? "bg-green-500/20 text-green-400"
+                    : "bg-red-500/20 text-red-400"
+                )}>
+                  {qualityGatesStatus.tests === null ? (
+                    <span className="h-3 w-3 rounded-full border border-current" />
+                  ) : qualityGatesStatus.tests ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : (
+                    <XCircle className="h-3 w-3" />
+                  )}
+                  Tests
+                </div>
+
+                {/* TypeCheck */}
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded-full text-xs",
+                  qualityGatesStatus.typeCheck === null
+                    ? "bg-gray-700/50 text-gray-500"
+                    : qualityGatesStatus.typeCheck
+                    ? "bg-green-500/20 text-green-400"
+                    : "bg-red-500/20 text-red-400"
+                )}>
+                  {qualityGatesStatus.typeCheck === null ? (
+                    <span className="h-3 w-3 rounded-full border border-current" />
+                  ) : qualityGatesStatus.typeCheck ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : (
+                    <XCircle className="h-3 w-3" />
+                  )}
+                  Types
+                </div>
+
+                {/* Build */}
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded-full text-xs",
+                  qualityGatesStatus.build === null
+                    ? "bg-gray-700/50 text-gray-500"
+                    : qualityGatesStatus.build
+                    ? "bg-green-500/20 text-green-400"
+                    : "bg-red-500/20 text-red-400"
+                )}>
+                  {qualityGatesStatus.build === null ? (
+                    <span className="h-3 w-3 rounded-full border border-current" />
+                  ) : qualityGatesStatus.build ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : (
+                    <XCircle className="h-3 w-3" />
+                  )}
+                  Build
+                </div>
+              </div>
             </div>
           )}
 

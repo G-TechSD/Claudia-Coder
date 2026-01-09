@@ -4,7 +4,6 @@ import { useState, useEffect } from "react"
 import { MetricCard } from "@/components/dashboard/metric-card"
 import { ActivityPreview } from "@/components/dashboard/activity-preview"
 import { AgentGrid } from "@/components/dashboard/agent-grid"
-import { AgentControl } from "@/components/dashboard/agent-control"
 import { SetupGuide } from "@/components/setup/setup-guide"
 import { Package, CheckCircle, AlertTriangle, DollarSign, Layers } from "lucide-react"
 import { seedSampleProjects } from "@/lib/data/projects"
@@ -153,14 +152,9 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Activity Preview - Takes 2 columns */}
-        <div className="lg:col-span-2">
+        {/* Activity Preview - Full width */}
+        <div className="lg:col-span-3">
           <ActivityPreview />
-        </div>
-
-        {/* Agent Control */}
-        <div>
-          <AgentControl />
         </div>
       </div>
 

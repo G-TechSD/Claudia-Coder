@@ -209,7 +209,20 @@ export async function POST(request: NextRequest) {
     // Build the prompt
     const prompt = buildClaudePrompt(packet)
 
-    let result: { success: boolean; output: string; filesChanged: string[]; mode: string; executionId?: string; async?: boolean }
+    let result: {
+      success: boolean
+      output: string
+      filesChanged: string[]
+      mode: string
+      executionId?: string
+      async?: boolean
+      qualityGates?: {
+        passed: boolean
+        tests: { success: boolean; output: string }
+        typeCheck: { success: boolean; output: string; errorCount?: number }
+        build: { success: boolean; output: string }
+      } | null
+    }
 
     // Determine execution mode
     if (mode === "n8n") {
@@ -280,7 +293,8 @@ export async function POST(request: NextRequest) {
         events,
         error: result.output,
         duration: Date.now() - startTime,
-        mode: result.mode
+        mode: result.mode,
+        qualityGates: result.qualityGates || null
       })
     }
 
@@ -296,7 +310,8 @@ export async function POST(request: NextRequest) {
       filesChanged: result.filesChanged,
       output: result.output,
       duration: Date.now() - startTime,
-      mode: result.mode
+      mode: result.mode,
+      qualityGates: result.qualityGates || null
     })
 
   } catch (error) {
@@ -337,12 +352,12 @@ async function executeWithClaudeCode(
   repoPath: string,
   options: ExecutionRequest["options"],
   emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void
-): Promise<{ success: boolean; output: string; filesChanged: string[] }> {
+): Promise<{ success: boolean; output: string; filesChanged: string[]; qualityGates?: { passed: boolean; tests: { success: boolean; output: string }; typeCheck: { success: boolean; output: string; errorCount?: number }; build: { success: boolean; output: string } } }> {
   // Determine execution mode - prefer local when available
   const localAvailable = await checkLocalClaudeAvailable()
   const useLocal = localAvailable && (options?.useRemote === false || options?.useRemote === undefined)
 
-  let result: { success: boolean; output: string; filesChanged: string[] }
+  let result: { success: boolean; output: string; filesChanged: string[]; qualityGates?: { passed: boolean; tests: { success: boolean; output: string }; typeCheck: { success: boolean; output: string; errorCount?: number }; build: { success: boolean; output: string } } }
 
   if (useLocal) {
     result = await executeLocally(prompt, repoPath, options)
@@ -372,11 +387,17 @@ async function executeWithClaudeCode(
     const qualityResult = await runQualityGates(repoPath, emit)
 
     if (!qualityResult.passed) {
-      // Quality gates failed - return failure
+      // Quality gates failed - return failure with gate details
       return {
         success: false,
         output: `QUALITY GATES FAILED - Code is NOT production-ready.\n\n${qualityResult.summary}\n\nClaude Code Output:\n${result.output}\n\nFiles changed: ${result.filesChanged.join(", ")}`,
-        filesChanged: result.filesChanged
+        filesChanged: result.filesChanged,
+        qualityGates: {
+          passed: false,
+          tests: qualityResult.tests,
+          typeCheck: qualityResult.typeCheck,
+          build: qualityResult.build
+        }
       }
     }
 
@@ -384,11 +405,17 @@ async function executeWithClaudeCode(
     return {
       success: true,
       output: `${result.output}\n\n=== QUALITY GATES: ALL PASSED ===\n- Tests: PASSED\n- TypeScript: PASSED\n- Build: PASSED`,
-      filesChanged: result.filesChanged
+      filesChanged: result.filesChanged,
+      qualityGates: {
+        passed: true,
+        tests: qualityResult.tests,
+        typeCheck: qualityResult.typeCheck,
+        build: qualityResult.build
+      }
     }
   }
 
-  return result
+  return { ...result, qualityGates: undefined }
 }
 
 /**
@@ -548,7 +575,7 @@ async function executeWithLMStudio(
   packet: ExecutionRequest["packet"],
   options: ExecutionRequest["options"],
   emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void
-): Promise<{ success: boolean; output: string; filesChanged: string[]; mode: string }> {
+): Promise<{ success: boolean; output: string; filesChanged: string[]; mode: string; qualityGates?: { passed: boolean; tests: { success: boolean; output: string }; typeCheck: { success: boolean; output: string; errorCount?: number }; build: { success: boolean; output: string } } }> {
   const filesChanged: string[] = []
   const maxIterations = options?.maxIterations || 5
   let lastOutput = ""
@@ -642,12 +669,18 @@ async function executeWithLMStudio(
       const qualityResult = await runQualityGates(repoPath, emit)
 
       if (!qualityResult.passed) {
-        // Quality gates failed - return failure
+        // Quality gates failed - return failure with gate details
         return {
           success: false,
           output: `QUALITY GATES FAILED - Code is NOT production-ready.\n\n${qualityResult.summary}\n\nFiles changed: ${filesChanged.join(", ")}`,
           filesChanged,
-          mode: "local"
+          mode: "local",
+          qualityGates: {
+            passed: false,
+            tests: qualityResult.tests,
+            typeCheck: qualityResult.typeCheck,
+            build: qualityResult.build
+          }
         }
       }
 
@@ -661,7 +694,13 @@ async function executeWithLMStudio(
         success: true,
         output: `Completed with LM Studio. ${filesChanged.length} files modified.\n\nQuality Gates: ALL PASSED\n- Tests: PASSED\n- TypeScript: PASSED\n- Build: PASSED`,
         filesChanged,
-        mode: "local"
+        mode: "local",
+        qualityGates: {
+          passed: true,
+          tests: qualityResult.tests,
+          typeCheck: qualityResult.typeCheck,
+          build: qualityResult.build
+        }
       }
     }
 
@@ -669,7 +708,8 @@ async function executeWithLMStudio(
       success: true,
       output: "No files were modified.",
       filesChanged,
-      mode: "local"
+      mode: "local",
+      qualityGates: undefined // No files changed, so no quality gates were run
     }
 
   } catch (error) {
@@ -677,7 +717,8 @@ async function executeWithLMStudio(
       success: false,
       output: error instanceof Error ? error.message : "LM Studio execution failed",
       filesChanged,
-      mode: "local"
+      mode: "local",
+      qualityGates: undefined
     }
   }
 }
