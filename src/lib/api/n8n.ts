@@ -1,9 +1,13 @@
 /**
  * n8n API Service
- * Connects to the n8n orchestrator at http://orangepi:5678
+ * Connects to the n8n orchestrator at https://192.168.245.211:5678
+ *
+ * Note: N8N is running with HTTPS and a self-signed certificate.
+ * Health checks and API calls are proxied through the server-side
+ * /api/n8n-status endpoint to handle the self-signed cert.
  */
 
-const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "http://orangepi:5678"
+const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
 const N8N_API_KEY = process.env.NEXT_PUBLIC_N8N_API_KEY || ""
 
 interface N8NWebhookPayload {
@@ -47,28 +51,38 @@ class N8NApiService {
     this.apiKey = N8N_API_KEY
   }
 
+  /**
+   * Make a request to N8N API through the server-side proxy.
+   * This handles self-signed certificates properly.
+   */
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`
-
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-      ...(this.apiKey && { "X-N8N-API-KEY": this.apiKey }),
-      ...options.headers
-    }
-
-    const response = await fetch(url, {
-      ...options,
-      headers
+    // Use the server-side proxy for N8N API calls
+    const response = await fetch("/api/n8n-status", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        endpoint,
+        method: options.method || "GET",
+        data: options.body ? JSON.parse(options.body as string) : undefined,
+      }),
     })
 
     if (!response.ok) {
-      throw new Error(`n8n API error: ${response.status} ${response.statusText}`)
+      throw new Error(`n8n API proxy error: ${response.status} ${response.statusText}`)
     }
 
-    return response.json()
+    const result = await response.json()
+
+    if (!result.ok) {
+      throw new Error(`n8n API error: ${result.status} ${result.error || "Unknown error"}`)
+    }
+
+    return result.data as T
   }
 
   // Webhook endpoints for triggering workflows
@@ -226,13 +240,56 @@ class N8NApiService {
     return `${this.baseUrl.replace("http", "ws")}/webhook/activity-stream`
   }
 
-  // Health check
+  // Health check - uses server-side API to handle self-signed certs
   async healthCheck(): Promise<boolean> {
     try {
-      await this.request("/healthz")
-      return true
-    } catch {
+      // Use the server-side API endpoint which can handle self-signed certs
+      const response = await fetch("/api/n8n-status", {
+        method: "GET",
+        signal: AbortSignal.timeout(10000),
+      })
+
+      if (!response.ok) {
+        return false
+      }
+
+      const data = await response.json()
+      return data.healthy === true
+    } catch (error) {
+      console.error("N8N health check failed:", error)
       return false
+    }
+  }
+
+  // Get N8N status with additional info
+  async getStatus(): Promise<{
+    healthy: boolean
+    url: string
+    message: string
+    workflows?: { total: number; active: number }
+  }> {
+    try {
+      const response = await fetch("/api/n8n-status", {
+        method: "GET",
+        signal: AbortSignal.timeout(10000),
+      })
+
+      if (!response.ok) {
+        return {
+          healthy: false,
+          url: this.baseUrl,
+          message: `Status check returned ${response.status}`,
+        }
+      }
+
+      return await response.json()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error"
+      return {
+        healthy: false,
+        url: this.baseUrl,
+        message: `Status check failed: ${message}`,
+      }
     }
   }
 }

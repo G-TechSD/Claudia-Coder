@@ -1,6 +1,6 @@
 /**
  * Anthropic Claude LLM Service
- * Handles all LLM interactions for the Claudia Admin Panel
+ * Handles all LLM interactions for the Claudia Coder
  */
 
 // API route handler for Claude - runs server-side

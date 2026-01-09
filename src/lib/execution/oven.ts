@@ -240,20 +240,23 @@ export async function* bakeProject(
 
       scaffoldResult = createScaffold({
         template,
-        projectName: project.name.toLowerCase().replace(/\s+/g, "-"),
+        name: project.name.toLowerCase().replace(/\s+/g, "-"),
+        description: project.description || "",
         features: [], // Could parse from packets
-        includeTests: true
+        styling: "tailwind",
+        typescript: true
       })
 
-      if (scaffoldResult.success) {
+      // ScaffoldResult always succeeds if it doesn't throw
+      if (scaffoldResult.files.length > 0) {
         allFiles.push(...scaffoldResult.files)
         yield emit({
           message: `Created scaffold with ${scaffoldResult.files.length} base files`
         })
       } else {
-        errors.push(...scaffoldResult.errors)
+        errors.push("Scaffold created no files")
         yield emit({
-          message: `Scaffold had issues: ${scaffoldResult.errors.join(", ")}`
+          message: "Scaffold created no files"
         })
       }
     } else {
@@ -351,9 +354,9 @@ export async function* bakeProject(
           packetIndex: i + 1,
           currentPacket: packet.title,
           message: validation.valid
-            ? `Validation passed: ${validation.filesChecked} files OK`
-            : `Validation issues: ${validation.errors.length} errors, ${validation.warnings.length} warnings`,
-          errors: validation.errors.map(e => e.message)
+            ? `Validation passed: ${packetResult.allFiles.length} files OK`
+            : `Validation issues: ${validation.syntaxErrors.length} errors, ${validation.lintWarnings.length} warnings`,
+          errors: validation.syntaxErrors.map(e => e.message)
         })
       }
 
@@ -386,11 +389,10 @@ export async function* bakeProject(
       applyResult = await applyWithMergeRequest(
         repo,
         allFiles,
-        commitMessage,
-        branchName,
         {
           title: `[Claudia] ${project.name}`,
-          description: `Automated code generation for ${project.name}\n\n${sortedPackets.length} packets baked.`
+          description: `Automated code generation for ${project.name}\n\n${sortedPackets.length} packets baked.\n\n${commitMessage}`,
+          sourceBranch: branchName
         }
       )
     } else {

@@ -13,7 +13,7 @@ import { InterviewPanel } from "@/components/interview/interview-panel"
 import { VoiceInput } from "@/components/voice/voice-input"
 import { createProject, updateProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
 import { savePackets, saveBuildPlan } from "@/lib/ai/build-plan"
-import { createGitLabRepo, hasGitLabToken, setGitLabToken, validateGitLabToken } from "@/lib/gitlab/api"
+import { createGitLabRepo, hasGitLabToken, setGitLabToken, validateGitLabToken, listGitLabProjects } from "@/lib/gitlab/api"
 import { useSettings } from "@/hooks/useSettings"
 import { LLMStatusBadge } from "@/components/llm/llm-status"
 import type { InterviewSession, Project } from "@/lib/data/types"
@@ -35,9 +35,22 @@ import {
   Download,
   Search,
   Package,
-  FolderOpen
+  FolderOpen,
+  Link2,
+  ExternalLink,
+  Plus,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
 type Mode = "choose" | "quick" | "interview" | "linear" | "setup" | "complete"
@@ -83,14 +96,16 @@ interface LinearWorkPacket {
   }
 }
 
+interface LinearImportProject {
+  name: string
+  description: string
+  linearProjectId: string
+  teamIds: string[]
+  progress: number
+}
+
 interface LinearImportData {
-  project: {
-    name: string
-    description: string
-    linearProjectId: string
-    teamIds: string[]
-    progress: number
-  }
+  projects: LinearImportProject[]
   phases: Array<{
     id: string
     name: string
@@ -153,9 +168,21 @@ export default function NewProjectPage() {
   const [linearSearch, setLinearSearch] = useState("")
   const [linearLoading, setLinearLoading] = useState(false)
   const [linearError, setLinearError] = useState("")
-  const [selectedLinearProject, setSelectedLinearProject] = useState<LinearProjectPreview | null>(null)
+  const [selectedLinearProjectIds, setSelectedLinearProjectIds] = useState<Set<string>>(new Set())
   const [linearImportData, setLinearImportData] = useState<LinearImportData | null>(null)
   const [isImporting, setIsImporting] = useState(false)
+
+  // Repo linking state (for Linear import flow)
+  const [showRepoLinkDialog, setShowRepoLinkDialog] = useState(false)
+  const [availableRepos, setAvailableRepos] = useState<Array<{
+    provider: "gitlab"
+    id: number
+    name: string
+    path: string
+    url: string
+  }>>([])
+  const [loadingRepos, setLoadingRepos] = useState(false)
+  const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null)
 
   // Check for GitLab token on mount
   useEffect(() => {
@@ -187,8 +214,35 @@ export default function NewProjectPage() {
     }
   }
 
-  const handleLinearImport = async (project: LinearProjectPreview) => {
-    setSelectedLinearProject(project)
+  const toggleLinearProject = (projectId: string) => {
+    setSelectedLinearProjectIds(prev => {
+      const next = new Set(prev)
+      if (next.has(projectId)) {
+        next.delete(projectId)
+      } else {
+        next.add(projectId)
+      }
+      return next
+    })
+  }
+
+  const selectAllLinearProjects = () => {
+    const filteredProjects = linearSearch
+      ? linearProjects.filter(p =>
+          p.name.toLowerCase().includes(linearSearch.toLowerCase()) ||
+          p.description?.toLowerCase().includes(linearSearch.toLowerCase())
+        )
+      : linearProjects
+    setSelectedLinearProjectIds(new Set(filteredProjects.map(p => p.id)))
+  }
+
+  const deselectAllLinearProjects = () => {
+    setSelectedLinearProjectIds(new Set())
+  }
+
+  const handleLinearImport = async () => {
+    if (selectedLinearProjectIds.size === 0) return
+
     setIsImporting(true)
     setLinearError("")
 
@@ -196,32 +250,77 @@ export default function NewProjectPage() {
       const response = await fetch("/api/linear/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: project.id })
+        body: JSON.stringify({ projectIds: Array.from(selectedLinearProjectIds) })
       })
 
       if (!response.ok) {
-        throw new Error("Failed to import project")
+        throw new Error("Failed to import projects")
       }
 
       const data = await response.json()
       setLinearImportData(data)
 
       // Pre-fill project details from import
-      setProjectName(data.project.name)
-      setProjectDescription(data.project.description || `Imported from Linear with ${data.summary.totalIssues} issues`)
-      setRepoName(toRepoName(data.project.name))
+      if (data.projects.length === 1) {
+        setProjectName(data.projects[0].name)
+        setProjectDescription(data.projects[0].description || `Imported from Linear with ${data.summary.totalIssues} issues`)
+        setRepoName(toRepoName(data.projects[0].name))
+      } else {
+        setProjectName(`Linear Import (${data.projects.length} projects)`)
+        setProjectDescription(`Imported ${data.projects.length} projects from Linear with ${data.summary.totalIssues} total issues`)
+        setRepoName(toRepoName(`linear-import-${Date.now()}`))
+      }
       setPriority("medium")
 
     } catch (err) {
       setLinearError(err instanceof Error ? err.message : "Import failed")
-      setSelectedLinearProject(null)
     } finally {
       setIsImporting(false)
     }
   }
 
-  const handleLinearConfirm = () => {
+  const handleLinearConfirm = async () => {
     if (!linearImportData) return
+
+    // Check if there are existing repos in GitLab that could be linked
+    if (hasToken) {
+      setLoadingRepos(true)
+      try {
+        const repos = await listGitLabProjects({ perPage: 20 })
+        if (repos.length > 0) {
+          setAvailableRepos(repos.map(r => ({
+            provider: "gitlab" as const,
+            id: r.id,
+            name: r.name,
+            path: r.path_with_namespace,
+            url: r.web_url
+          })))
+          setShowRepoLinkDialog(true)
+          setLoadingRepos(false)
+          return
+        }
+      } catch (err) {
+        console.error("Failed to load repos:", err)
+      }
+      setLoadingRepos(false)
+    }
+
+    // No repos available or no token - proceed directly to setup
+    setMode("setup")
+  }
+
+  const handleRepoLinkChoice = (choice: "link" | "create" | "skip") => {
+    if (choice === "link" && selectedRepoId) {
+      // The selected repo will be linked when the project is created
+      // Keep selectedRepoId so handleSubmit can use it
+    } else if (choice === "create") {
+      setCreateRepo(true)
+      setSelectedRepoId(null)
+    } else {
+      setSelectedRepoId(null)
+      setCreateRepo(false)
+    }
+    setShowRepoLinkDialog(false)
     setMode("setup")
   }
 
@@ -361,12 +460,12 @@ export default function NewProjectPage() {
       })
 
       // Handle Linear import data
-      if (linearImportData && selectedLinearProject) {
-        // Configure Linear sync
+      if (linearImportData && linearImportData.projects.length > 0) {
+        // Configure Linear sync (use first project for primary sync config)
         configureLinearSync(project.id, {
           mode: "imported",
-          projectId: linearImportData.project.linearProjectId,
-          teamId: linearImportData.project.teamIds[0],
+          projectId: linearImportData.projects[0].linearProjectId,
+          teamId: linearImportData.projects[0].teamIds[0],
           syncIssues: false,
           syncComments: false,
           syncStatus: false,
@@ -427,7 +526,20 @@ export default function NewProjectPage() {
         })
       }
 
-      if (createRepo && hasToken) {
+      // Link an existing repo if one was selected from the dialog
+      if (selectedRepoId && availableRepos.length > 0) {
+        const repoToLink = availableRepos.find(r => r.id === selectedRepoId)
+        if (repoToLink) {
+          linkRepoToProject(project.id, {
+            provider: "gitlab",
+            id: repoToLink.id,
+            name: repoToLink.name,
+            path: repoToLink.path,
+            url: repoToLink.url
+          })
+        }
+      } else if (createRepo && hasToken) {
+        // Create a new repo if that option was selected
         try {
           const repo = await createGitLabRepo({
             name: repoName,
@@ -594,12 +706,15 @@ export default function NewProjectPage() {
         )
       : linearProjects
 
+    const allFilteredSelected = filteredProjects.length > 0 && filteredProjects.every(p => selectedLinearProjectIds.has(p.id))
+    const someSelected = selectedLinearProjectIds.size > 0
+
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => {
             setMode("choose")
-            setSelectedLinearProject(null)
+            setSelectedLinearProjectIds(new Set())
             setLinearImportData(null)
           }}>
             <ArrowLeft className="h-4 w-4" />
@@ -607,7 +722,7 @@ export default function NewProjectPage() {
           <div>
             <h1 className="text-2xl font-semibold">Import from Linear</h1>
             <p className="text-sm text-muted-foreground">
-              Select a project to import with all its issues
+              Select projects to import with all their issues
             </p>
           </div>
         </div>
@@ -619,10 +734,10 @@ export default function NewProjectPage() {
           </div>
         )}
 
-        {!selectedLinearProject ? (
-          /* Project Selection */
+        {!linearImportData ? (
+          /* Project Selection with Checkboxes */
           <Card>
-            <CardHeader>
+            <CardHeader className="space-y-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -631,6 +746,31 @@ export default function NewProjectPage() {
                   onChange={(e) => setLinearSearch(e.target.value)}
                   className="pl-9"
                 />
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={selectAllLinearProjects}
+                    disabled={allFilteredSelected || filteredProjects.length === 0}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={deselectAllLinearProjects}
+                    disabled={!someSelected}
+                  >
+                    Deselect All
+                  </Button>
+                </div>
+                {someSelected && (
+                  <Badge variant="secondary">
+                    {selectedLinearProjectIds.size} selected
+                  </Badge>
+                )}
               </div>
             </CardHeader>
             <CardContent>
@@ -645,44 +785,75 @@ export default function NewProjectPage() {
               ) : (
                 <ScrollArea className="h-[400px]">
                   <div className="space-y-2">
-                    {filteredProjects.map((project) => (
-                      <div
-                        key={project.id}
-                        className="p-4 rounded-lg border hover:border-primary/50 cursor-pointer transition-colors"
-                        onClick={() => handleLinearImport(project)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{project.name}</p>
-                            {project.description && (
-                              <p className="text-sm text-muted-foreground line-clamp-1">
-                                {project.description}
-                              </p>
-                            )}
-                            <div className="flex items-center gap-2 mt-2">
-                              <Badge variant="outline" className="text-xs">
-                                {project.state}
-                              </Badge>
-                              {project.teams.nodes.map(team => (
-                                <Badge key={team.id} variant="secondary" className="text-xs">
-                                  {team.key}
+                    {filteredProjects.map((project) => {
+                      const isSelected = selectedLinearProjectIds.has(project.id)
+                      return (
+                        <div
+                          key={project.id}
+                          className={cn(
+                            "p-4 rounded-lg border cursor-pointer transition-colors",
+                            isSelected ? "border-primary bg-primary/5" : "hover:border-primary/50"
+                          )}
+                          onClick={() => toggleLinearProject(project.id)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0",
+                              isSelected ? "bg-primary border-primary" : "border-muted-foreground/30"
+                            )}>
+                              {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate">{project.name}</p>
+                              {project.description && (
+                                <p className="text-sm text-muted-foreground line-clamp-1">
+                                  {project.description}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-2 mt-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {project.state}
                                 </Badge>
-                              ))}
+                                {project.teams.nodes.map(team => (
+                                  <Badge key={team.id} variant="secondary" className="text-xs">
+                                    {team.key}
+                                  </Badge>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                          <div className="text-right ml-4">
-                            <div className="text-2xl font-bold text-primary">
-                              {Math.round(project.progress * 100)}%
+                            <div className="text-right ml-4">
+                              <div className="text-2xl font-bold text-primary">
+                                {Math.round(project.progress * 100)}%
+                              </div>
+                              <p className="text-xs text-muted-foreground">progress</p>
                             </div>
-                            <p className="text-xs text-muted-foreground">progress</p>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </ScrollArea>
               )}
             </CardContent>
+            <div className="px-6 pb-6">
+              <Button
+                className="w-full"
+                onClick={handleLinearImport}
+                disabled={selectedLinearProjectIds.size === 0 || isImporting}
+              >
+                {isImporting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Importing...
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    Import {selectedLinearProjectIds.size} Project{selectedLinearProjectIds.size !== 1 ? "s" : ""}
+                  </>
+                )}
+              </Button>
+            </div>
           </Card>
         ) : (
           /* Import Preview */
@@ -690,81 +861,233 @@ export default function NewProjectPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Package className="h-5 w-5 text-primary" />
-                {selectedLinearProject.name}
+                {linearImportData.projects.length === 1
+                  ? linearImportData.projects[0].name
+                  : `${linearImportData.projects.length} Projects`}
               </CardTitle>
               <CardDescription>
-                {selectedLinearProject.description || "No description"}
+                {linearImportData.projects.length === 1
+                  ? linearImportData.projects[0].description || "No description"
+                  : linearImportData.projects.map(p => p.name).join(", ")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {isImporting ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-                    <p className="text-sm text-muted-foreground">Importing issues...</p>
-                  </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 rounded-lg bg-muted/50 text-center">
+                  <div className="text-3xl font-bold">{linearImportData.summary.totalIssues}</div>
+                  <p className="text-xs text-muted-foreground">Total Issues</p>
                 </div>
-              ) : linearImportData ? (
-                <>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="p-4 rounded-lg bg-muted/50 text-center">
-                      <div className="text-3xl font-bold">{linearImportData.summary.totalIssues}</div>
-                      <p className="text-xs text-muted-foreground">Total Issues</p>
-                    </div>
-                    <div className="p-4 rounded-lg bg-muted/50 text-center">
-                      <div className="text-3xl font-bold text-red-500">
-                        {linearImportData.summary.byPriority.critical || 0}
-                      </div>
-                      <p className="text-xs text-muted-foreground">Critical</p>
-                    </div>
-                    <div className="p-4 rounded-lg bg-muted/50 text-center">
-                      <div className="text-3xl font-bold text-orange-500">
-                        {linearImportData.summary.byPriority.high || 0}
-                      </div>
-                      <p className="text-xs text-muted-foreground">High Priority</p>
-                    </div>
-                    <div className="p-4 rounded-lg bg-muted/50 text-center">
-                      <div className="text-3xl font-bold text-green-500">
-                        {linearImportData.summary.byStatus.completed || 0}
-                      </div>
-                      <p className="text-xs text-muted-foreground">Completed</p>
-                    </div>
+                <div className="p-4 rounded-lg bg-muted/50 text-center">
+                  <div className="text-3xl font-bold text-red-500">
+                    {linearImportData.summary.byPriority.critical || 0}
                   </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground uppercase">By Type</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(linearImportData.summary.byType).map(([type, count]) => (
-                        count > 0 && (
-                          <Badge key={type} variant="secondary">
-                            {type}: {count}
-                          </Badge>
-                        )
-                      ))}
-                    </div>
+                  <p className="text-xs text-muted-foreground">Critical</p>
+                </div>
+                <div className="p-4 rounded-lg bg-muted/50 text-center">
+                  <div className="text-3xl font-bold text-orange-500">
+                    {linearImportData.summary.byPriority.high || 0}
                   </div>
+                  <p className="text-xs text-muted-foreground">High Priority</p>
+                </div>
+                <div className="p-4 rounded-lg bg-muted/50 text-center">
+                  <div className="text-3xl font-bold text-green-500">
+                    {linearImportData.summary.byStatus.completed || 0}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Completed</p>
+                </div>
+              </div>
 
-                  <div className="flex gap-3 pt-4">
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => {
-                        setSelectedLinearProject(null)
-                        setLinearImportData(null)
-                      }}
-                    >
-                      Choose Different
-                    </Button>
-                    <Button className="flex-1" onClick={handleLinearConfirm}>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground uppercase">By Type</Label>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(linearImportData.summary.byType).map(([type, count]) => (
+                    count > 0 && (
+                      <Badge key={type} variant="secondary">
+                        {type}: {count}
+                      </Badge>
+                    )
+                  ))}
+                </div>
+              </div>
+
+              {/* Imported Packets List with Short Titles */}
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground uppercase flex items-center gap-2">
+                  <Package className="h-3 w-3" />
+                  Work Packets ({linearImportData.packets.length})
+                </Label>
+                <ScrollArea className="h-[300px] border rounded-lg">
+                  <div className="p-2 space-y-1">
+                    {linearImportData.packets.map((packet) => (
+                      <div
+                        key={packet.id}
+                        className="p-3 rounded-md border bg-card hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1 min-w-0">
+                            {/* Short Title - Prominently Displayed */}
+                            <p className="font-medium text-sm truncate" title={packet.title}>
+                              {packet.title}
+                            </p>
+                            {/* Metadata badges */}
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-xs capitalize",
+                                  packet.priority === "critical" && "border-red-500 text-red-500",
+                                  packet.priority === "high" && "border-orange-500 text-orange-500",
+                                  packet.priority === "medium" && "border-yellow-500 text-yellow-500",
+                                  packet.priority === "low" && "border-gray-400 text-gray-400"
+                                )}
+                              >
+                                {packet.priority}
+                              </Badge>
+                              <Badge variant="secondary" className="text-xs capitalize">
+                                {packet.type}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {packet.metadata.linearIdentifier}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Status indicator */}
+                          <div className={cn(
+                            "px-2 py-0.5 rounded text-xs font-medium",
+                            packet.status === "completed" && "bg-green-500/10 text-green-600",
+                            packet.status === "in_progress" && "bg-blue-500/10 text-blue-600",
+                            packet.status === "queued" && "bg-gray-500/10 text-gray-600"
+                          )}>
+                            {packet.status === "in_progress" ? "In Progress" : packet.status}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setLinearImportData(null)
+                  }}
+                >
+                  Choose Different
+                </Button>
+                <Button className="flex-1" onClick={handleLinearConfirm} disabled={loadingRepos}>
+                  {loadingRepos ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Checking repos...
+                    </>
+                  ) : (
+                    <>
                       Continue
                       <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </>
-              ) : null}
+                    </>
+                  )}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
+
+        {/* Repo Linking Dialog */}
+        <Dialog open={showRepoLinkDialog} onOpenChange={setShowRepoLinkDialog}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <GitBranch className="h-5 w-5 text-primary" />
+                Link a Repository?
+              </DialogTitle>
+              <DialogDescription>
+                Would you like to link an existing GitLab repository to this imported project?
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-4 space-y-4">
+              {/* Repo List */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Available Repositories</Label>
+                <ScrollArea className="h-[200px] border rounded-lg">
+                  <div className="p-2 space-y-1">
+                    {availableRepos.map((repo) => (
+                      <div
+                        key={repo.id}
+                        className={cn(
+                          "p-3 rounded-md border cursor-pointer transition-colors",
+                          selectedRepoId === repo.id
+                            ? "border-primary bg-primary/5"
+                            : "hover:border-primary/50"
+                        )}
+                        onClick={() => setSelectedRepoId(repo.id)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={cn(
+                            "h-4 w-4 rounded-full border-2 flex items-center justify-center",
+                            selectedRepoId === repo.id
+                              ? "border-primary bg-primary"
+                              : "border-muted-foreground/30"
+                          )}>
+                            {selectedRepoId === repo.id && (
+                              <Check className="h-2.5 w-2.5 text-primary-foreground" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{repo.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{repo.path}</p>
+                          </div>
+                          <a
+                            href={repo.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            </div>
+
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => handleRepoLinkChoice("skip")}
+              >
+                Skip for Now
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setSelectedRepoId(null)
+                  setCreateRepo(true)
+                  handleRepoLinkChoice("create")
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Create New Repo
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={() => handleRepoLinkChoice("link")}
+                disabled={!selectedRepoId}
+              >
+                <Link2 className="mr-2 h-4 w-4" />
+                Link Selected
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }

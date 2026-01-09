@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
+import { useApprovals } from "@/hooks/useApprovals"
 import {
   LayoutDashboard,
   Activity,
@@ -22,24 +23,26 @@ import {
   Layers,
   Star,
   Workflow,
+  Terminal,
 } from "lucide-react"
 
 interface NavItem {
   title: string
   href: string
   icon: React.ElementType
-  badge?: number
+  badgeKey?: string // Key to look up dynamic badge count
 }
 
 const navItems: NavItem[] = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Projects", href: "/projects", icon: Layers },
+  { title: "Claude Code", href: "/claude-code", icon: Terminal },
   { title: "Activity", href: "/activity", icon: Activity },
   { title: "Packets", href: "/packets", icon: Package },
   { title: "Timeline", href: "/timeline", icon: GitBranch },
   { title: "N8N", href: "/n8n", icon: Workflow },
   { title: "Quality", href: "/quality", icon: Shield },
-  { title: "Approvals", href: "/approvals", icon: CheckCircle, badge: 3 },
+  { title: "Approvals", href: "/approvals", icon: CheckCircle, badgeKey: "pendingApprovals" },
   { title: "Costs", href: "/costs", icon: DollarSign },
 ]
 
@@ -52,6 +55,12 @@ export function Sidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
   const { starredProjects } = useStarredProjects()
+  const { pendingCount: pendingApprovals } = useApprovals()
+
+  // Dynamic badge counts lookup
+  const badgeCounts: Record<string, number> = {
+    pendingApprovals,
+  }
 
   return (
     <aside
@@ -66,7 +75,7 @@ export function Sidebar() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg overflow-hidden bg-gradient-to-br from-green-400/20 to-blue-500/20">
             <Image
               src="/claudia-logo.jpg"
-              alt="Claudia"
+              alt="Claudia Coder"
               width={32}
               height={32}
               className="h-8 w-8 object-cover"
@@ -74,7 +83,7 @@ export function Sidebar() {
           </div>
           {!collapsed && (
             <span className="font-semibold tracking-tight bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
-              Claudia
+              Claudia Coder
             </span>
           )}
         </Link>
@@ -147,9 +156,9 @@ export function Sidebar() {
               {!collapsed && (
                 <>
                   <span className="flex-1">{item.title}</span>
-                  {item.badge && (
+                  {item.badgeKey && badgeCounts[item.badgeKey] > 0 && (
                     <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
-                      {item.badge}
+                      {badgeCounts[item.badgeKey]}
                     </span>
                   )}
                 </>

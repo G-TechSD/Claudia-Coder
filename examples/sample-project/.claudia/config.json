@@ -1,0 +1,34 @@
+{
+  "project": {
+    "name": "todo-app",
+    "description": "A simple todo application with user authentication",
+    "version": "0.1.0",
+    "type": "web-application"
+  },
+  "claudia_coder": {
+    "statusDir": ".claudia/status",
+    "requestsDir": ".claudia/requests",
+    "docsDir": "docs",
+    "packetsDir": "docs/packets"
+  },
+  "preferences": {
+    "language": "typescript",
+    "framework": "next.js",
+    "styling": "tailwind",
+    "testing": "vitest",
+    "packageManager": "pnpm"
+  },
+  "claude": {
+    "model": "claude-sonnet-4-20250514",
+    "maxTokens": 8192,
+    "statusUpdateFrequency": "on-milestone",
+    "requestApprovalRequired": true
+  },
+  "integrations": {
+    "github": {
+      "enabled": true,
+      "autoCreatePRs": false,
+      "branchNaming": "feature/PKT-{packetId}-{description}"
+    }
+  }
+}

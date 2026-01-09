@@ -93,6 +93,76 @@ const CLOUD_PROVIDERS = [
   { id: "google", name: "Google AI", color: "text-blue-500" }
 ]
 
+// Storage key for enabled instances
+const ENABLED_INSTANCES_KEY = "claudia_enabled_instances"
+const DEFAULT_INSTANCE_KEY = "claudia_default_instance"
+
+// Helper to filter out embedding models - they cannot be used for chat/generation
+function isLLMModel(modelId: string): boolean {
+  const id = modelId.toLowerCase()
+  return !id.includes('embed') && !id.includes('embedding')
+}
+
+// Helper to get enabled instances for a project
+function getStoredEnabledInstances(projectId: string): EnabledInstance[] {
+  if (typeof window === "undefined") return []
+  try {
+    const stored = localStorage.getItem(`${ENABLED_INSTANCES_KEY}_${projectId}`)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      // Validate the data structure
+      if (Array.isArray(parsed)) {
+        return parsed.filter(i => i && i.id && i.modelId && i.displayName)
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to load enabled instances:", e)
+  }
+  return []
+}
+
+// Helper to save enabled instances for a project
+function saveEnabledInstances(projectId: string, instances: EnabledInstance[]): void {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(`${ENABLED_INSTANCES_KEY}_${projectId}`, JSON.stringify(instances))
+  } catch (e) {
+    console.warn("Failed to save enabled instances:", e)
+  }
+}
+
+// Helper to get default instance for a project
+function getStoredDefaultInstance(projectId: string): EnabledInstance | null {
+  if (typeof window === "undefined") return null
+  try {
+    const stored = localStorage.getItem(`${DEFAULT_INSTANCE_KEY}_${projectId}`)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      // Validate the data structure
+      if (parsed && parsed.id && parsed.modelId && parsed.displayName) {
+        return parsed
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to load default instance:", e)
+  }
+  return null
+}
+
+// Helper to save default instance for a project
+function saveDefaultInstance(projectId: string, instance: EnabledInstance | null): void {
+  if (typeof window === "undefined") return
+  try {
+    if (instance) {
+      localStorage.setItem(`${DEFAULT_INSTANCE_KEY}_${projectId}`, JSON.stringify(instance))
+    } else {
+      localStorage.removeItem(`${DEFAULT_INSTANCE_KEY}_${projectId}`)
+    }
+  } catch (e) {
+    console.warn("Failed to save default instance:", e)
+  }
+}
+
 export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentProps) {
   const [config, setConfig] = useState<ProjectModelConfig>(() =>
     getProjectModelConfig(projectId) || createDefaultModelConfig(projectId)
@@ -100,13 +170,19 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
   const [expandedOverrides, setExpandedOverrides] = useState(false)
   const [detectedServers, setDetectedServers] = useState<DetectedServer[]>([])
   const [loadingServers, setLoadingServers] = useState(true)
-  const [enabledInstances, setEnabledInstances] = useState<EnabledInstance[]>([])
+
+  // Load enabled instances from localStorage on mount
+  const [enabledInstances, setEnabledInstances] = useState<EnabledInstance[]>(() =>
+    getStoredEnabledInstances(projectId)
+  )
 
   // Use dynamic model fetching
   const { models: dynamicModels, loading: loadingModels, refresh: refreshModels } = useAvailableModels()
 
-  // Default model state
-  const [defaultInstance, setDefaultInstance] = useState<EnabledInstance | null>(null)
+  // Default model state - load from localStorage on mount
+  const [defaultInstance, setDefaultInstance] = useState<EnabledInstance | null>(() =>
+    getStoredDefaultInstance(projectId)
+  )
 
   // Add new provider state
   const [showAddProvider, setShowAddProvider] = useState(false)
@@ -163,7 +239,17 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
     if (settings.defaultModel && enabledInstances.length === 0) {
       // Initialize from global default
     }
-  }, [])
+  }, [enabledInstances.length])
+
+  // Persist enabled instances to localStorage whenever they change
+  useEffect(() => {
+    saveEnabledInstances(projectId, enabledInstances)
+  }, [projectId, enabledInstances])
+
+  // Persist default instance to localStorage whenever it changes
+  useEffect(() => {
+    saveDefaultInstance(projectId, defaultInstance)
+  }, [projectId, defaultInstance])
 
   // Persist changes
   useEffect(() => {
@@ -186,23 +272,35 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
   const addInstance = () => {
     if (!selectedProvider || !selectedModel) return
 
-    const isLocal = ["lmstudio", "ollama", "custom"].includes(selectedProvider)
+    const isLocal = ["lmstudio", "ollama", "custom"].includes(selectedProvider) || selectedServer?.startsWith("lmstudio-") || selectedServer === "ollama"
     const server = detectedServers.find(s => s.name === selectedServer)
     const cloudProviderInfo = CLOUD_PROVIDERS.find(p => p.id === selectedProvider)
     const cloudModel = cloudModels.find(m => m.id === selectedModel && m.provider === selectedProvider)
+
+    // For "loaded" selection, use the actual loaded model name
+    const actualModelId = selectedModel === "loaded" ? (server?.model || "loaded") : selectedModel
+    const modelDisplayName = selectedModel === "loaded"
+      ? (server?.model ? `${server.model} (loaded)` : "Currently Loaded")
+      : selectedModel
+
+    // Build display name safely - ensure it's never undefined
+    const serverDisplayName = server?.displayName || selectedServer || selectedProvider || "Unknown Server"
+    const cloudProviderName = cloudProviderInfo?.name || selectedProvider || "Unknown Provider"
+    const finalModelName = cloudModel?.name || selectedModel || "Unknown Model"
+    const displayName = isLocal
+      ? `${serverDisplayName} - ${modelDisplayName}`
+      : `${cloudProviderName} - ${finalModelName}`
 
     const instance: EnabledInstance = {
       id: `instance-${Date.now()}`,
       type: isLocal ? "local" : "cloud",
       provider: selectedProvider,
-      displayName: isLocal
-        ? `${server?.displayName || selectedProvider} - ${selectedModel === "loaded" ? "Loaded Model" : selectedModel}`
-        : `${cloudProviderInfo?.name} - ${cloudModel?.name || selectedModel}`,
+      displayName,
       serverId: selectedServer || undefined,
-      serverName: server?.displayName,
+      serverName: server?.displayName || serverDisplayName,
       baseUrl: server?.baseUrl,
-      modelId: selectedModel,
-      modelName: selectedModel === "loaded" ? "Currently Loaded" : (cloudModel?.name || selectedModel),
+      modelId: actualModelId,
+      modelName: modelDisplayName,
       maxConcurrent: 1
     }
 
@@ -289,8 +387,10 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Default Model</Label>
-                {defaultInstance ? (
+                {defaultInstance && defaultInstance.displayName ? (
                   <p className="font-medium">{defaultInstance.displayName}</p>
+                ) : defaultInstance ? (
+                  <p className="font-medium">{defaultInstance.modelName || defaultInstance.modelId || "Unknown Model"}</p>
                 ) : (
                   <p className="text-muted-foreground text-sm">No model selected</p>
                 )}
@@ -312,7 +412,7 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                     <SelectItem key={i.id} value={i.id}>
                       <span className="flex items-center gap-2">
                         {i.type === "local" ? <Server className="h-3 w-3" /> : <Cloud className="h-3 w-3" />}
-                        {i.displayName}
+                        {i.displayName || i.modelName || i.modelId || "Unknown Model"}
                       </span>
                     </SelectItem>
                   ))}
@@ -360,6 +460,8 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                       {localServers.map(server => {
                         const icon = providerIcons[server.name.split("-")[0]] || { icon: Server, color: "text-green-500" }
                         const Icon = icon.icon
+                        const modelCount = server.models?.length || 0
+                        const loadedModel = server.model
                         return (
                           <button
                             key={server.name}
@@ -377,7 +479,12 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                           >
                             <Icon className={cn("h-5 w-5", icon.color)} />
                             <span className="text-xs font-medium truncate w-full">{server.displayName}</span>
-                            <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-600">Free</Badge>
+                            <Badge variant="outline" className={cn(
+                              "text-[10px]",
+                              loadedModel ? "bg-green-500/10 text-green-600" : "bg-muted"
+                            )}>
+                              {loadedModel ? "Ready" : modelCount > 0 ? `${modelCount} models` : "Free"}
+                            </Badge>
                           </button>
                         )
                       })}
@@ -426,30 +533,51 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                       <Label className="text-xs text-muted-foreground uppercase mb-2 block">Select Model</Label>
                       <div className="flex flex-wrap gap-2">
                         {/* Local server models */}
-                        {selectedServer && (
-                          <>
-                            <Button
-                              variant={selectedModel === "loaded" ? "default" : "outline"}
-                              size="sm"
-                              className="h-8"
-                              onClick={() => setSelectedModel("loaded")}
-                            >
-                              <Zap className="h-3 w-3 mr-1" />
-                              Currently Loaded
-                            </Button>
-                            {detectedServers.find(s => s.name === selectedServer)?.models?.map(model => (
-                              <Button
-                                key={model}
-                                variant={selectedModel === model ? "default" : "outline"}
-                                size="sm"
-                                className="h-8"
-                                onClick={() => setSelectedModel(model)}
-                              >
-                                {model}
-                              </Button>
-                            ))}
-                          </>
-                        )}
+                        {selectedServer && (() => {
+                          const server = detectedServers.find(s => s.name === selectedServer)
+                          // Filter out embedding models from loaded model
+                          const loadedModel = server?.model && isLLMModel(server.model) ? server.model : undefined
+                          // Filter out embedding models from available models list
+                          const availableModels = (server?.models || []).filter(isLLMModel)
+
+                          return (
+                            <>
+                              {/* Show loaded model button only if a model is actually loaded and is an LLM */}
+                              {loadedModel && (
+                                <Button
+                                  variant={selectedModel === "loaded" ? "default" : "outline"}
+                                  size="sm"
+                                  className="h-8 border-green-500/50"
+                                  onClick={() => setSelectedModel("loaded")}
+                                >
+                                  <Zap className="h-3 w-3 mr-1 text-green-500" />
+                                  {loadedModel}
+                                  <Badge variant="outline" className="ml-1 text-[9px] bg-green-500/10 text-green-600">loaded</Badge>
+                                </Button>
+                              )}
+                              {/* Show all available LLM models (embedding models are filtered out) */}
+                              {availableModels.length > 0 ? (
+                                availableModels
+                                  .filter(model => model !== loadedModel) // Don't duplicate the loaded model
+                                  .map(model => (
+                                    <Button
+                                      key={model}
+                                      variant={selectedModel === model ? "default" : "outline"}
+                                      size="sm"
+                                      className="h-8"
+                                      onClick={() => setSelectedModel(model)}
+                                    >
+                                      {model}
+                                    </Button>
+                                  ))
+                              ) : !loadedModel && (
+                                <div className="text-sm text-muted-foreground py-2">
+                                  No models available on this server
+                                </div>
+                              )}
+                            </>
+                          )
+                        })()}
 
                         {/* Cloud provider models */}
                         {!selectedServer && selectedProvider && (
@@ -551,7 +679,9 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                         )}
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">{instance.displayName}</span>
+                            <span className="font-medium text-sm">
+                              {instance.displayName || instance.modelName || instance.modelId || "Unknown Model"}
+                            </span>
                             {instance.id === defaultInstance?.id && (
                               <Badge variant="outline" className="text-xs bg-primary/10 text-primary">
                                 Default
@@ -606,7 +736,7 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                 <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
                   <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   <p className="text-sm">No models enabled</p>
-                  <p className="text-xs">Click "Add" to configure AI models</p>
+                  <p className="text-xs">Click &quot;Add&quot; to configure AI models</p>
                 </div>
               )}
 
@@ -681,7 +811,7 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                       <SelectItem value="auto">Auto</SelectItem>
                       {enabledInstances.map(i => (
                         <SelectItem key={i.id} value={i.modelId}>
-                          {i.displayName}
+                          {i.displayName || i.modelName || i.modelId || "Unknown Model"}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -695,3 +825,21 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
     </div>
   )
 }
+
+/**
+ * Get the default model instance for a project
+ * This can be used by other components (like BuildPlanEditor) to use the user's selected model
+ */
+export function getProjectDefaultModel(projectId: string): EnabledInstance | null {
+  return getStoredDefaultInstance(projectId)
+}
+
+/**
+ * Get all enabled model instances for a project
+ */
+export function getProjectEnabledModels(projectId: string): EnabledInstance[] {
+  return getStoredEnabledInstances(projectId)
+}
+
+// Re-export EnabledInstance type for external use
+export type { EnabledInstance }

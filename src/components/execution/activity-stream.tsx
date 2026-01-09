@@ -108,7 +108,7 @@ export function ActivityStream({ events, isRunning, className }: ActivityStreamP
               <span className="h-2 w-2 rounded-full bg-green-500 animate-bounce" style={{ animationDelay: "150ms" }} />
               <span className="h-2 w-2 rounded-full bg-green-500 animate-bounce" style={{ animationDelay: "300ms" }} />
             </div>
-            <span>Claudia is working...</span>
+            <span>Claudia Coder is working...</span>
           </div>
         )}
       </div>

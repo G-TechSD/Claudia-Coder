@@ -8,7 +8,7 @@ interface GoButtonProps {
   onClick: () => void
   disabled?: boolean
   loading?: boolean
-  status?: "idle" | "ready" | "running" | "complete"
+  status?: "idle" | "ready" | "running" | "complete" | "error"
   progress?: number
   className?: string
   size?: "default" | "large" | "hero"
@@ -139,7 +139,7 @@ export function HeroGoButton({
   onGo: () => void
   disabled?: boolean
   loading?: boolean
-  status?: "idle" | "ready" | "running" | "complete"
+  status?: "idle" | "ready" | "running" | "complete" | "error"
   progress?: number
 }) {
   return (
@@ -165,7 +165,7 @@ export function HeroGoButton({
       {/* Status text */}
       <p className="text-sm text-muted-foreground text-center max-w-md">
         {status === "running"
-          ? "Claudia is building your project. Watch the activity stream for progress."
+          ? "Claudia Coder is building your project. Watch the activity stream for progress."
           : status === "complete"
           ? "All packets completed! Check the results below."
           : packetCount === 0

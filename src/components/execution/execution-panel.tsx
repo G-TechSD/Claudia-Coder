@@ -41,6 +41,7 @@ interface Project {
     name: string
     path: string
     url: string
+    localPath?: string
   }>
 }
 

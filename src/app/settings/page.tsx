@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, Suspense } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -19,15 +19,16 @@ import {
 import { cn } from "@/lib/utils"
 import { useSettings } from "@/hooks/useSettings"
 import { LLMStatus } from "@/components/llm/llm-status"
+import { ConnectionsTab, type ServiceStatus } from "@/components/settings/connections-tab"
 import {
   resetSetup,
   addLocalServer,
   getGlobalSettings,
   saveGlobalSettings,
-  type LocalServerConfig
+  updateLocalServer,
+  removeLocalServer
 } from "@/lib/settings/global-settings"
 import {
-  getAllClaudiaKeys,
   getDataSummary,
   clearAllData,
   clearProjectData,
@@ -35,9 +36,7 @@ import {
   importData
 } from "@/lib/data/reset"
 import {
-  Settings,
   Server,
-  Key,
   Bell,
   Shield,
   Palette,
@@ -45,35 +44,27 @@ import {
   RefreshCw,
   CheckCircle,
   XCircle,
-  ExternalLink,
   Cpu,
   Cloud,
   GitBranch,
-  Mic,
   DollarSign,
   Zap,
   Brain,
   ImageIcon,
   AlertCircle,
-  Plus,
   Eye,
   EyeOff,
   Loader2,
   Trash2,
-  RotateCcw,
   HardDrive,
   Upload,
   Download as DownloadIcon,
   AlertOctagon,
-  FileJson
+  FileJson,
+  Pencil
 } from "lucide-react"
 
-interface ServiceStatus {
-  name: string
-  url: string
-  status: "connected" | "disconnected" | "error"
-  latency?: number
-}
+// Note: ServiceStatus type is imported from ConnectionsTab component
 
 interface SettingToggle {
   id: string
@@ -82,8 +73,18 @@ interface SettingToggle {
   enabled: boolean
 }
 
+interface SecuritySetting {
+  id: string
+  label: string
+  description: string
+  type: "toggle" | "select"
+  enabled?: boolean
+  value?: string
+  options?: { value: string; label: string; variant: "success" | "warning" | "destructive" }[]
+}
+
 const mockServices: ServiceStatus[] = [
-  { name: "n8n Orchestrator", url: "http://orangepi:5678", status: "connected", latency: 45 },
+  { name: "n8n Orchestrator", url: "https://192.168.245.211:5678", status: "connected", latency: 45 },
   { name: "LM Studio BEAST", url: "http://192.168.245.155:1234", status: "connected", latency: 23 },
   { name: "LM Studio BEDROOM", url: "http://192.168.27.182:1234", status: "connected", latency: 31 },
   { name: "GitLab", url: "https://bill-dev-linux-1", status: "connected", latency: 12 },
@@ -91,25 +92,188 @@ const mockServices: ServiceStatus[] = [
   { name: "Claude API", url: "api.anthropic.com", status: "connected", latency: 156 },
 ]
 
-const statusConfig = {
-  connected: { label: "Connected", color: "text-green-400", bg: "bg-green-400" },
-  disconnected: { label: "Disconnected", color: "text-muted-foreground", bg: "bg-muted-foreground" },
-  error: { label: "Error", color: "text-red-400", bg: "bg-red-400" }
-}
+// statusConfig has been moved to ConnectionsTab component
 
 function SettingsPageContent() {
   const searchParams = useSearchParams()
   const [services, setServices] = useState<ServiceStatus[]>(mockServices)
   const [activeTab, setActiveTab] = useState<string>("ai-services")
+  const [refreshingStatus, setRefreshingStatus] = useState(false)
   const { settings, update } = useSettings()
 
-  // Handle tab query parameter
+  // Function to refresh all LM Studio server statuses
+  async function refreshLMStudioStatus() {
+    try {
+      // Add cache-busting to ensure fresh data
+      const response = await fetch("/api/lmstudio-status", {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        // Update the services list with real status
+        setServices(prev => {
+          const updated = [...prev]
+          for (const server of data.servers) {
+            // Find existing service by URL or name
+            const existingIndex = updated.findIndex(
+              s => s.url === server.url ||
+                   s.name.toUpperCase().includes(server.name.toUpperCase()) ||
+                   server.name.toUpperCase().includes(s.name.replace("LM Studio ", "").toUpperCase())
+            )
+            if (existingIndex >= 0) {
+              updated[existingIndex] = {
+                ...updated[existingIndex],
+                status: server.status,
+                latency: server.latency
+              }
+            }
+          }
+          return updated
+        })
+      }
+    } catch (error) {
+      console.error("Failed to refresh LM Studio status:", error)
+    }
+  }
+
+  // Also refresh N8N status
+  async function refreshN8NStatus() {
+    try {
+      // Add cache-busting to ensure fresh data
+      const response = await fetch("/api/n8n-status", {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setServices(prev => prev.map(s => {
+          if (s.name.toLowerCase().includes("n8n")) {
+            return {
+              ...s,
+              status: data.healthy ? "connected" : "disconnected"
+            }
+          }
+          return s
+        }))
+      }
+    } catch (error) {
+      console.error("Failed to refresh N8N status:", error)
+    }
+  }
+
+  // Refresh all service statuses
+  async function refreshAllStatuses() {
+    setRefreshingStatus(true)
+    await Promise.all([
+      refreshLMStudioStatus(),
+      refreshN8NStatus()
+    ])
+    setRefreshingStatus(false)
+  }
+
+  // Handle tab query parameter and OAuth callbacks
   useEffect(() => {
     const tab = searchParams.get("tab")
-    if (tab && ["ai-services", "connections", "api-keys", "notifications", "automation", "security", "appearance", "data"].includes(tab)) {
+    if (tab && ["ai-services", "connections", "notifications", "automation", "security", "appearance", "data"].includes(tab)) {
       setActiveTab(tab)
     }
+
+    // Handle Anthropic OAuth callback
+    const oauthCode = searchParams.get("oauth_code")
+    const provider = searchParams.get("provider")
+    const oauthError = searchParams.get("oauth_error")
+
+    if (provider === "anthropic") {
+      if (oauthError) {
+        setAnthropicOAuthStatus("error")
+        setApiKeyError(oauthError === "access_denied" ? "Access denied" : oauthError)
+        setAddApiDialog(true)
+        // Clean up URL
+        window.history.replaceState({}, "", window.location.pathname + "?tab=ai-services")
+      } else if (oauthCode) {
+        setAddApiDialog(true)
+        handleAnthropicOAuthCallback(oauthCode)
+        // Clean up URL
+        window.history.replaceState({}, "", window.location.pathname + "?tab=ai-services")
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
+
+  // Fetch real status on component mount
+  useEffect(() => {
+    refreshAllStatuses()
+    // Refresh every 30 seconds
+    const interval = setInterval(refreshAllStatuses, 30000)
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Load cloud providers from global settings to populate OAuth info
+  useEffect(() => {
+    const globalSettings = getGlobalSettings()
+    if (globalSettings.cloudProviders?.length) {
+      setServices(prev => {
+        const updated = [...prev]
+        globalSettings.cloudProviders.forEach(cp => {
+          if (cp.provider === "anthropic") {
+            const existingIdx = updated.findIndex(s =>
+              s.name.toLowerCase().includes("claude") || s.name.toLowerCase().includes("anthropic")
+            )
+            const serviceData: ServiceStatus = {
+              name: cp.authMethod === "oauth" ? "Claude API (Max Plan)" : "Claude API",
+              url: "api.anthropic.com",
+              status: cp.enabled ? "connected" : "disconnected",
+              apiKey: cp.apiKey,
+              authMethod: cp.authMethod,
+              oauthUser: cp.oauthUser
+            }
+            if (existingIdx >= 0) {
+              updated[existingIdx] = { ...updated[existingIdx], ...serviceData }
+            } else if (cp.enabled) {
+              updated.push(serviceData)
+            }
+          } else if (cp.provider === "openai") {
+            const existingIdx = updated.findIndex(s =>
+              s.name.toLowerCase().includes("openai") || s.name.toLowerCase().includes("gpt")
+            )
+            const serviceData: ServiceStatus = {
+              name: "OpenAI API",
+              url: "api.openai.com",
+              status: cp.enabled ? "connected" : "disconnected",
+              apiKey: cp.apiKey
+            }
+            if (existingIdx >= 0) {
+              updated[existingIdx] = { ...updated[existingIdx], ...serviceData }
+            } else if (cp.enabled) {
+              updated.push(serviceData)
+            }
+          } else if (cp.provider === "google") {
+            const existingIdx = updated.findIndex(s =>
+              s.name.toLowerCase().includes("google") || s.name.toLowerCase().includes("gemini")
+            )
+            const serviceData: ServiceStatus = {
+              name: "Google AI",
+              url: "generativelanguage.googleapis.com",
+              status: cp.enabled ? "connected" : "disconnected",
+              apiKey: cp.apiKey
+            }
+            if (existingIdx >= 0) {
+              updated[existingIdx] = { ...updated[existingIdx], ...serviceData }
+            } else if (cp.enabled) {
+              updated.push(serviceData)
+            }
+          }
+        })
+        return updated
+      })
+    }
+  }, [])
 
   // Dialog states
   const [addServerDialog, setAddServerDialog] = useState(false)
@@ -132,11 +296,25 @@ function SettingsPageContent() {
   const [testingApiKey, setTestingApiKey] = useState(false)
   const [apiKeyStatus, setApiKeyStatus] = useState<"idle" | "success" | "error">("idle")
   const [apiKeyError, setApiKeyError] = useState("")
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false)
+  // Anthropic OAuth states
+  const [anthropicAuthMethod, setAnthropicAuthMethod] = useState<"oauth" | "apiKey">("oauth")
+  const [anthropicOAuthStatus, setAnthropicOAuthStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle")
+  const [anthropicOAuthUser, setAnthropicOAuthUser] = useState<{ email: string; name?: string; picture?: string } | null>(null)
+  const [anthropicOAuthTokens, setAnthropicOAuthTokens] = useState<{ accessToken: string; refreshToken?: string; expiresAt?: number; idToken?: string } | null>(null)
 
   // Form states for Add Git Remote
   const [newGitUrl, setNewGitUrl] = useState("")
   const [newGitName, setNewGitName] = useState("")
+
+  // Edit/Delete connection states
+  const [editConnectionDialog, setEditConnectionDialog] = useState(false)
+  const [deleteConnectionDialog, setDeleteConnectionDialog] = useState(false)
+  const [selectedConnection, setSelectedConnection] = useState<ServiceStatus | null>(null)
+  const [editName, setEditName] = useState("")
+  const [editUrl, setEditUrl] = useState("")
+  const [editApiKey, setEditApiKey] = useState("")
+  const [testingEditConnection, setTestingEditConnection] = useState(false)
+  const [editConnectionStatus, setEditConnectionStatus] = useState<"idle" | "success" | "error">("idle")
 
   async function handleTestConnection() {
     if (!newServerUrl) return
@@ -146,17 +324,24 @@ function SettingsPageContent() {
     setSelectedServerModel("")
 
     try {
-      const response = await fetch(`${newServerUrl}/v1/models`, {
-        signal: AbortSignal.timeout(5000)
+      // Use server-side proxy to avoid CORS issues
+      const response = await fetch("/api/lmstudio-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: newServerUrl, name: newServerName || "Test Server" })
       })
 
       if (response.ok) {
-        setConnectionStatus("success")
         const data = await response.json()
-        // Extract model IDs
-        const models = (data.data || []).map((m: { id: string }) => m.id)
-        setServerModels(models)
-        // Don't auto-select - let user choose
+        if (data.status === "connected") {
+          setConnectionStatus("success")
+          // Extract model IDs from the response
+          const models = data.models || []
+          setServerModels(models)
+          // Don't auto-select - let user choose
+        } else {
+          setConnectionStatus("error")
+        }
       } else {
         setConnectionStatus("error")
       }
@@ -268,6 +453,108 @@ function SettingsPageContent() {
     setAddApiDialog(false)
   }
 
+  // Start Anthropic OAuth flow
+  async function startAnthropicOAuth() {
+    setAnthropicOAuthStatus("connecting")
+    setApiKeyError("")
+
+    try {
+      const response = await fetch("/api/auth/anthropic?action=start")
+      const data = await response.json()
+
+      if (data.success && data.authUrl) {
+        // Store state for verification
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem("anthropic_oauth_state", data.state)
+        }
+        // Redirect to Google OAuth
+        window.location.href = data.authUrl
+      } else {
+        setAnthropicOAuthStatus("error")
+        setApiKeyError(data.error || "Failed to start OAuth")
+      }
+    } catch {
+      setAnthropicOAuthStatus("error")
+      setApiKeyError("Failed to connect")
+    }
+  }
+
+  // Handle Anthropic OAuth callback
+  async function handleAnthropicOAuthCallback(code: string) {
+    setAnthropicOAuthStatus("connecting")
+    setNewApiProvider("anthropic")
+    setAnthropicAuthMethod("oauth")
+
+    try {
+      const response = await fetch("/api/auth/anthropic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setAnthropicOAuthStatus("connected")
+        setAnthropicOAuthUser(data.user)
+        setAnthropicOAuthTokens({
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1000 : undefined,
+          idToken: data.idToken
+        })
+      } else {
+        setAnthropicOAuthStatus("error")
+        setApiKeyError(data.error || "OAuth failed")
+      }
+    } catch {
+      setAnthropicOAuthStatus("error")
+      setApiKeyError("Failed to complete OAuth")
+    }
+  }
+
+  // Save Anthropic OAuth connection
+  function handleAddAnthropicOAuth() {
+    if (anthropicOAuthStatus !== "connected" || !anthropicOAuthTokens) return
+
+    const globalSettings = getGlobalSettings()
+    const existingIndex = globalSettings.cloudProviders.findIndex(p => p.provider === "anthropic")
+
+    const anthropicConfig = {
+      provider: "anthropic" as const,
+      enabled: true,
+      apiKey: undefined,
+      enabledModels: [],
+      authMethod: "oauth" as const,
+      oauthTokens: anthropicOAuthTokens,
+      oauthUser: anthropicOAuthUser || undefined
+    }
+
+    if (existingIndex >= 0) {
+      globalSettings.cloudProviders[existingIndex] = anthropicConfig
+    } else {
+      globalSettings.cloudProviders.push(anthropicConfig)
+    }
+    saveGlobalSettings(globalSettings)
+
+    // Add to services list
+    setServices(prev => {
+      const filtered = prev.filter(s => !s.name.includes("Claude"))
+      return [...filtered, {
+        name: "Claude API (Max Plan)",
+        url: "api.anthropic.com",
+        status: "connected"
+      }]
+    })
+
+    // Reset form
+    setAnthropicOAuthStatus("idle")
+    setAnthropicOAuthUser(null)
+    setAnthropicOAuthTokens(null)
+    setAnthropicAuthMethod("oauth")
+    setAddApiDialog(false)
+  }
+
   function handleAddGitRemote() {
     if (!newGitUrl || !newGitName) return
 
@@ -288,13 +575,116 @@ function SettingsPageContent() {
     }
   }
 
+  function handleOpenEditConnection(service: ServiceStatus) {
+    setSelectedConnection(service)
+    setEditName(service.name)
+    setEditUrl(service.url)
+    setEditApiKey(service.apiKey || "")
+    setEditConnectionStatus("idle")
+    setEditConnectionDialog(true)
+  }
+
+  function handleOpenDeleteConnection(service: ServiceStatus) {
+    setSelectedConnection(service)
+    setDeleteConnectionDialog(true)
+  }
+
+  async function handleTestEditConnection() {
+    if (!editUrl) return
+    setTestingEditConnection(true)
+    setEditConnectionStatus("idle")
+
+    try {
+      // Use server-side proxy to avoid CORS issues
+      const response = await fetch("/api/lmstudio-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: editUrl, name: editName || "Test Server" })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.status === "connected") {
+          setEditConnectionStatus("success")
+        } else {
+          setEditConnectionStatus("error")
+        }
+      } else {
+        setEditConnectionStatus("error")
+      }
+    } catch {
+      setEditConnectionStatus("error")
+    } finally {
+      setTestingEditConnection(false)
+    }
+  }
+
+  function handleSaveEditConnection() {
+    if (!selectedConnection || !editName || !editUrl) return
+
+    // Update local server in global settings
+    if (selectedConnection.id) {
+      updateLocalServer(selectedConnection.id, {
+        name: editName,
+        baseUrl: editUrl,
+        apiKey: editApiKey || undefined
+      })
+    }
+
+    // Update in services list
+    setServices(prev => prev.map(s =>
+      s.name === selectedConnection.name && s.url === selectedConnection.url
+        ? { ...s, id: selectedConnection.id, name: editName, url: editUrl, apiKey: editApiKey || undefined }
+        : s
+    ))
+
+    // Reset and close
+    setSelectedConnection(null)
+    setEditName("")
+    setEditUrl("")
+    setEditApiKey("")
+    setEditConnectionStatus("idle")
+    setEditConnectionDialog(false)
+  }
+
+  function handleDeleteConnection() {
+    if (!selectedConnection) return
+
+    // Remove from global settings if it's a local server
+    if (selectedConnection.id) {
+      removeLocalServer(selectedConnection.id)
+    }
+
+    // Remove from services list
+    setServices(prev => prev.filter(s =>
+      !(s.name === selectedConnection.name && s.url === selectedConnection.url)
+    ))
+
+    // Reset and close
+    setSelectedConnection(null)
+    setDeleteConnectionDialog(false)
+  }
+
+  // Email master toggle and sub-options
+  const [emailUpdatesEnabled, setEmailUpdatesEnabled] = useState(true)
+  const [emailSubOptions, setEmailSubOptions] = useState([
+    { id: "email1", label: "Daily Email Summary", description: "Receive a daily digest of all activity", enabled: false },
+    { id: "email2", label: "Project Generation Notifications", description: "Get notified when projects are generated", enabled: true },
+    { id: "email3", label: "Attention Needed Alerts", description: "Notify when projects need attention while you are away", enabled: true }
+  ])
+
   const [notifications, setNotifications] = useState<SettingToggle[]>([
     { id: "n1", label: "Approval Requests", description: "Get notified when human approval is needed", enabled: true },
     { id: "n2", label: "Error Alerts", description: "Immediate alerts for build failures and errors", enabled: true },
-    { id: "n3", label: "Daily Summary", description: "Daily email summary of all activity", enabled: false },
     { id: "n4", label: "Cost Alerts", description: "Alert when approaching budget limits", enabled: true },
     { id: "n5", label: "Completion Notifications", description: "Notify when packets complete", enabled: false }
   ])
+
+  const toggleEmailSubOption = (id: string) => {
+    setEmailSubOptions(prev => prev.map(opt =>
+      opt.id === id ? { ...opt, enabled: !opt.enabled } : opt
+    ))
+  }
 
   const [automationSettings, setAutomationSettings] = useState<SettingToggle[]>([
     { id: "a1", label: "Auto-start Queued Packets", description: "Automatically start packets when agents are available", enabled: true },
@@ -304,12 +694,60 @@ function SettingsPageContent() {
     { id: "a5", label: "Ralph Wiggum Loop", description: "Keep iterating until all tests pass", enabled: true }
   ])
 
+  // Security settings state
+  const [securitySettings, setSecuritySettings] = useState<SecuritySetting[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("claudia-security-settings")
+      if (saved) {
+        try {
+          return JSON.parse(saved)
+        } catch {
+          // Fall back to defaults
+        }
+      }
+    }
+    return [
+      { id: "s1", label: "Require Approval for Deployments", description: "All production deployments require human approval", type: "toggle" as const, enabled: true },
+      { id: "s2", label: "Secret Scanning", description: "Prevent commits containing secrets", type: "toggle" as const, enabled: true },
+      { id: "s3", label: "Dependency Audit", description: "Block packages with known vulnerabilities", type: "select" as const, value: "warn", options: [{ value: "block", label: "Block", variant: "success" as const }, { value: "warn", label: "Warn Only", variant: "warning" as const }, { value: "off", label: "Disabled", variant: "destructive" as const }] },
+      { id: "s4", label: "API Rate Limiting", description: "Limit API calls to prevent abuse", type: "toggle" as const, enabled: true },
+      { id: "s5", label: "Two-Factor Authentication", description: "Require 2FA for sensitive operations", type: "toggle" as const, enabled: false },
+      { id: "s6", label: "Audit Logging", description: "Log all security-related events", type: "toggle" as const, enabled: true }
+    ]
+  })
+
+  const [securitySaveStatus, setSecuritySaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+
+  const saveSecuritySettings = (newSettings: SecuritySetting[]) => {
+    setSecuritySettings(newSettings)
+    setSecuritySaveStatus("saving")
+    if (typeof window !== "undefined") {
+      localStorage.setItem("claudia-security-settings", JSON.stringify(newSettings))
+    }
+    setTimeout(() => {
+      setSecuritySaveStatus("saved")
+      setTimeout(() => setSecuritySaveStatus("idle"), 2000)
+    }, 300)
+  }
+
+  const toggleSecuritySetting = (id: string) => {
+    const newSettings = securitySettings.map(s => s.id === id && s.type === "toggle" ? { ...s, enabled: !s.enabled } : s)
+    saveSecuritySettings(newSettings)
+  }
+
+  const updateSecuritySelect = (id: string, value: string) => {
+    const newSettings = securitySettings.map(s => s.id === id && s.type === "select" ? { ...s, value } : s)
+    saveSecuritySettings(newSettings)
+  }
+
   // Data management state
   const [dataSummary, setDataSummary] = useState(() => getDataSummary())
   const [showDangerZone, setShowDangerZone] = useState(false)
   const [confirmClear, setConfirmClear] = useState("")
   const [clearingData, setClearingData] = useState(false)
   const [importingData, setImportingData] = useState(false)
+  const [clearProjectsDialog, setClearProjectsDialog] = useState(false)
+  const [clearingProjects, setClearingProjects] = useState(false)
 
   const refreshDataSummary = () => setDataSummary(getDataSummary())
 
@@ -357,8 +795,10 @@ function SettingsPageContent() {
   }
 
   const handleClearProjectData = () => {
-    if (!confirm("This will clear all project data but keep your settings. Continue?")) return
+    setClearingProjects(true)
     const cleared = clearProjectData()
+    setClearingProjects(false)
+    setClearProjectsDialog(false)
     alert(`Cleared ${cleared.length} project-related items`)
     refreshDataSummary()
   }
@@ -366,7 +806,6 @@ function SettingsPageContent() {
   const tabs = [
     { id: "ai-services", label: "AI Services", icon: Brain },
     { id: "connections", label: "Connections", icon: Server },
-    { id: "api-keys", label: "API Keys", icon: Key },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "automation", label: "Automation", icon: Zap },
     { id: "security", label: "Security", icon: Shield },
@@ -506,150 +945,15 @@ function SettingsPageContent() {
 
           {/* Connections Tab */}
           {activeTab === "connections" && (
-            <>
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Service Connections</CardTitle>
-                      <CardDescription>Manage connections to external services and agents</CardDescription>
-                    </div>
-                    <Button variant="outline" size="sm" className="gap-2">
-                      <RefreshCw className="h-4 w-4" />
-                      Test All
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {services.map(service => {
-                    const config = statusConfig[service.status]
-                    return (
-                      <div
-                        key={service.name}
-                        className="flex items-center justify-between p-3 rounded-lg border"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={cn("h-2 w-2 rounded-full", config.bg)} />
-                          <div>
-                            <p className="font-medium">{service.name}</p>
-                            <p className="text-xs text-muted-foreground font-mono">{service.url}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          {service.latency && (
-                            <span className="text-xs text-muted-foreground">
-                              {service.latency}ms
-                            </span>
-                          )}
-                          <Badge variant={service.status === "connected" ? "success" : "destructive"}>
-                            {config.label}
-                          </Badge>
-                          <Button variant="ghost" size="sm">
-                            <ExternalLink className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Add New Connection</CardTitle>
-                  <CardDescription>Connect a new service or agent</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-3 gap-4">
-                    <button
-                      onClick={() => setAddServerDialog(true)}
-                      className="flex flex-col items-center gap-2 p-4 rounded-lg border border-dashed hover:border-primary hover:bg-accent/50 transition-colors"
-                    >
-                      <Cpu className="h-8 w-8 text-muted-foreground" />
-                      <div className="text-center">
-                        <p className="font-medium text-sm">LM Studio</p>
-                        <p className="text-xs text-muted-foreground">Local AI model</p>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => setAddApiDialog(true)}
-                      className="flex flex-col items-center gap-2 p-4 rounded-lg border border-dashed hover:border-primary hover:bg-accent/50 transition-colors"
-                    >
-                      <Cloud className="h-8 w-8 text-muted-foreground" />
-                      <div className="text-center">
-                        <p className="font-medium text-sm">API Service</p>
-                        <p className="text-xs text-muted-foreground">External API</p>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => setAddGitDialog(true)}
-                      className="flex flex-col items-center gap-2 p-4 rounded-lg border border-dashed hover:border-primary hover:bg-accent/50 transition-colors"
-                    >
-                      <GitBranch className="h-8 w-8 text-muted-foreground" />
-                      <div className="text-center">
-                        <p className="font-medium text-sm">Git Remote</p>
-                        <p className="text-xs text-muted-foreground">Repository</p>
-                      </div>
-                    </button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Reset Setup */}
-              <Card className="border-destructive/30">
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Reset Setup Wizard</p>
-                      <p className="text-sm text-muted-foreground">
-                        Clear all settings and run the setup wizard again
-                      </p>
-                    </div>
-                    <Button variant="outline" onClick={handleResetSetup} className="gap-2">
-                      <RotateCcw className="h-4 w-4" />
-                      Reset Setup
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </>
-          )}
-
-          {/* API Keys Tab */}
-          {activeTab === "api-keys" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>API Keys</CardTitle>
-                <CardDescription>Manage API keys for external services</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {[
-                  { name: "n8n API Key", service: "n8n", masked: "eyJhb...5NiJ9", lastUsed: "2 minutes ago" },
-                  { name: "Linear API Key", service: "Linear", masked: "lin_api...zFB5", lastUsed: "15 minutes ago" },
-                  { name: "Claude API Key", service: "Anthropic", masked: "sk-ant...xxxx", lastUsed: "Just now" },
-                  { name: "GitLab SSH Key", service: "GitLab", masked: "SHA256:xxxx...xxxx", lastUsed: "1 hour ago" }
-                ].map(key => (
-                  <div key={key.name} className="flex items-center justify-between p-4 rounded-lg border">
-                    <div>
-                      <p className="font-medium">{key.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {key.service} • Last used: {key.lastUsed}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <code className="px-2 py-1 rounded bg-muted text-xs font-mono">
-                        {key.masked}
-                      </code>
-                      <Button variant="outline" size="sm">Rotate</Button>
-                    </div>
-                  </div>
-                ))}
-                <Button variant="outline" className="w-full gap-2">
-                  <Key className="h-4 w-4" />
-                  Add API Key
-                </Button>
-              </CardContent>
-            </Card>
+            <ConnectionsTab
+              services={services}
+              setAddServerDialog={setAddServerDialog}
+              setAddApiDialog={setAddApiDialog}
+              setAddGitDialog={setAddGitDialog}
+              handleResetSetup={handleResetSetup}
+              handleOpenEditConnection={handleOpenEditConnection}
+              handleOpenDeleteConnection={handleOpenDeleteConnection}
+            />
           )}
 
           {/* Notifications Tab */}
@@ -660,6 +964,66 @@ function SettingsPageContent() {
                 <CardDescription>Control how and when you receive notifications</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Email Updates - Master Toggle */}
+                <div className="space-y-3">
+                  <div
+                    className="flex items-center justify-between p-4 rounded-lg border"
+                  >
+                    <div>
+                      <p className="font-medium">Email Updates</p>
+                      <p className="text-sm text-muted-foreground">
+                        Master toggle for all email notifications
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setEmailUpdatesEnabled(!emailUpdatesEnabled)}
+                      className={cn(
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                        emailUpdatesEnabled ? "bg-primary" : "bg-muted"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                          emailUpdatesEnabled ? "translate-x-6" : "translate-x-1"
+                        )}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Email Sub-options - only shown when Email Updates is ON */}
+                  {emailUpdatesEnabled && (
+                    <div className="ml-6 space-y-2 border-l-2 border-muted pl-4">
+                      {emailSubOptions.map(option => (
+                        <div
+                          key={option.id}
+                          className="flex items-center justify-between p-3 rounded-lg border bg-muted/30"
+                        >
+                          <div>
+                            <p className="font-medium text-sm">{option.label}</p>
+                            <p className="text-xs text-muted-foreground">{option.description}</p>
+                          </div>
+                          <button
+                            onClick={() => toggleEmailSubOption(option.id)}
+                            className={cn(
+                              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                              option.enabled ? "bg-primary" : "bg-muted"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
+                                option.enabled ? "translate-x-[18px]" : "translate-x-1"
+                              )}
+                            />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Other notification settings */}
                 {notifications.map(setting => (
                   <div
                     key={setting.id}
@@ -781,46 +1145,71 @@ function SettingsPageContent() {
           {activeTab === "security" && (
             <Card>
               <CardHeader>
-                <CardTitle>Security Settings</CardTitle>
-                <CardDescription>Manage security and access controls</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Security Settings</CardTitle>
+                    <CardDescription>Manage security and access controls</CardDescription>
+                  </div>
+                  {securitySaveStatus === "saved" && (
+                    <div className="flex items-center gap-2 text-green-500 text-sm">
+                      <CheckCircle className="h-4 w-4" />
+                      Saved
+                    </div>
+                  )}
+                  {securitySaveStatus === "saving" && (
+                    <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </div>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="p-4 rounded-lg border space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Require Approval for Deployments</p>
-                      <p className="text-sm text-muted-foreground">All production deployments require human approval</p>
+                {securitySettings.map(setting => (
+                  <div key={setting.id} className="p-4 rounded-lg border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{setting.label}</p>
+                        <p className="text-sm text-muted-foreground">{setting.description}</p>
+                      </div>
+                      {setting.type === "toggle" ? (
+                        <button
+                          onClick={() => toggleSecuritySetting(setting.id)}
+                          className={cn(
+                            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                            setting.enabled ? "bg-primary" : "bg-muted"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                              setting.enabled ? "translate-x-6" : "translate-x-1"
+                            )}
+                          />
+                        </button>
+                      ) : setting.type === "select" && setting.options ? (
+                        <div className="flex gap-1">
+                          {setting.options.map(option => (
+                            <button
+                              key={option.value}
+                              onClick={() => updateSecuritySelect(setting.id, option.value)}
+                              className={cn(
+                                "px-3 py-1 text-xs rounded-full transition-colors",
+                                setting.value === option.value
+                                  ? option.variant === "success" ? "bg-green-500/20 text-green-500 ring-1 ring-green-500/50"
+                                  : option.variant === "warning" ? "bg-yellow-500/20 text-yellow-500 ring-1 ring-yellow-500/50"
+                                  : "bg-red-500/20 text-red-500 ring-1 ring-red-500/50"
+                                  : "bg-muted text-muted-foreground hover:bg-accent"
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                    <Badge variant="success">Enabled</Badge>
                   </div>
-                </div>
-                <div className="p-4 rounded-lg border space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Secret Scanning</p>
-                      <p className="text-sm text-muted-foreground">Prevent commits containing secrets</p>
-                    </div>
-                    <Badge variant="success">Enabled</Badge>
-                  </div>
-                </div>
-                <div className="p-4 rounded-lg border space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Dependency Audit</p>
-                      <p className="text-sm text-muted-foreground">Block packages with known vulnerabilities</p>
-                    </div>
-                    <Badge variant="warning">Warn Only</Badge>
-                  </div>
-                </div>
-                <div className="p-4 rounded-lg border space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">API Rate Limiting</p>
-                      <p className="text-sm text-muted-foreground">Limit API calls to prevent abuse</p>
-                    </div>
-                    <Badge variant="success">Enabled</Badge>
-                  </div>
-                </div>
+                ))}
               </CardContent>
             </Card>
           )}
@@ -982,24 +1371,6 @@ function SettingsPageContent() {
                 </CardContent>
               </Card>
 
-              {/* Clear Project Data */}
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Clear Project Data</p>
-                      <p className="text-sm text-muted-foreground">
-                        Remove all projects and packets, but keep settings and connections
-                      </p>
-                    </div>
-                    <Button variant="outline" onClick={handleClearProjectData} className="gap-2">
-                      <Trash2 className="h-4 w-4" />
-                      Clear Projects
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
               {/* Danger Zone - Hidden by Default */}
               <Card className="border-destructive/30">
                 <CardHeader>
@@ -1024,6 +1395,27 @@ function SettingsPageContent() {
                 </CardHeader>
                 {showDangerZone && (
                   <CardContent className="space-y-4 border-t pt-4">
+                    {/* Clear Project Data */}
+                    <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-destructive">Clear Project Data</p>
+                          <p className="text-sm text-muted-foreground">
+                            Remove all projects and packets, but keep settings and connections
+                          </p>
+                        </div>
+                        <Button
+                          variant="destructive"
+                          onClick={() => setClearProjectsDialog(true)}
+                          className="gap-2"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Clear Projects
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Delete All Data */}
                     <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 space-y-4">
                       <div>
                         <p className="font-medium text-destructive">Delete All Data</p>
@@ -1189,17 +1581,21 @@ function SettingsPageContent() {
           setNewApiKey("")
           setApiKeyStatus("idle")
           setShowApiKey(false)
-          setShowApiKeyInput(false)
+          setAnthropicAuthMethod("oauth")
+          setAnthropicOAuthStatus("idle")
+          setAnthropicOAuthUser(null)
+          setAnthropicOAuthTokens(null)
+          setApiKeyError("")
         }
       }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Cloud className="h-5 w-5" />
-              Add Cloud API Service
+              Add Cloud AI Provider
             </DialogTitle>
             <DialogDescription>
-              Select a provider to connect
+              Connect to a cloud AI provider
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1209,7 +1605,7 @@ function SettingsPageContent() {
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { id: "anthropic" as const, name: "Anthropic", sub: "Claude", color: "text-orange-500" },
-                  { id: "openai" as const, name: "OpenAI", sub: "ChatGPT", color: "text-emerald-500" },
+                  { id: "openai" as const, name: "OpenAI", sub: "GPT-4/o1", color: "text-emerald-500" },
                   { id: "google" as const, name: "Google", sub: "Gemini", color: "text-blue-500" }
                 ].map(provider => (
                   <button
@@ -1219,7 +1615,10 @@ function SettingsPageContent() {
                       setApiKeyStatus("idle")
                       setApiKeyError("")
                       setNewApiKey("")
-                      setShowApiKeyInput(false)
+                      if (provider.id === "anthropic") {
+                        setAnthropicAuthMethod("oauth")
+                        setAnthropicOAuthStatus("idle")
+                      }
                     }}
                     className={cn(
                       "p-3 rounded-lg border text-center transition-colors",
@@ -1237,92 +1636,208 @@ function SettingsPageContent() {
               </div>
             </div>
 
-            {/* Sign in with Google - shown after provider selection */}
-            {newApiProvider && (
-              <div className="space-y-3 pt-2 border-t">
-                <Button
-                  variant="outline"
-                  className="w-full gap-2 h-11"
-                  onClick={() => {
-                    setAddApiDialog(false)
-                    window.location.href = `/api/auth/oauth/${newApiProvider}`
-                  }}
-                >
-                  <svg className="h-5 w-5" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                  </svg>
-                  Sign in to {newApiProvider === "anthropic" ? "Anthropic" : newApiProvider === "openai" ? "OpenAI" : "Google AI"}
-                </Button>
-                <p className="text-xs text-center text-muted-foreground">
-                  Uses your {newApiProvider === "anthropic" ? "Claude" : newApiProvider === "openai" ? "ChatGPT Plus" : "Google AI"} subscription
-                </p>
-
-                {/* Use API Key Instead link */}
-                {!showApiKeyInput ? (
-                  <button
-                    onClick={() => setShowApiKeyInput(true)}
-                    className="w-full text-xs text-muted-foreground hover:text-primary text-center py-2"
-                  >
-                    Use API key instead
-                  </button>
-                ) : (
-                  <div className="space-y-3 pt-2">
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Input
-                          id="apiKey"
-                          type={showApiKey ? "text" : "password"}
-                          placeholder="Enter API key..."
-                          value={newApiKey}
-                          onChange={(e) => {
-                            setNewApiKey(e.target.value)
-                            setApiKeyStatus("idle")
-                          }}
-                          className="pr-10"
+            {/* Anthropic - OAuth primary, API key secondary */}
+            {newApiProvider === "anthropic" && (
+              <div className="space-y-4 pt-2 border-t">
+                {/* OAuth Connected State */}
+                {anthropicOAuthStatus === "connected" && anthropicOAuthUser && (
+                  <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/30">
+                    <div className="flex items-center gap-3 mb-2">
+                      {anthropicOAuthUser.picture && (
+                        <img
+                          src={anthropicOAuthUser.picture}
+                          alt=""
+                          className="h-10 w-10 rounded-full"
                         />
-                        <button
-                          type="button"
-                          onClick={() => setShowApiKey(!showApiKey)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                          {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
+                      )}
+                      <div>
+                        <p className="font-medium">{anthropicOAuthUser.name || anthropicOAuthUser.email}</p>
+                        <p className="text-xs text-muted-foreground">{anthropicOAuthUser.email}</p>
                       </div>
+                      <CheckCircle className="h-5 w-5 text-green-500 ml-auto" />
+                    </div>
+                    <p className="text-xs text-green-600">
+                      Ready to connect with your Anthropic Max subscription
+                    </p>
+                  </div>
+                )}
+
+                {/* OAuth Option - Primary */}
+                {anthropicAuthMethod === "oauth" && anthropicOAuthStatus !== "connected" && (
+                  <div className="space-y-3">
+                    <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-medium">Sign in with Google</span>
+                        <Badge variant="secondary" className="text-xs">Max Plan</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Use your Anthropic Max subscription ($200/month) - not pay-per-use credits
+                      </p>
                       <Button
-                        variant="outline"
-                        onClick={handleTestApiKey}
-                        disabled={!newApiKey || testingApiKey}
+                        className="w-full gap-2"
+                        onClick={startAnthropicOAuth}
+                        disabled={anthropicOAuthStatus === "connecting"}
                       >
-                        {testingApiKey ? (
+                        {anthropicOAuthStatus === "connecting" ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          "Test"
+                          <svg className="h-4 w-4" viewBox="0 0 24 24">
+                            <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                            <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                            <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                            <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                          </svg>
                         )}
+                        Sign in with Google to use Max plan
                       </Button>
                     </div>
-                    {apiKeyStatus === "success" && (
-                      <p className="text-xs text-green-500 flex items-center gap-1">
-                        <CheckCircle className="h-3 w-3" />
-                        API key valid
-                      </p>
-                    )}
-                    {apiKeyStatus === "error" && (
+
+                    {anthropicOAuthStatus === "error" && apiKeyError && (
                       <p className="text-xs text-red-500 flex items-center gap-1">
                         <XCircle className="h-3 w-3" />
                         {apiKeyError}
                       </p>
                     )}
-                    <Button
-                      className="w-full"
-                      onClick={handleAddApiService}
-                      disabled={!newApiKey || apiKeyStatus !== "success"}
+
+                    <button
+                      onClick={() => setAnthropicAuthMethod("apiKey")}
+                      className="w-full text-xs text-muted-foreground hover:text-primary text-center py-2"
                     >
-                      Connect with API Key
-                    </Button>
+                      or use API key (pay-per-use credits)
+                    </button>
                   </div>
+                )}
+
+                {/* API Key Option - Secondary */}
+                {anthropicAuthMethod === "apiKey" && (
+                  <div className="space-y-3">
+                    <div className="p-4 rounded-lg bg-muted/50 border">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-medium">API Key</span>
+                        <Badge variant="outline" className="text-xs">Pay-per-use</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Uses separate API credits, billed by usage (not your Max subscription)
+                      </p>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            type={showApiKey ? "text" : "password"}
+                            placeholder="sk-ant-api03-..."
+                            value={newApiKey}
+                            onChange={(e) => {
+                              setNewApiKey(e.target.value)
+                              setApiKeyStatus("idle")
+                            }}
+                            className="pr-10"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <Button
+                          variant="outline"
+                          onClick={handleTestApiKey}
+                          disabled={!newApiKey || testingApiKey}
+                        >
+                          {testingApiKey ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            "Test"
+                          )}
+                        </Button>
+                      </div>
+                      {apiKeyStatus === "success" && (
+                        <p className="text-xs text-green-500 flex items-center gap-1 mt-2">
+                          <CheckCircle className="h-3 w-3" />
+                          API key is valid
+                        </p>
+                      )}
+                      {apiKeyStatus === "error" && (
+                        <p className="text-xs text-red-500 flex items-center gap-1 mt-2">
+                          <XCircle className="h-3 w-3" />
+                          {apiKeyError}
+                        </p>
+                      )}
+                      <a
+                        href="https://console.anthropic.com/settings/keys"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-2"
+                      >
+                        Get API key from Anthropic Console
+                      </a>
+                    </div>
+
+                    <button
+                      onClick={() => setAnthropicAuthMethod("oauth")}
+                      className="w-full text-xs text-muted-foreground hover:text-primary text-center py-2"
+                    >
+                      or sign in with Google (Max subscription)
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* OpenAI / Google - API Key Only */}
+            {newApiProvider !== "anthropic" && (
+              <div className="space-y-3 pt-2 border-t">
+                <div className="space-y-2">
+                  <Label htmlFor="apiKey">API Key</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {newApiProvider === "openai" ? "Get your key from platform.openai.com" :
+                     "Get your key from aistudio.google.com"}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      id="apiKey"
+                      type={showApiKey ? "text" : "password"}
+                      placeholder={newApiProvider === "openai" ? "sk-..." : "AIza..."}
+                      value={newApiKey}
+                      onChange={(e) => {
+                        setNewApiKey(e.target.value)
+                        setApiKeyStatus("idle")
+                      }}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={handleTestApiKey}
+                    disabled={!newApiKey || testingApiKey}
+                  >
+                    {testingApiKey ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Test"
+                    )}
+                  </Button>
+                </div>
+                {apiKeyStatus === "success" && (
+                  <p className="text-xs text-green-500 flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3" />
+                    API key is valid
+                  </p>
+                )}
+                {apiKeyStatus === "error" && (
+                  <p className="text-xs text-red-500 flex items-center gap-1">
+                    <XCircle className="h-3 w-3" />
+                    {apiKeyError}
+                  </p>
                 )}
               </div>
             )}
@@ -1331,6 +1846,27 @@ function SettingsPageContent() {
             <Button variant="outline" onClick={() => setAddApiDialog(false)}>
               Cancel
             </Button>
+            {newApiProvider === "anthropic" ? (
+              anthropicOAuthStatus === "connected" ? (
+                <Button onClick={handleAddAnthropicOAuth}>
+                  Connect with Max Plan
+                </Button>
+              ) : anthropicAuthMethod === "apiKey" ? (
+                <Button
+                  onClick={handleAddApiService}
+                  disabled={apiKeyStatus !== "success"}
+                >
+                  Connect with API Key
+                </Button>
+              ) : null
+            ) : (
+              <Button
+                onClick={handleAddApiService}
+                disabled={apiKeyStatus !== "success"}
+              >
+                Connect
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1376,6 +1912,191 @@ function SettingsPageContent() {
               disabled={!newGitName || !newGitUrl}
             >
               Add Remote
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Connection Dialog */}
+      <Dialog open={editConnectionDialog} onOpenChange={(open) => {
+        setEditConnectionDialog(open)
+        if (!open) {
+          setSelectedConnection(null)
+          setEditName("")
+          setEditUrl("")
+          setEditApiKey("")
+          setEditConnectionStatus("idle")
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              Edit Connection
+            </DialogTitle>
+            <DialogDescription>
+              Update the connection settings for {selectedConnection?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="editName">Connection Name</Label>
+              <Input
+                id="editName"
+                placeholder="e.g., LM Studio BEAST"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editUrl">URL / Endpoint</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="editUrl"
+                  placeholder="http://192.168.1.100:1234"
+                  value={editUrl}
+                  onChange={(e) => {
+                    setEditUrl(e.target.value)
+                    setEditConnectionStatus("idle")
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  onClick={handleTestEditConnection}
+                  disabled={!editUrl || testingEditConnection}
+                >
+                  {testingEditConnection ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Test"
+                  )}
+                </Button>
+              </div>
+              {editConnectionStatus === "success" && (
+                <p className="text-xs text-green-500 flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" />
+                  Connection successful
+                </p>
+              )}
+              {editConnectionStatus === "error" && (
+                <p className="text-xs text-red-500 flex items-center gap-1">
+                  <XCircle className="h-3 w-3" />
+                  Connection failed
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editApiKey">API Key (optional)</Label>
+              <Input
+                id="editApiKey"
+                type="password"
+                placeholder="Enter API key if required..."
+                value={editApiKey}
+                onChange={(e) => setEditApiKey(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditConnectionDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEditConnection}
+              disabled={!editName || !editUrl}
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Connection Confirmation Dialog */}
+      <Dialog open={deleteConnectionDialog} onOpenChange={(open) => {
+        setDeleteConnectionDialog(open)
+        if (!open) {
+          setSelectedConnection(null)
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Remove Connection
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove this connection?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {selectedConnection && (
+              <div className="p-4 rounded-lg border bg-muted/50">
+                <p className="font-medium">{selectedConnection.name}</p>
+                <p className="text-sm text-muted-foreground font-mono">{selectedConnection.url}</p>
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground mt-4">
+              This action cannot be undone. The connection will be permanently removed from your settings.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConnectionDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConnection}
+              className="gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              Remove Connection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear Projects Confirmation Dialog */}
+      <Dialog open={clearProjectsDialog} onOpenChange={setClearProjectsDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertOctagon className="h-5 w-5" />
+              Clear All Projects
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5">
+              <p className="text-sm">
+                This will permanently delete:
+              </p>
+              <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside space-y-1">
+                <li>All projects ({dataSummary.projects} projects)</li>
+                <li>All work packets ({dataSummary.packets} packets)</li>
+                <li>All build plans ({dataSummary.buildPlans} build plans)</li>
+              </ul>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Your settings, connections, and API keys will be preserved.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearProjectsDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearProjectData}
+              disabled={clearingProjects}
+              className="gap-2"
+            >
+              {clearingProjects ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Clear All Projects
             </Button>
           </DialogFooter>
         </DialogContent>

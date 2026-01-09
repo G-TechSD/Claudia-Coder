@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -11,60 +11,23 @@ import {
   Workflow,
   ExternalLink,
   RefreshCw,
-  Play,
-  Pause,
   Upload,
   History,
   CheckCircle,
   XCircle,
   Clock,
   Loader2,
-  Zap,
-  GitBranch,
-  Shield,
-  Webhook,
   Server,
   Activity,
   ChevronRight,
-  Download,
   FileJson,
   Terminal,
   Power,
   PowerOff
 } from "lucide-react"
 
-const N8N_URL = "http://192.168.245.211:5678"
-
-// Pre-built workflow templates for Claudia
-const claudiaWorkflows = [
-  {
-    id: "issue-import",
-    name: "Issue Import Webhook",
-    description: "Import issues from any source (Linear, Jira, GitHub Issues) via webhook",
-    icon: Webhook,
-    color: "text-blue-400",
-    bgColor: "bg-blue-400/10",
-    template: "issue-import-webhook"
-  },
-  {
-    id: "code-quality",
-    name: "Code Quality Pipeline",
-    description: "The validation loop - lint, test, security scan, and iterate until passing",
-    icon: Shield,
-    color: "text-green-400",
-    bgColor: "bg-green-400/10",
-    template: "code-quality-pipeline"
-  },
-  {
-    id: "git-automation",
-    name: "Git Automation",
-    description: "Automated branch creation, commits, and PR workflows",
-    icon: GitBranch,
-    color: "text-purple-400",
-    bgColor: "bg-purple-400/10",
-    template: "git-automation"
-  }
-]
+// Use environment variable or fallback (local N8N with HTTPS)
+const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
 
 function formatTimestamp(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date
@@ -93,7 +56,6 @@ export default function N8NPlaygroundPage() {
   const [executions, setExecutions] = useState<N8NExecution[]>([])
   const [executionsLoading, setExecutionsLoading] = useState(false)
   const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null)
-  const [importingTemplate, setImportingTemplate] = useState<string | null>(null)
 
   // Initial data fetch
   useEffect(() => {
@@ -122,15 +84,6 @@ export default function N8NPlaygroundPage() {
       fetchExecutions()
     ])
   }, [checkHealth, refreshWorkflows, fetchExecutions])
-
-  const handleImportTemplate = async (templateId: string) => {
-    setImportingTemplate(templateId)
-    // Simulate importing - in real implementation, this would call n8n API
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setImportingTemplate(null)
-    // Refresh workflows after import
-    await refreshWorkflows()
-  }
 
   const handleToggleWorkflow = async (id: string, active: boolean) => {
     if (active) {
@@ -295,67 +248,6 @@ export default function N8NPlaygroundPage() {
         </Button>
       </div>
 
-      {/* Pre-built Claudia Workflows */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-yellow-400" />
-            <CardTitle>Claudia Workflow Templates</CardTitle>
-          </div>
-          <CardDescription>
-            Pre-configured workflows optimized for the Claudia development pipeline
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {claudiaWorkflows.map(workflow => {
-              const Icon = workflow.icon
-              const isImporting = importingTemplate === workflow.id
-              return (
-                <div
-                  key={workflow.id}
-                  className="relative p-4 rounded-lg border bg-card hover:bg-accent/30 transition-colors"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
-                      workflow.bgColor
-                    )}>
-                      <Icon className={cn("h-5 w-5", workflow.color)} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{workflow.name}</p>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                        {workflow.description}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full mt-3 gap-2"
-                    onClick={() => handleImportTemplate(workflow.id)}
-                    disabled={isImporting || !isHealthy}
-                  >
-                    {isImporting ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Importing...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="h-4 w-4" />
-                        Import Template
-                      </>
-                    )}
-                  </Button>
-                </div>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Main Content Grid */}
       <div className="grid gap-6 lg:grid-cols-5 flex-1 min-h-0">
         {/* Workflows List */}
@@ -377,7 +269,7 @@ export default function N8NPlaygroundPage() {
               <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
                 <Workflow className="h-8 w-8 mb-2 opacity-50" />
                 <p className="text-sm">No workflows found</p>
-                <p className="text-xs">Import a template to get started</p>
+                <p className="text-xs">Create workflows in the N8N editor</p>
               </div>
             ) : (
               <div className="divide-y">

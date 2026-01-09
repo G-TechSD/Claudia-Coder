@@ -36,7 +36,8 @@ export async function POST(request: NextRequest) {
       projectDescription,
       originalPlan,
       userFeedback,
-      preferredProvider
+      preferredProvider,
+      preferredModel = null  // Specific model ID to use (e.g., "gpt-oss-20b")
     } = await request.json()
 
     if (!projectName || !projectDescription || !originalPlan) {
@@ -65,16 +66,28 @@ The revised plan should address user concerns and remove rejected items.
 
 Return the plan in the same JSON format as before.`
 
-    // Try local LLM with preferred server
+    // Only pass preferredServer for local providers (Beast, Bedroom, etc.)
+    // Paid providers need to be handled separately
+    const localPreferredServer = preferredProvider &&
+      !["anthropic", "chatgpt", "gemini", "paid_claudecode"].includes(preferredProvider)
+        ? preferredProvider
+        : undefined
+
+    console.log(`[build-plan/revise] preferredProvider: ${preferredProvider}, preferredModel: ${preferredModel}, localPreferredServer: ${localPreferredServer}`)
+
+    // Try local LLM with preferred server and model
     const localResponse = await generateWithLocalLLM(
       REVISION_SYSTEM_PROMPT,
       userPrompt,
       {
         temperature: 0.5, // Slightly lower for more consistent revisions
         max_tokens: 4096,
-        preferredServer: preferredProvider
+        preferredServer: localPreferredServer,
+        preferredModel: preferredModel || undefined  // Pass specific model ID to use
       }
     )
+
+    console.log(`[build-plan/revise] response: server=${localResponse.server}, error=${localResponse.error || 'none'}`)
 
     if (!localResponse.error) {
       const plan = parseBuildPlanResponse(

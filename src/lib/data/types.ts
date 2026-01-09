@@ -44,6 +44,14 @@ export interface Project {
   createdAt: string
   updatedAt: string
 
+  // Working directory - always available for Claude Code
+  // Created at /home/bill/claudia-projects/{project-slug}/
+  workingDirectory?: string
+
+  // Base path for the project's primary codebase location
+  // This is the root directory where the main project files are located
+  basePath?: string
+
   // Linked resources
   repos: LinkedRepo[]
   packetIds: string[]
@@ -422,4 +430,39 @@ export interface StoredBuildPlan {
   approvedAt?: string
   approvedBy?: string         // User who approved
   lockedAt?: string           // When project started
+}
+
+// ============ Packet Execution ============
+
+export type PacketRunStatus = "running" | "completed" | "failed" | "cancelled"
+export type PacketRunRating = "thumbs_up" | "thumbs_down" | null
+
+// Packet execution run record
+export interface PacketRun {
+  id: string
+  packetId: string
+  projectId: string
+  startedAt: string
+  completedAt?: string
+  status: PacketRunStatus
+  output: string
+  exitCode?: number
+  // Refinement/feedback
+  rating?: PacketRunRating
+  comment?: string
+  iteration: number  // 1, 2, 3... for each run of the same packet
+}
+
+// Extended WorkPacket with run history
+export interface WorkPacketWithHistory {
+  id: string
+  title: string
+  description: string
+  type: string
+  priority: string
+  status: string
+  tasks: Array<{ id: string; description: string; completed: boolean }>
+  acceptanceCriteria: string[]
+  runs: PacketRun[]
+  currentRunId?: string
 }

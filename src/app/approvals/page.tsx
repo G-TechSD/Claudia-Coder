@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { useApprovals, type Approval } from "@/hooks/useApprovals"
 import {
   CheckCircle,
   XCircle,
@@ -23,22 +24,6 @@ import {
 type ApprovalStatus = "pending" | "approved" | "rejected" | "expired"
 type ApprovalType = "cost" | "deploy" | "security" | "manual" | "quality"
 
-interface Approval {
-  id: string
-  type: ApprovalType
-  title: string
-  description: string
-  status: ApprovalStatus
-  packetId: string
-  requestedBy: string
-  requestedAt: Date
-  respondedAt?: Date
-  respondedBy?: string
-  expiresAt?: Date
-  details: Record<string, string | number>
-  urgency: "high" | "normal" | "low"
-}
-
 const statusConfig = {
   pending: { label: "Pending", color: "text-yellow-400", bg: "bg-yellow-400", icon: Clock },
   approved: { label: "Approved", color: "text-green-400", bg: "bg-green-400", icon: CheckCircle },
@@ -53,10 +38,6 @@ const typeConfig = {
   manual: { label: "Manual Step", icon: User, color: "text-purple-400" },
   quality: { label: "Quality Gate", icon: GitPullRequest, color: "text-yellow-400" }
 }
-
-// Approvals will come from execution pipeline when human approval is required
-// Empty by default - populated when agents request human intervention
-const initialApprovals: Approval[] = []
 
 function formatTime(date: Date): string {
   const diff = Date.now() - date.getTime()
@@ -78,16 +59,13 @@ function formatTimeUntil(date: Date): string {
 }
 
 export default function ApprovalsPage() {
-  const [approvals] = useState<Approval[]>(initialApprovals)
+  const { approvals, pendingCount, urgentCount } = useApprovals()
   const [selectedApproval, setSelectedApproval] = useState<Approval | null>(null)
   const [statusFilter, setStatusFilter] = useState<ApprovalStatus | "all">("pending")
 
   const filteredApprovals = approvals.filter(a =>
     statusFilter === "all" || a.status === statusFilter
   )
-
-  const pendingCount = approvals.filter(a => a.status === "pending").length
-  const urgentCount = approvals.filter(a => a.status === "pending" && a.urgency === "high").length
 
   return (
     <div className="flex flex-col gap-6 p-6 h-full">

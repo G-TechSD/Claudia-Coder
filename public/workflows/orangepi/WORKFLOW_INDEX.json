@@ -1,0 +1,484 @@
+{
+  "instance": {
+    "name": "OrangePi N8N Instance",
+    "url": "http://192.168.245.11:5678",
+    "exportDate": "2026-01-08T16:30:00Z"
+  },
+  "workflows": [
+    {
+      "id": "1XW5Q3fwUoM9RCSC",
+      "name": "Claudia Execute Webhook (Simple)",
+      "active": false,
+      "isArchived": false,
+      "file": "1XW5Q3fwUoM9RCSC.json",
+      "category": "webhook",
+      "description": "Simple webhook endpoint for Claudia execution"
+    },
+    {
+      "id": "1iZ7FV2QPGaEpU88",
+      "name": "Packet Processor (Standalone)",
+      "active": false,
+      "isArchived": false,
+      "file": "1iZ7FV2QPGaEpU88.json",
+      "category": "processor",
+      "description": "Standalone packet processor with dual LM Studio worker support (BEAST + Bedroom)"
+    },
+    {
+      "id": "1xM2AKAUnV6bgSRr",
+      "name": "claudecode_test",
+      "active": false,
+      "isArchived": true,
+      "file": "1xM2AKAUnV6bgSRr.json",
+      "category": "test",
+      "description": "Test workflow"
+    },
+    {
+      "id": "2cRLcRpAMpKCbZNf",
+      "name": "HyperHealth",
+      "active": false,
+      "isArchived": true,
+      "file": "2cRLcRpAMpKCbZNf.json",
+      "category": "project",
+      "description": "Empty project placeholder"
+    },
+    {
+      "id": "3ADvrOfL1E9KSeaw",
+      "name": "Linear Testing",
+      "active": false,
+      "isArchived": true,
+      "file": "3ADvrOfL1E9KSeaw.json",
+      "category": "test",
+      "description": "Linear API integration testing"
+    },
+    {
+      "id": "3jGHJYTu4PhPw8X9",
+      "name": "Claudia Execute Webhook (Working)",
+      "active": true,
+      "isArchived": false,
+      "file": "3jGHJYTu4PhPw8X9.json",
+      "category": "webhook",
+      "description": "Working webhook endpoint that returns all incoming items"
+    },
+    {
+      "id": "4p4rBF0F4Ku5aY8x",
+      "name": "Claudia Coder 2",
+      "active": true,
+      "isArchived": false,
+      "file": "4p4rBF0F4Ku5aY8x.json",
+      "category": "orchestrator",
+      "description": "Main Claudia Coder orchestrator v2 with multi-model routing and Issue Packets Loader integration"
+    },
+    {
+      "id": "57dhqmYizNAIFbkZ",
+      "name": "Claudia Coder - Production",
+      "active": false,
+      "isArchived": true,
+      "file": "57dhqmYizNAIFbkZ.json",
+      "category": "orchestrator",
+      "description": "Archived production version of Claudia Coder"
+    },
+    {
+      "id": "5guwnQnd9v35XlQ4",
+      "name": "RoBox",
+      "active": false,
+      "isArchived": true,
+      "file": "5guwnQnd9v35XlQ4.json",
+      "category": "project",
+      "description": "Empty project placeholder"
+    },
+    {
+      "id": "5nyJPfrirOtbczoS",
+      "name": "Claudia Simple Webhook Test",
+      "active": true,
+      "isArchived": false,
+      "file": "5nyJPfrirOtbczoS.json",
+      "category": "webhook",
+      "description": "Simple webhook test endpoint"
+    },
+    {
+      "id": "7F5rMVM0oDMKFQ69",
+      "name": "LMStudio Agentic Dev Tools - WIDESCREEN COMPLETE",
+      "active": false,
+      "isArchived": true,
+      "file": "7F5rMVM0oDMKFQ69.json",
+      "category": "agentic",
+      "description": "Archived widescreen version of LMStudio Dev Tools"
+    },
+    {
+      "id": "7Wb6lgJ0BbU7tOL9",
+      "name": "Generate AI viral videos with NanoBanana & VEO3, shared on socials via Blotato",
+      "active": false,
+      "isArchived": true,
+      "file": "7Wb6lgJ0BbU7tOL9.json",
+      "category": "media",
+      "description": "AI video generation workflow"
+    },
+    {
+      "id": "84Q057mJFw0V43RT",
+      "name": "Autonomous App Builder v2",
+      "active": false,
+      "isArchived": true,
+      "file": "84Q057mJFw0V43RT.json",
+      "category": "builder",
+      "description": "Archived autonomous app builder v2"
+    },
+    {
+      "id": "9JoFVmCveQLWoCxw",
+      "name": "Autonomous Dev with Quality Loop",
+      "active": true,
+      "isArchived": false,
+      "file": "9JoFVmCveQLWoCxw.json",
+      "category": "orchestrator",
+      "description": "Quality-focused dev workflow with validation loop, escalation, and Context7 integration"
+    },
+    {
+      "id": "9VFsTvZJkJD3htXO",
+      "name": "Linear Issues to Data Table",
+      "active": true,
+      "isArchived": false,
+      "file": "9VFsTvZJkJD3htXO.json",
+      "category": "integration",
+      "description": "Syncs Linear issues to N8N data tables"
+    },
+    {
+      "id": "AR1QJPBsX746UQgu",
+      "name": "Claudia Webhook (No Auth) - Testing",
+      "active": true,
+      "isArchived": false,
+      "file": "AR1QJPBsX746UQgu.json",
+      "category": "webhook",
+      "description": "Testing webhook without authentication"
+    },
+    {
+      "id": "AyIrEjvnExd5GhI6",
+      "name": "GoldenEye",
+      "active": false,
+      "isArchived": true,
+      "file": "AyIrEjvnExd5GhI6.json",
+      "category": "project",
+      "description": "Empty project placeholder"
+    },
+    {
+      "id": "Csv9Ss6YZjrSxwYa",
+      "name": "Ganesha",
+      "active": false,
+      "isArchived": true,
+      "file": "Csv9Ss6YZjrSxwYa.json",
+      "category": "project",
+      "description": "Empty project placeholder"
+    },
+    {
+      "id": "Eav7gyLzr7RuGaeT",
+      "name": "Packet Processor with Quality Check",
+      "active": true,
+      "isArchived": false,
+      "file": "Eav7gyLzr7RuGaeT.json",
+      "category": "orchestrator",
+      "description": "Packet processor with quality validation, editor review, and iteration loop"
+    },
+    {
+      "id": "GIIBAxWXuajs5a60",
+      "name": "LMStudio Agentic Dev Tools - WORKING",
+      "active": false,
+      "isArchived": true,
+      "file": "GIIBAxWXuajs5a60.json",
+      "category": "agentic",
+      "description": "Archived working version of LMStudio Dev Tools"
+    },
+    {
+      "id": "GgqnjjUrBSVIpezk",
+      "name": "HyperHealthCare-LinearGitLabOpenAI-DevOps",
+      "active": false,
+      "isArchived": true,
+      "file": "GgqnjjUrBSVIpezk.json",
+      "category": "devops",
+      "description": "HyperHealthCare DevOps integration workflow"
+    },
+    {
+      "id": "H0BJNDq3HGJjqD82",
+      "name": "Autonomous App Builder v2",
+      "active": false,
+      "isArchived": false,
+      "file": "H0BJNDq3HGJjqD82.json",
+      "category": "builder",
+      "description": "Autonomous app builder v2"
+    },
+    {
+      "id": "H0FhKlC8OCs9EhWL",
+      "name": "Dev Agent (ENHANCED - Local-First)",
+      "active": false,
+      "isArchived": false,
+      "file": "H0FhKlC8OCs9EhWL.json",
+      "category": "agentic",
+      "description": "Enhanced local-first development agent"
+    },
+    {
+      "id": "HoHkZgq9xzIC9Ing",
+      "name": "Claudia Webhook Trigger - Quality Loop Pipeline",
+      "active": false,
+      "isArchived": false,
+      "file": "HoHkZgq9xzIC9Ing.json",
+      "category": "orchestrator",
+      "description": "Webhook-triggered quality loop pipeline"
+    },
+    {
+      "id": "J0Zf4eHFSQuqLv95",
+      "name": "Issue Packets Loader Sub",
+      "active": true,
+      "isArchived": false,
+      "file": "J0Zf4eHFSQuqLv95.json",
+      "category": "sub-workflow",
+      "description": "Sub-workflow for loading issue packets from Linear"
+    },
+    {
+      "id": "Np8FohK927IStXjG",
+      "name": "Packet Processor with Quality Loop",
+      "active": true,
+      "isArchived": false,
+      "file": "Np8FohK927IStXjG.json",
+      "category": "processor",
+      "description": "Packet processor with quality validation loop"
+    },
+    {
+      "id": "OXajDY41iL3e6l8o",
+      "name": "My workflow",
+      "active": false,
+      "isArchived": true,
+      "file": "OXajDY41iL3e6l8o.json",
+      "category": "test",
+      "description": "Default empty workflow"
+    },
+    {
+      "id": "PXawd0xn6XxHlNEs",
+      "name": "LMStudio Agentic Dev Tools",
+      "active": true,
+      "isArchived": false,
+      "file": "PXawd0xn6XxHlNEs.json",
+      "category": "agentic",
+      "description": "LMStudio-based development agent with multi-model support"
+    },
+    {
+      "id": "PbSOq6RsFoCsLZUh",
+      "name": "LMStudio Agentic Dev Tools v2",
+      "active": true,
+      "isArchived": false,
+      "file": "PbSOq6RsFoCsLZUh.json",
+      "category": "orchestrator",
+      "description": "Advanced multi-tier orchestrator with 90 nodes, parallel worker routing, quality loops, and desktop testing"
+    },
+    {
+      "id": "V3jKwR9t38ncqYpP",
+      "name": "Autonomous Dev Agent - Multi-Stage Quality Pipeline",
+      "active": false,
+      "isArchived": false,
+      "file": "V3jKwR9t38ncqYpP.json",
+      "category": "orchestrator",
+      "description": "Multi-stage quality pipeline with validation, iteration, and correction phases"
+    },
+    {
+      "id": "WPuxiZXV1cvR34Vk",
+      "name": "New Project Interview",
+      "active": false,
+      "isArchived": false,
+      "file": "WPuxiZXV1cvR34Vk.json",
+      "category": "utility",
+      "description": "Interactive project interview workflow"
+    },
+    {
+      "id": "X2Ox71QOgdDmWWus",
+      "name": "test-workflow-from-claude",
+      "active": false,
+      "isArchived": false,
+      "file": "X2Ox71QOgdDmWWus.json",
+      "category": "test",
+      "description": "Test workflow created from Claude"
+    },
+    {
+      "id": "XjHkwOQyasPylfBO",
+      "name": "RAG AI Agent Template V4",
+      "active": false,
+      "isArchived": false,
+      "file": "XjHkwOQyasPylfBO.json",
+      "category": "template",
+      "description": "RAG AI agent template with retrieval augmented generation"
+    },
+    {
+      "id": "aaCTXpS5nqGkK2P6",
+      "name": "Haiku",
+      "active": false,
+      "isArchived": true,
+      "file": "aaCTXpS5nqGkK2P6.json",
+      "category": "project",
+      "description": "Empty project placeholder"
+    },
+    {
+      "id": "bUUs2y75OZ0C3rJn",
+      "name": "Claudia Simple Webhook - Working",
+      "active": true,
+      "isArchived": false,
+      "file": "bUUs2y75OZ0C3rJn.json",
+      "category": "webhook",
+      "description": "Working simple webhook"
+    },
+    {
+      "id": "bgo7RzbhSW09fryC",
+      "name": "LazLo",
+      "active": false,
+      "isArchived": true,
+      "file": "bgo7RzbhSW09fryC.json",
+      "category": "project",
+      "description": "Empty project placeholder"
+    },
+    {
+      "id": "ca79e7b2-0761-4e",
+      "name": "LMStudio Agentic Dev Tools - FRESH",
+      "active": false,
+      "isArchived": false,
+      "file": "ca79e7b2-0761-4e.json",
+      "category": "agentic",
+      "description": "Fresh version of LMStudio Dev Tools"
+    },
+    {
+      "id": "csFqJ1qaXMUy51tv",
+      "name": "Project Unicorn",
+      "active": false,
+      "isArchived": true,
+      "file": "csFqJ1qaXMUy51tv.json",
+      "category": "project",
+      "description": "Empty project placeholder"
+    },
+    {
+      "id": "fEiO6OKIp1Dov2jL",
+      "name": "Dev Agent - FIXED v7 (Force Tool Calling)",
+      "active": false,
+      "isArchived": false,
+      "file": "fEiO6OKIp1Dov2jL.json",
+      "category": "agentic",
+      "description": "Fixed dev agent v7 with forced tool calling"
+    },
+    {
+      "id": "k8WuYzk6FPt55nk1",
+      "name": "Claudia Simple Webhook - Working",
+      "active": false,
+      "isArchived": false,
+      "file": "k8WuYzk6FPt55nk1.json",
+      "category": "webhook",
+      "description": "Simple webhook variant"
+    },
+    {
+      "id": "kvsadw8ZKBBeErQN",
+      "name": "Claudia Coder - Beast Driven",
+      "active": false,
+      "isArchived": false,
+      "file": "kvsadw8ZKBBeErQN.json",
+      "category": "orchestrator",
+      "description": "Claudia Coder variant driven by Beast server"
+    },
+    {
+      "id": "oOswOxrBRSNLRXrc",
+      "name": "LMStudio Agentic Dev Tools",
+      "active": true,
+      "isArchived": true,
+      "file": "oOswOxrBRSNLRXrc.json",
+      "category": "agentic",
+      "description": "Archived active LMStudio Dev Tools"
+    },
+    {
+      "id": "p8llbwI2JuUVtze5",
+      "name": "Bambuzle",
+      "active": false,
+      "isArchived": true,
+      "file": "p8llbwI2JuUVtze5.json",
+      "category": "project",
+      "description": "Empty project placeholder"
+    },
+    {
+      "id": "qQljMT1sBztxYQVM",
+      "name": "Autonomous App Builder (Full Integration)",
+      "active": false,
+      "isArchived": false,
+      "file": "qQljMT1sBztxYQVM.json",
+      "category": "builder",
+      "description": "Full integration autonomous app builder"
+    },
+    {
+      "id": "ud7XYHk6QWFvgDxf",
+      "name": "Claudia Coder",
+      "active": true,
+      "isArchived": false,
+      "file": "ud7XYHk6QWFvgDxf.json",
+      "category": "orchestrator",
+      "description": "Main Claudia Coder orchestrator with 50 nodes, multi-model routing, and project management"
+    },
+    {
+      "id": "vsZH7emnHcUtApF8",
+      "name": "Unified ClaudiaCode Processor",
+      "active": false,
+      "isArchived": false,
+      "file": "vsZH7emnHcUtApF8.json",
+      "category": "processor",
+      "description": "Unified processor for ClaudiaCode"
+    },
+    {
+      "id": "yNkPX6701TffSJof",
+      "name": "Project Issues Loader - FIXED v2",
+      "active": true,
+      "isArchived": false,
+      "file": "yNkPX6701TffSJof.json",
+      "category": "loader",
+      "description": "Fixed v2 project issues loader with Linear integration"
+    },
+    {
+      "id": "yZQN8BoBDRDVjO7L",
+      "name": "Claudia Simple Webhook - Working",
+      "active": false,
+      "isArchived": false,
+      "file": "yZQN8BoBDRDVjO7L.json",
+      "category": "webhook",
+      "description": "Simple webhook variant"
+    }
+  ],
+  "categories": {
+    "orchestrator": "Multi-tier routing and coordination workflows",
+    "processor": "Packet/data processing workflows",
+    "webhook": "HTTP webhook endpoints",
+    "agentic": "AI agent-based development tools",
+    "sub-workflow": "Sub-workflows called by other workflows",
+    "loader": "Data loading and sync workflows",
+    "integration": "Third-party integrations (Linear, GitLab, etc.)",
+    "builder": "Autonomous application builders",
+    "template": "Reusable workflow templates",
+    "utility": "Utility and helper workflows",
+    "project": "Project placeholder workflows",
+    "test": "Testing and development workflows",
+    "media": "Media generation workflows",
+    "devops": "DevOps and CI/CD workflows"
+  },
+  "activeWorkflows": [
+    "3jGHJYTu4PhPw8X9",
+    "4p4rBF0F4Ku5aY8x",
+    "5nyJPfrirOtbczoS",
+    "9JoFVmCveQLWoCxw",
+    "9VFsTvZJkJD3htXO",
+    "AR1QJPBsX746UQgu",
+    "Eav7gyLzr7RuGaeT",
+    "J0Zf4eHFSQuqLv95",
+    "Np8FohK927IStXjG",
+    "PXawd0xn6XxHlNEs",
+    "PbSOq6RsFoCsLZUh",
+    "bUUs2y75OZ0C3rJn",
+    "oOswOxrBRSNLRXrc",
+    "ud7XYHk6QWFvgDxf",
+    "yNkPX6701TffSJof"
+  ],
+  "orchestratorWorkflows": [
+    "ud7XYHk6QWFvgDxf",
+    "4p4rBF0F4Ku5aY8x",
+    "PbSOq6RsFoCsLZUh",
+    "9JoFVmCveQLWoCxw",
+    "Eav7gyLzr7RuGaeT",
+    "V3jKwR9t38ncqYpP",
+    "HoHkZgq9xzIC9Ing",
+    "kvsadw8ZKBBeErQN"
+  ]
+}

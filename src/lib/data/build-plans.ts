@@ -82,6 +82,11 @@ export function createBuildPlan(input: CreateBuildPlanInput): StoredBuildPlan {
   const previousPlans = plans.filter(p => p.projectId === input.projectId)
   const revisionNumber = previousPlans.length + 1
 
+  // Ensure arrays exist with fallbacks to prevent .map() errors
+  const objectives = input.originalPlan.spec.objectives || []
+  const nonGoals = input.originalPlan.spec.nonGoals || []
+  const packets = input.originalPlan.packets || []
+
   const plan: StoredBuildPlan = {
     id: generateUUID(),
     projectId: input.projectId,
@@ -89,19 +94,19 @@ export function createBuildPlan(input: CreateBuildPlanInput): StoredBuildPlan {
     createdAt: now,
     updatedAt: now,
     originalPlan: input.originalPlan,
-    editedObjectives: input.originalPlan.spec.objectives.map((text, i) => ({
+    editedObjectives: objectives.map((text, i) => ({
       id: `obj-${i}`,
       text,
       isOriginal: true,
       isDeleted: false
     })),
-    editedNonGoals: input.originalPlan.spec.nonGoals.map((text, i) => ({
+    editedNonGoals: nonGoals.map((text, i) => ({
       id: `ng-${i}`,
       text,
       isOriginal: true,
       isDeleted: false
     })),
-    packetFeedback: input.originalPlan.packets.map(p => ({
+    packetFeedback: packets.map(p => ({
       packetId: p.id,
       approved: null,
       priority: p.priority as PacketFeedback["priority"],

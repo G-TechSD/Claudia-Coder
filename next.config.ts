@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
 
   // Environment variables exposed to the browser
   env: {
-    NEXT_PUBLIC_APP_NAME: "Claudia Admin",
+    NEXT_PUBLIC_APP_NAME: "Claudia Coder",
   },
 
   // Disable strict mode in production for better performance

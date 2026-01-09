@@ -1,0 +1,913 @@
+{
+  "name": "Claudia Orchestrator - Intelligent Multi-Tier Router with Ralph Wiggum Quality Loop",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "claudia-execute",
+        "options": {
+          "rawBody": false,
+          "responseCode": 202,
+          "responseData": "firstEntryJson"
+        },
+        "authentication": "headerAuth",
+        "headerAuth": {
+          "name": "X-Claudia-Token"
+        }
+      },
+      "id": "webhook-entry",
+      "name": "Webhook: /claudia-execute",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 600],
+      "webhookId": "claudia-execute",
+      "notes": "Main entry point for Claudia UI work packets.\nEndpoint: POST /webhook/claudia-execute\nReceives work packets from Claudia UI for intelligent routing."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// PACKET VALIDATOR & NORMALIZER\n// ============================================\n// Validates incoming work packets and normalizes structure\n// Extracts routing hints for the intelligent command router\n//\n// Supported routing tiers:\n// - /primary_free    -> LM Studio Beast (192.168.245.155:1234)\n// - /secondary_free  -> LM Studio Bedroom (192.168.27.182:1234)\n// - /paid_chatgpt    -> OpenAI API\n// - /paid_gemini     -> Google Gemini API\n// - /paid_anthropic  -> Anthropic Claude API\n// - /paid_claudecode -> Claude Code execution\n// - /ssh             -> SSH command execution\n\nconst input = $input.first().json;\nconst headers = input.headers || {};\nconst body = input.body || input;\n\n// Generate unique packet ID\nconst packetId = body.packet_id || body.packetID || \n  `PKT-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;\n\n// Extract routing hints from multiple sources\nconst routingHint = body.route || body.routing_hint || body.tier || null;\nconst routeFromHeader = headers['x-route'] || headers['x-tier'] || null;\nconst routeFromPath = body.routing_path || null;\n\n// Validate required fields\nconst errors = [];\nif (!body.prompt && !body.title && !body.description && !body.issue_id && !body.ssh_command) {\n  errors.push('At least one of prompt, title, description, issue_id, or ssh_command is required');\n}\n\nif (errors.length > 0) {\n  return {\n    json: {\n      success: false,\n      error: 'Validation failed',\n      errors: errors,\n      packet_id: packetId,\n      received_at: new Date().toISOString()\n    }\n  };\n}\n\n// Determine routing tier based on hints (priority order)\nlet routingTier = 'primary_free'; // Default to free tier\n\nif (routeFromHeader) {\n  routingTier = routeFromHeader.replace(/^\\//, '');\n} else if (routingHint) {\n  routingTier = routingHint.replace(/^\\//, '');\n} else if (routeFromPath) {\n  routingTier = routeFromPath.replace(/^\\//, '');\n} else if (body.ssh_command || body.ssh_config?.command) {\n  routingTier = 'ssh';\n} else if (body.labels?.includes('paid') || body.labels?.includes('premium')) {\n  routingTier = 'paid_anthropic';\n} else if (body.labels?.includes('code') || body.labels?.includes('claudecode')) {\n  routingTier = 'paid_claudecode';\n} else if (body.complexity === 'high' || body.priority === 'critical') {\n  routingTier = 'paid_anthropic';\n}\n\n// Normalize routing tier names\nconst tierMapping = {\n  'beast': 'primary_free',\n  'lmstudio_beast': 'primary_free',\n  'lmstudio-beast': 'primary_free',\n  'bedroom': 'secondary_free',\n  'lmstudio_bedroom': 'secondary_free',\n  'lmstudio-bedroom': 'secondary_free',\n  'openai': 'paid_chatgpt',\n  'gpt4': 'paid_chatgpt',\n  'gpt-4': 'paid_chatgpt',\n  'chatgpt': 'paid_chatgpt',\n  'gemini': 'paid_gemini',\n  'google': 'paid_gemini',\n  'claude': 'paid_anthropic',\n  'anthropic': 'paid_anthropic',\n  'claudecode': 'paid_claudecode',\n  'claude-code': 'paid_claudecode',\n  'code': 'paid_claudecode'\n};\n\nroutingTier = tierMapping[routingTier.toLowerCase()] || routingTier;\n\n// Normalize the packet structure\nconst normalizedPacket = {\n  packet_id: packetId,\n  session_id: body.session_id || body.sessionId || packetId,\n  \n  // Core task data\n  prompt: body.prompt || body.description || body.title || '',\n  title: body.title || 'Untitled Task',\n  description: body.description || body.prompt || '',\n  issue_id: body.issue_id || body.issueID || null,\n  \n  // Routing configuration\n  routing: {\n    tier: routingTier,\n    fallback_enabled: body.fallback_enabled !== false,\n    escalate_on_failure: body.escalate_on_failure !== false,\n    original_hint: routingHint || routeFromHeader || 'auto'\n  },\n  \n  // Context\n  labels: body.labels || [],\n  priority: body.priority || 'medium',\n  project_context: body.project_context || body.projectContext || '',\n  project_id: body.project_id || body.projectID || null,\n  working_directory: body.working_directory || body.workingDirectory || '/tmp/claudia',\n  \n  // Callback configuration\n  callback_url: body.callback_url || body.callbackUrl || 'http://192.168.245.211:3000/api/n8n-callback',\n  callback_method: body.callback_method || 'POST',\n  \n  // SSH-specific configuration (for /ssh route)\n  ssh_config: {\n    host: body.ssh_config?.host || body.ssh_host || null,\n    command: body.ssh_config?.command || body.ssh_command || null,\n    user: body.ssh_config?.user || body.ssh_user || 'bill',\n    port: body.ssh_config?.port || body.ssh_port || 22,\n    timeout: body.ssh_config?.timeout || 60000\n  },\n  \n  // Quality loop configuration (Ralph Wiggum mode)\n  quality_config: {\n    max_iterations: body.max_iterations || body.quality_config?.max_iterations || 3,\n    quality_threshold: body.quality_threshold || body.quality_config?.quality_threshold || 70,\n    validation_required: body.validation_required !== false,\n    auto_escalate: body.auto_escalate !== false,\n    ralph_mode: body.ralph_mode !== false, // \"I'm helping!\" mode\n    validator_tier: body.validator_tier || 'paid_anthropic' // Use Claude for validation\n  },\n  \n  // Processing state\n  phase: 'routing',\n  status: 'queued',\n  retry_count: body.retry_count || 0,\n  iteration_count: 0,\n  previous_attempts: body.previous_attempts || [],\n  escalation_history: body.escalation_history || [],\n  \n  // Metadata\n  metadata: {\n    source: 'claudia_webhook',\n    received_at: new Date().toISOString(),\n    request_headers: {\n      user_agent: headers['user-agent'] || 'unknown',\n      x_request_id: headers['x-request-id'] || packetId,\n      content_type: headers['content-type'] || 'application/json'\n    },\n    workflow_version: '2.0.0'\n  }\n};\n\nreturn {\n  json: {\n    success: true,\n    message: 'Packet accepted for processing',\n    packet: normalizedPacket\n  }\n};"
+      },
+      "id": "validate-normalize",
+      "name": "Validate & Normalize Packet",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [340, 600],
+      "notes": "Validates incoming packet, extracts routing hints, normalizes structure for downstream processing"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-validation",
+      "name": "Validation OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [580, 600],
+      "notes": "Route valid packets to orchestrator, invalid to error response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error, errors: $json.errors, packet_id: $json.packet_id }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "respond-error",
+      "name": "Respond: Validation Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [820, 800],
+      "notes": "Return 400 Bad Request for invalid packets"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Packet accepted for async processing', packet_id: $json.packet.packet_id, session_id: $json.packet.session_id, routing_tier: $json.packet.routing.tier, callback_url: $json.packet.callback_url, ralph_says: 'I\\'m helping!' }) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "respond-accepted",
+      "name": "Respond: Accepted (202)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [820, 480],
+      "notes": "Return 202 Accepted - processing continues asynchronously"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// INTELLIGENT COMMAND ROUTER (ORCHESTRATOR)\n// ============================================\n// The brain of the operation - routes packets to\n// appropriate tier based on routing configuration\n//\n// SUPPORTED ROUTES:\n// - /primary_free    -> LM Studio Beast (192.168.245.155:1234)\n// - /secondary_free  -> LM Studio Bedroom (192.168.27.182:1234)\n// - /paid_chatgpt    -> OpenAI API\n// - /paid_gemini     -> Google Gemini API  \n// - /paid_anthropic  -> Anthropic Claude API\n// - /paid_claudecode -> Claude Code execution\n// - /ssh             -> SSH command execution\n//\n// TIER CONFIGURATION:\n// Each tier has priority, fallback, timeout, and model settings\n\nconst packet = $input.first().json.packet;\n\n// Comprehensive tier configuration\nconst TIER_CONFIG = {\n  primary_free: {\n    name: 'LM Studio Beast',\n    endpoint: 'http://192.168.245.155:1234/v1/chat/completions',\n    type: 'openai_compatible',\n    model: 'default',\n    priority: 1,\n    cost_tier: 'free',\n    fallback: 'secondary_free',\n    max_tokens: 8000,\n    temperature: 0.3,\n    timeout: 300000,\n    description: 'Primary local LLM on Beast server'\n  },\n  secondary_free: {\n    name: 'LM Studio Bedroom',\n    endpoint: 'http://192.168.27.182:1234/v1/chat/completions',\n    type: 'openai_compatible',\n    model: 'default',\n    priority: 2,\n    cost_tier: 'free',\n    fallback: 'paid_anthropic',\n    max_tokens: 8000,\n    temperature: 0.3,\n    timeout: 300000,\n    description: 'Secondary local LLM on Bedroom server'\n  },\n  paid_chatgpt: {\n    name: 'OpenAI GPT-4',\n    endpoint: 'https://api.openai.com/v1/chat/completions',\n    type: 'openai',\n    model: 'gpt-4-turbo-preview',\n    priority: 3,\n    cost_tier: 'paid',\n    fallback: 'paid_anthropic',\n    max_tokens: 4096,\n    temperature: 0.3,\n    timeout: 120000,\n    description: 'OpenAI GPT-4 Turbo API'\n  },\n  paid_gemini: {\n    name: 'Google Gemini Pro',\n    endpoint: 'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent',\n    type: 'gemini',\n    model: 'gemini-pro',\n    priority: 3,\n    cost_tier: 'paid',\n    fallback: 'paid_anthropic',\n    max_tokens: 4096,\n    temperature: 0.3,\n    timeout: 120000,\n    description: 'Google Gemini Pro API'\n  },\n  paid_anthropic: {\n    name: 'Anthropic Claude',\n    endpoint: 'https://api.anthropic.com/v1/messages',\n    type: 'anthropic',\n    model: 'claude-sonnet-4-20250514',\n    priority: 4,\n    cost_tier: 'paid',\n    fallback: null,\n    max_tokens: 4096,\n    temperature: 0.3,\n    timeout: 180000,\n    description: 'Anthropic Claude Sonnet API'\n  },\n  paid_claudecode: {\n    name: 'Claude Code',\n    endpoint: 'local_execution',\n    type: 'claudecode',\n    model: 'claude-code',\n    priority: 5,\n    cost_tier: 'paid_premium',\n    fallback: 'paid_anthropic',\n    max_tokens: 8000,\n    temperature: 0.2,\n    timeout: 600000,\n    description: 'Claude Code local execution'\n  },\n  ssh: {\n    name: 'SSH Execution',\n    endpoint: 'ssh_execution',\n    type: 'ssh',\n    model: null,\n    priority: 0,\n    cost_tier: 'free',\n    fallback: null,\n    timeout: 60000,\n    description: 'SSH command execution on remote hosts'\n  }\n};\n\nconst tier = packet.routing.tier;\nconst tierConfig = TIER_CONFIG[tier] || TIER_CONFIG.primary_free;\n\n// Build system and user prompts based on packet content\nfunction buildSystemPrompt(pkt) {\n  const contextSection = pkt.project_context ? \n    `\\n\\n## Project Context\\n${pkt.project_context}` : '';\n  \n  const prioritySection = pkt.priority !== 'medium' ?\n    `\\n\\n## Priority Level: ${pkt.priority.toUpperCase()}` : '';\n  \n  const labelsSection = pkt.labels?.length > 0 ?\n    `\\n\\n## Labels/Tags: ${pkt.labels.join(', ')}` : '';\n\n  return `You are an expert software engineer and assistant working on development tasks.\n${contextSection}${prioritySection}${labelsSection}\n\n## Your Responsibilities\n1. Provide complete, production-ready solutions\n2. Include proper error handling and edge cases\n3. Write clear, maintainable code with documentation\n4. If generating code, include tests where appropriate\n5. Be thorough - avoid placeholders or TODOs unless explicitly noted\n6. Explain your reasoning and any assumptions made`;\n}\n\nfunction buildUserPrompt(pkt) {\n  let prompt = '';\n  \n  if (pkt.title && pkt.title !== 'Untitled Task') {\n    prompt += `# Task: ${pkt.title}\\n\\n`;\n  }\n  \n  if (pkt.description && pkt.description !== pkt.prompt) {\n    prompt += `## Description\\n${pkt.description}\\n\\n`;\n  }\n  \n  if (pkt.prompt) {\n    prompt += `## Request\\n${pkt.prompt}\\n\\n`;\n  }\n  \n  if (pkt.issue_id) {\n    prompt += `## Reference: Issue ${pkt.issue_id}\\n\\n`;\n  }\n  \n  return prompt.trim() || pkt.prompt || 'Please assist with the requested task.';\n}\n\n// Build the routing decision object\nconst routingDecision = {\n  packet_id: packet.packet_id,\n  session_id: packet.session_id,\n  selected_tier: tier,\n  tier_config: tierConfig,\n  \n  // Prepared prompts\n  system_prompt: buildSystemPrompt(packet),\n  user_prompt: buildUserPrompt(packet),\n  \n  // Pass through all packet data\n  original_packet: packet,\n  \n  // Routing metadata\n  routing_timestamp: new Date().toISOString(),\n  route_path: tier,\n  \n  // Quality loop state\n  iteration_count: packet.iteration_count || 0,\n  quality_config: packet.quality_config\n};\n\nreturn { json: routingDecision };"
+      },
+      "id": "orchestrator-router",
+      "name": "Intelligent Command Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 480],
+      "notes": "The Orchestrator - routes to appropriate tier based on routing hints and packet configuration"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.route_path }}",
+                    "operation": "equals",
+                    "value2": "primary_free"
+                  }
+                ]
+              },
+              "output": 0
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.route_path }}",
+                    "operation": "equals",
+                    "value2": "secondary_free"
+                  }
+                ]
+              },
+              "output": 1
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.route_path }}",
+                    "operation": "equals",
+                    "value2": "paid_chatgpt"
+                  }
+                ]
+              },
+              "output": 2
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.route_path }}",
+                    "operation": "equals",
+                    "value2": "paid_gemini"
+                  }
+                ]
+              },
+              "output": 3
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.route_path }}",
+                    "operation": "equals",
+                    "value2": "paid_anthropic"
+                  }
+                ]
+              },
+              "output": 4
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.route_path }}",
+                    "operation": "equals",
+                    "value2": "paid_claudecode"
+                  }
+                ]
+              },
+              "output": 5
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.route_path }}",
+                    "operation": "equals",
+                    "value2": "ssh"
+                  }
+                ]
+              },
+              "output": 6
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "tier-switch",
+      "name": "Route to Tier",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1300, 480],
+      "notes": "7-way switch routing to each tier handler:\n0: primary_free (Beast)\n1: secondary_free (Bedroom)\n2: paid_chatgpt (OpenAI)\n3: paid_gemini (Google)\n4: paid_anthropic (Claude)\n5: paid_claudecode (Claude Code)\n6: ssh (SSH execution)\n7: fallback (unknown route)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.245.155:1234/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: $json.tier_config.model || 'default', messages: [{role: 'system', content: $json.system_prompt}, {role: 'user', content: $json.user_prompt}], temperature: $json.tier_config.temperature || 0.3, max_tokens: $json.tier_config.max_tokens || 8000 } }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "tier-primary-free",
+      "name": "/primary_free: LM Studio Beast",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 0],
+      "notes": "Primary Free Tier\nLM Studio Beast Server\nEndpoint: http://192.168.245.155:1234"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.27.182:1234/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: $json.tier_config.model || 'default', messages: [{role: 'system', content: $json.system_prompt}, {role: 'user', content: $json.user_prompt}], temperature: $json.tier_config.temperature || 0.3, max_tokens: $json.tier_config.max_tokens || 8000 } }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "tier-secondary-free",
+      "name": "/secondary_free: LM Studio Bedroom",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 180],
+      "notes": "Secondary Free Tier\nLM Studio Bedroom Server\nEndpoint: http://192.168.27.182:1234"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'gpt-4-turbo-preview', messages: [{role: 'system', content: $json.system_prompt}, {role: 'user', content: $json.user_prompt}], temperature: $json.tier_config.temperature || 0.3, max_tokens: $json.tier_config.max_tokens || 4096 } }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "tier-paid-chatgpt",
+      "name": "/paid_chatgpt: OpenAI API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 360],
+      "notes": "Paid Tier: OpenAI\nGPT-4 Turbo API\nRequires OpenAI API credential configured in N8N"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { contents: [{ parts: [{ text: $json.system_prompt + '\\n\\n---\\n\\n' + $json.user_prompt }] }], generationConfig: { temperature: $json.tier_config.temperature || 0.3, maxOutputTokens: $json.tier_config.max_tokens || 4096 } } }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "tier-paid-gemini",
+      "name": "/paid_gemini: Google Gemini API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 540],
+      "notes": "Paid Tier: Google Gemini\nGemini Pro API\nRequires GEMINI_API_KEY environment variable"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'claude-sonnet-4-20250514', max_tokens: $json.tier_config.max_tokens || 4096, system: $json.system_prompt, messages: [{role: 'user', content: $json.user_prompt}] } }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "tier-paid-anthropic",
+      "name": "/paid_anthropic: Anthropic Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 720],
+      "notes": "Paid Tier: Anthropic\nClaude Sonnet API\nRequires Anthropic API credential configured in N8N"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// CLAUDE CODE EXECUTOR\n// ============================================\n// Handles /paid_claudecode route\n// Prepares request for Claude Code execution\n// This is a placeholder - actual execution requires\n// local process spawning or API proxy integration\n\nconst routing = $input.first().json;\nconst packet = routing.original_packet;\n\n// Claude Code execution typically requires:\n// 1. Local Claude Code CLI installation\n// 2. Working directory setup\n// 3. Process spawning capability\n\n// For now, we prepare the execution request\n// and return a structured response\n\nconst claudeCodeRequest = {\n  type: 'claudecode_execution',\n  prompt: routing.user_prompt,\n  system_context: routing.system_prompt,\n  working_directory: packet.working_directory || '/tmp/claudia',\n  project_context: packet.project_context,\n  timeout: routing.tier_config.timeout || 600000\n};\n\n// Simulate response structure\n// In production, this would spawn claude-code CLI\nconst response = {\n  choices: [{\n    message: {\n      role: 'assistant',\n      content: `[Claude Code Execution Request]\\n\\nThis request has been prepared for Claude Code execution.\\n\\n## Request Details\\n- Working Directory: ${claudeCodeRequest.working_directory}\\n- Timeout: ${claudeCodeRequest.timeout}ms\\n\\n## Prompt\\n${claudeCodeRequest.prompt}\\n\\n---\\n\\n**Note:** Full Claude Code execution requires local process integration. Configure the N8N Execute Command node or custom integration for full functionality.`\n    }\n  }],\n  model: 'claude-code',\n  usage: { prompt_tokens: 0, completion_tokens: 0 },\n  _claudecode_request: claudeCodeRequest,\n  _requires_local_execution: true\n};\n\nreturn { json: response };"
+      },
+      "id": "tier-paid-claudecode",
+      "name": "/paid_claudecode: Claude Code Executor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1580, 900],
+      "notes": "Paid Tier: Claude Code\nLocal execution handler\nRequires Claude Code CLI integration"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// SSH COMMAND EXECUTOR\n// ============================================\n// Handles /ssh route\n// Prepares SSH command for execution\n// Actual execution requires N8N SSH node credentials\n\nconst routing = $input.first().json;\nconst packet = routing.original_packet;\nconst sshConfig = packet.ssh_config;\n\n// Validate SSH configuration\nif (!sshConfig.host) {\n  return {\n    json: {\n      choices: [{\n        message: {\n          role: 'assistant',\n          content: `[SSH Execution Error]\\n\\n**Error:** SSH host is required but not provided.\\n\\n## Required SSH Configuration\\n- host: The target server hostname/IP\\n- command: The command to execute\\n- user: SSH username (default: bill)\\n- port: SSH port (default: 22)\\n\\n## Example Request\\n\\`\\`\\`json\\n{\\n  \"route\": \"ssh\",\\n  \"ssh_config\": {\\n    \"host\": \"192.168.1.100\",\\n    \"command\": \"ls -la /home/bill\",\\n    \"user\": \"bill\"\\n  }\\n}\\n\\`\\`\\``\n        }\n      }],\n      model: 'ssh',\n      _error: 'SSH host required',\n      _ssh_config: sshConfig\n    }\n  };\n}\n\nif (!sshConfig.command) {\n  return {\n    json: {\n      choices: [{\n        message: {\n          role: 'assistant', \n          content: `[SSH Execution Error]\\n\\n**Error:** SSH command is required but not provided.\\n\\n## SSH Config Received\\n- Host: ${sshConfig.host}\\n- User: ${sshConfig.user}\\n- Port: ${sshConfig.port}\\n\\n**Missing:** command to execute`\n        }\n      }],\n      model: 'ssh',\n      _error: 'SSH command required',\n      _ssh_config: sshConfig\n    }\n  };\n}\n\n// Prepare SSH execution request\nconst sshRequest = {\n  host: sshConfig.host,\n  user: sshConfig.user || 'bill',\n  port: sshConfig.port || 22,\n  command: sshConfig.command,\n  timeout: sshConfig.timeout || 60000\n};\n\n// Return prepared request\n// In production, connect this to N8N SSH node\nconst response = {\n  choices: [{\n    message: {\n      role: 'assistant',\n      content: `[SSH Execution Prepared]\\n\\n## Connection Details\\n- Host: ${sshRequest.host}\\n- User: ${sshRequest.user}\\n- Port: ${sshRequest.port}\\n\\n## Command\\n\\`\\`\\`bash\\n${sshRequest.command}\\n\\`\\`\\`\\n\\n## Status\\nSSH command prepared for execution. Connect this output to an N8N SSH node with configured credentials for actual execution.\\n\\n---\\n\\n**Note:** This is a preparation step. Configure N8N SSH credentials and connect to SSH node for actual remote execution.`\n    }\n  }],\n  model: 'ssh',\n  usage: null,\n  _ssh_request: sshRequest,\n  _requires_ssh_node: true\n};\n\nreturn { json: response };"
+      },
+      "id": "tier-ssh",
+      "name": "/ssh: SSH Command Executor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1580, 1080],
+      "notes": "SSH Route\nCommand execution handler\nPrepares SSH commands for N8N SSH node execution"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FALLBACK HANDLER\n// ============================================\n// Handles unknown routes or routing errors\n\nconst routing = $input.first().json;\n\nconst response = {\n  choices: [{\n    message: {\n      role: 'assistant',\n      content: `[Routing Error]\\n\\n**Unknown route:** ${routing.route_path || 'undefined'}\\n\\n## Supported Routes\\n- \\`/primary_free\\` - LM Studio Beast (192.168.245.155:1234)\\n- \\`/secondary_free\\` - LM Studio Bedroom (192.168.27.182:1234)\\n- \\`/paid_chatgpt\\` - OpenAI GPT-4 API\\n- \\`/paid_gemini\\` - Google Gemini API\\n- \\`/paid_anthropic\\` - Anthropic Claude API\\n- \\`/paid_claudecode\\` - Claude Code execution\\n- \\`/ssh\\` - SSH command execution\\n\\n## How to Specify Route\\nInclude one of these in your request:\\n- \\`route: \"primary_free\"\\`\\n- \\`routing_hint: \"/paid_anthropic\"\\`\\n- Header: \\`X-Route: paid_chatgpt\\`\\n\\nDefaulting to primary_free tier.`\n    }\n  }],\n  model: 'fallback',\n  usage: null,\n  _error: `Unknown route: ${routing.route_path}`,\n  _fallback_triggered: true\n};\n\nreturn { json: response };"
+      },
+      "id": "tier-fallback",
+      "name": "Fallback: Unknown Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1580, 1260],
+      "notes": "Fallback handler for unknown or invalid routes"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-tier-responses",
+      "name": "Merge Tier Responses",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1880, 600],
+      "notes": "Merges responses from all 8 tier outputs into single stream"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// RESPONSE NORMALIZER\n// ============================================\n// Normalizes responses from all tiers into a common format\n// for the Ralph Wiggum quality loop\n//\n// Handles response formats from:\n// - OpenAI/LM Studio (choices array)\n// - Anthropic (content array)\n// - Gemini (candidates array)\n// - Custom handlers (choices simulation)\n\nconst item = $input.first().json;\n\n// Get routing context from the orchestrator\nlet routingContext = null;\ntry {\n  routingContext = $node['Intelligent Command Router'].json;\n} catch (e) {\n  // Fallback: try to extract from item\n  routingContext = item._routing_context || {};\n}\n\n// Extract content based on response format\nlet content = '';\nlet model = 'unknown';\nlet usage = null;\nlet responseType = 'unknown';\n\n// OpenAI / LM Studio / Custom format (choices array)\nif (item.choices && item.choices[0]) {\n  content = item.choices[0].message?.content || item.choices[0].text || '';\n  model = item.model || 'openai_compatible';\n  usage = item.usage || null;\n  responseType = 'openai';\n}\n// Anthropic format (content array)\nelse if (item.content && Array.isArray(item.content)) {\n  content = item.content.map(c => c.text || '').join('\\n');\n  model = item.model || 'claude';\n  usage = { \n    input_tokens: item.usage?.input_tokens, \n    output_tokens: item.usage?.output_tokens \n  };\n  responseType = 'anthropic';\n}\n// Gemini format (candidates array)\nelse if (item.candidates && item.candidates[0]) {\n  const parts = item.candidates[0].content?.parts || [];\n  content = parts.map(p => p.text || '').join('\\n');\n  model = 'gemini-pro';\n  usage = item.usageMetadata || null;\n  responseType = 'gemini';\n}\n// Error response\nelse if (item.error) {\n  content = `Error: ${item.error.message || JSON.stringify(item.error)}`;\n  model = 'error';\n  responseType = 'error';\n}\n// Direct content passthrough\nelse if (typeof item === 'string') {\n  content = item;\n  model = 'direct';\n  responseType = 'direct';\n}\n\n// Build normalized response\nconst normalized = {\n  packet_id: routingContext?.packet_id || 'unknown',\n  session_id: routingContext?.session_id || 'unknown',\n  \n  // Response data\n  response: {\n    content: content,\n    model: model,\n    usage: usage,\n    response_type: responseType,\n    raw_response: item,\n    timestamp: new Date().toISOString()\n  },\n  \n  // Routing info (preserved from orchestrator)\n  tier_used: routingContext?.selected_tier || 'unknown',\n  tier_config: routingContext?.tier_config || {},\n  system_prompt: routingContext?.system_prompt || '',\n  user_prompt: routingContext?.user_prompt || '',\n  \n  // Original packet for reference\n  original_packet: routingContext?.original_packet || {},\n  \n  // Quality loop state\n  iteration_count: (routingContext?.iteration_count || 0) + 1,\n  quality_config: routingContext?.quality_config || routingContext?.original_packet?.quality_config || {\n    max_iterations: 3,\n    quality_threshold: 70,\n    ralph_mode: true\n  },\n  \n  // Processing state\n  phase: 'quality_check',\n  status: content && !content.startsWith('Error:') ? 'response_received' : 'error'\n};\n\nreturn { json: normalized };"
+      },
+      "id": "normalize-response",
+      "name": "Normalize Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2120, 600],
+      "notes": "Normalizes all tier responses to common format for Ralph Wiggum quality loop"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// RALPH WIGGUM QUALITY LOOP\n// ============================================\n// \"I'm helping!\" - Ralph Wiggum\n//\n// Quality validator that evaluates responses and decides:\n// 1. ACCEPT - Response meets quality threshold, proceed to callback\n// 2. ITERATE - Response needs improvement, loop back with feedback\n// 3. ESCALATE - Max iterations on free tier, escalate to paid tier\n// 4. FAIL - Critical error, cannot proceed\n//\n// Ralph keeps trying (\"I'm helping!\") until actually helpful!\n\nconst item = $input.first().json;\nconst response = item.response;\nconst config = item.quality_config;\nconst iteration = item.iteration_count;\n\n// ========== QUALITY SCORING FUNCTION ==========\nfunction calculateQualityScore(content, context) {\n  let score = 0;\n  const issues = [];\n  const strengths = [];\n  \n  // Handle empty or error content\n  if (!content || content.length === 0) {\n    return {\n      score: 0,\n      issues: [{ severity: 'critical', issue: 'No response content' }],\n      strengths: []\n    };\n  }\n  \n  if (content.startsWith('Error:') || content.includes('[Error]')) {\n    return {\n      score: 10,\n      issues: [{ severity: 'critical', issue: 'Response contains error' }],\n      strengths: []\n    };\n  }\n  \n  // ===== CONTENT LENGTH (0-20 points) =====\n  if (content.length > 500) {\n    score += 20;\n    strengths.push('Substantial response with good detail');\n  } else if (content.length > 200) {\n    score += 15;\n    strengths.push('Adequate response length');\n  } else if (content.length > 50) {\n    score += 10;\n    issues.push({ severity: 'minor', issue: 'Response could be more detailed' });\n  } else {\n    score += 5;\n    issues.push({ severity: 'major', issue: 'Response is too brief' });\n  }\n  \n  // ===== CODE DETECTION (0-25 points) =====\n  const codeKeywords = ['code', 'implement', 'function', 'class', 'method', 'api', 'script'];\n  const isCodeRequest = codeKeywords.some(kw => context.toLowerCase().includes(kw));\n  \n  if (isCodeRequest) {\n    const hasCodeBlocks = content.includes('```');\n    const hasInlineCode = /`[^`]+`/.test(content);\n    const hasCodePatterns = /\\b(def |function |class |const |let |var |import |from )/.test(content);\n    \n    if (hasCodeBlocks) {\n      score += 25;\n      strengths.push('Contains properly formatted code blocks');\n    } else if (hasCodePatterns || hasInlineCode) {\n      score += 18;\n      strengths.push('Contains code content');\n      issues.push({ severity: 'minor', issue: 'Consider using code blocks for better formatting' });\n    } else {\n      score += 5;\n      issues.push({ severity: 'major', issue: 'Code request but no code found in response' });\n    }\n  } else {\n    score += 20; // Non-code request, automatic partial credit\n  }\n  \n  // ===== STRUCTURE & ORGANIZATION (0-20 points) =====\n  const hasMarkdownHeaders = /^#{1,6}\\s/m.test(content);\n  const hasBulletLists = /^[\\s]*[-*]\\s/m.test(content) || /^[\\s]*\\d+\\.\\s/m.test(content);\n  const hasParagraphs = (content.match(/\\n\\n/g) || []).length >= 2;\n  \n  let structureScore = 0;\n  if (hasMarkdownHeaders) structureScore += 8;\n  if (hasBulletLists) structureScore += 7;\n  if (hasParagraphs) structureScore += 5;\n  \n  score += structureScore;\n  \n  if (structureScore >= 15) {\n    strengths.push('Well-structured with headers and lists');\n  } else if (structureScore >= 8) {\n    strengths.push('Reasonable structure');\n  } else {\n    issues.push({ severity: 'minor', issue: 'Could benefit from better structure (headers, lists)' });\n  }\n  \n  // ===== COMPLETENESS (0-20 points) =====\n  const completenessIndicators = [\n    { pattern: /example/i, weight: 3 },\n    { pattern: /note:|important:|warning:/i, weight: 2 },\n    { pattern: /step\\s?\\d|first|then|finally/i, weight: 3 },\n    { pattern: /because|since|therefore/i, weight: 2 },\n    { pattern: /\\?/g, weight: -2 }, // Questions in response (usually bad)\n  ];\n  \n  let completenessScore = 10; // Base score\n  completenessIndicators.forEach(ind => {\n    if (ind.pattern.test(content)) {\n      completenessScore += ind.weight;\n    }\n  });\n  completenessScore = Math.max(0, Math.min(20, completenessScore));\n  score += completenessScore;\n  \n  if (completenessScore >= 15) {\n    strengths.push('Comprehensive with examples and explanations');\n  }\n  \n  // ===== QUALITY DEDUCTIONS =====\n  const deductionPatterns = [\n    { pattern: /TODO:|FIXME:|placeholder/i, deduction: 8, issue: 'Contains placeholder content' },\n    { pattern: /i don't know|i'm not sure|i cannot/i, deduction: 10, issue: 'Expresses uncertainty' },\n    { pattern: /error:|failed:|exception/i, deduction: 5, issue: 'May contain error messages' },\n    { pattern: /\\.\\.\\.[^`]/g, deduction: 3, issue: 'Contains ellipsis (possibly incomplete)' }\n  ];\n  \n  deductionPatterns.forEach(dp => {\n    if (dp.pattern.test(content)) {\n      score -= dp.deduction;\n      issues.push({ severity: 'minor', issue: dp.issue });\n    }\n  });\n  \n  // ===== COHERENCE BONUS (0-15 points) =====\n  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 15);\n  if (sentences.length >= 5) {\n    score += 15;\n    strengths.push('Good sentence structure and flow');\n  } else if (sentences.length >= 3) {\n    score += 10;\n  } else {\n    score += 5;\n  }\n  \n  // Ensure score is in valid range\n  score = Math.max(0, Math.min(100, score));\n  \n  return { score, issues, strengths };\n}\n\n// ========== PERFORM QUALITY CHECK ==========\nconst context = item.original_packet?.prompt || \n                item.original_packet?.description || \n                item.original_packet?.title || \n                item.user_prompt || '';\n\nconst quality = calculateQualityScore(response.content || '', context);\n\n// ========== DETERMINE RECOMMENDATION ==========\nlet recommendation = 'ITERATE';\nlet ralph_says = \"I'm helping!\";\nlet next_action = 'iterate';\n\nif (quality.score >= config.quality_threshold) {\n  recommendation = 'ACCEPT';\n  ralph_says = \"I'm a star! The response meets quality standards.\";\n  next_action = 'accept';\n} else if (iteration >= config.max_iterations) {\n  // Check if we should escalate to paid tier\n  const currentTier = item.tier_used || 'primary_free';\n  const isFree = currentTier.includes('free');\n  const canEscalate = config.auto_escalate && isFree && item.tier_config?.fallback;\n  \n  if (canEscalate) {\n    recommendation = 'ESCALATE';\n    ralph_says = `I need a grown-up! Escalating from ${currentTier} to ${item.tier_config.fallback}`;\n    next_action = 'escalate';\n  } else {\n    recommendation = 'ACCEPT_PARTIAL';\n    ralph_says = \"I tried my best! Returning best effort after max iterations.\";\n    next_action = 'accept_partial';\n  }\n} else {\n  recommendation = 'ITERATE';\n  ralph_says = `I'm helping! Iteration ${iteration}/${config.max_iterations}, score ${quality.score}/${config.quality_threshold}`;\n  next_action = 'iterate';\n}\n\n// Build improvement suggestions\nconst improvements = quality.issues.map(i => i.issue);\n\nreturn {\n  json: {\n    ...item,\n    quality_assessment: {\n      score: quality.score,\n      threshold: config.quality_threshold,\n      issues: quality.issues,\n      strengths: quality.strengths,\n      recommendation: recommendation,\n      ralph_says: ralph_says\n    },\n    iteration_count: iteration,\n    improvements_needed: improvements,\n    phase: 'routing_decision',\n    next_action: next_action\n  }\n};"
+      },
+      "id": "ralph-quality-loop",
+      "name": "Ralph Wiggum Quality Loop",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2360, 600],
+      "notes": "Quality validator with Ralph Wiggum personality.\n\"I'm helping!\" - keeps iterating until response is actually helpful.\nScores content on length, structure, completeness, and relevance."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.next_action }}",
+                    "operation": "equals",
+                    "value2": "accept"
+                  }
+                ]
+              },
+              "output": 0
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.next_action }}",
+                    "operation": "equals",
+                    "value2": "accept_partial"
+                  }
+                ]
+              },
+              "output": 0
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.next_action }}",
+                    "operation": "equals",
+                    "value2": "iterate"
+                  }
+                ]
+              },
+              "output": 1
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.next_action }}",
+                    "operation": "equals",
+                    "value2": "escalate"
+                  }
+                ]
+              },
+              "output": 2
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "quality-router",
+      "name": "Quality Decision Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [2600, 600],
+      "notes": "Routes based on Ralph's quality assessment:\n0: ACCEPT / ACCEPT_PARTIAL -> Response Aggregator\n1: ITERATE -> Prepare Iteration (loop back)\n2: ESCALATE -> Prepare Escalation (upgrade tier)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// RESPONSE AGGREGATOR\n// ============================================\n// Collects and formats final results for Claudia callback\n// This is the success path (ACCEPT or ACCEPT_PARTIAL)\n\nconst item = $input.first().json;\nconst packet = item.original_packet;\n\nconst aggregatedResult = {\n  // Identifiers\n  packet_id: item.packet_id,\n  session_id: item.session_id,\n  \n  // Final status\n  status: item.next_action === 'accept' ? 'completed' : 'completed_with_issues',\n  \n  // Quality summary\n  quality: {\n    final_score: item.quality_assessment.score,\n    threshold: item.quality_assessment.threshold,\n    met_threshold: item.quality_assessment.score >= item.quality_assessment.threshold,\n    iterations_used: item.iteration_count,\n    recommendation: item.quality_assessment.recommendation,\n    ralph_says: item.quality_assessment.ralph_says\n  },\n  \n  // The actual response content\n  result: {\n    content: item.response.content,\n    model: item.response.model,\n    tier_used: item.tier_used,\n    usage: item.response.usage\n  },\n  \n  // Quality assessment details\n  assessment: {\n    strengths: item.quality_assessment.strengths,\n    issues: item.quality_assessment.issues,\n    improvements_suggested: item.improvements_needed\n  },\n  \n  // Original request metadata\n  metadata: {\n    original_title: packet?.title,\n    issue_id: packet?.issue_id,\n    labels: packet?.labels,\n    priority: packet?.priority,\n    routing_tier_requested: packet?.routing?.tier,\n    routing_tier_used: item.tier_used,\n    processing_timestamp: new Date().toISOString()\n  },\n  \n  // Callback configuration\n  callback_url: packet?.callback_url || 'http://192.168.245.211:3000/api/n8n-callback',\n  should_callback: true\n};\n\nreturn { json: aggregatedResult };"
+      },
+      "id": "response-aggregator",
+      "name": "Response Aggregator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 400],
+      "notes": "Aggregates final results from quality loop for Claudia callback"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// PREPARE ITERATION (Loop Back)\n// ============================================\n// When quality is below threshold and iterations remain,\n// prepare an improved prompt with feedback for another attempt\n//\n// Ralph says: \"I'm helping! Let me try again!\"\n\nconst item = $input.first().json;\nconst config = item.quality_config;\n\n// Build feedback prompt incorporating quality issues\nconst feedbackItems = item.improvements_needed || [];\nconst strengthItems = item.quality_assessment.strengths || [];\n\nconst iterationPrompt = `## ITERATION ${item.iteration_count + 1} OF ${config.max_iterations}\n\nYour previous response scored **${item.quality_assessment.score}/100** (threshold: ${config.quality_threshold}).\n\n### What Worked Well (Keep These):\n${strengthItems.length > 0 ? strengthItems.map(s => `- ${s}`).join('\\n') : '- No specific strengths identified'}\n\n### Areas Needing Improvement:\n${feedbackItems.length > 0 ? feedbackItems.map(i => `- ${i}`).join('\\n') : '- General quality improvements needed'}\n\n### Ralph Says: \"${item.quality_assessment.ralph_says}\"\n\n---\n\n### Original Request:\n${item.user_prompt || item.original_packet?.prompt || item.original_packet?.description}\n\n---\n\n**Please provide an IMPROVED response that:**\n1. Addresses the improvement areas listed above\n2. Maintains the strengths from your previous attempt\n3. Is more complete, structured, and thorough\n4. Meets the quality threshold of ${config.quality_threshold}/100\n\nProvide your improved response now:`;\n\n// Update packet for re-routing\nconst iterationPacket = {\n  ...item.original_packet,\n  prompt: iterationPrompt,\n  iteration_count: item.iteration_count,\n  previous_score: item.quality_assessment.score,\n  previous_feedback: feedbackItems,\n  retry_count: (item.original_packet?.retry_count || 0) + 1\n};\n\nreturn {\n  json: {\n    packet: iterationPacket,\n    success: true,\n    message: `Iteration ${item.iteration_count + 1} prepared - Ralph says: \"${item.quality_assessment.ralph_says}\"`\n  }\n};"
+      },
+      "id": "prepare-iteration",
+      "name": "Prepare Iteration (Ralph Loop)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 620],
+      "notes": "Prepares improved prompt with feedback for quality loop iteration.\nRalph says: \"I'm helping! Let me try again!\""
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// PREPARE ESCALATION (Move to Paid Tier)\n// ============================================\n// When free tier max iterations reached without meeting\n// quality threshold, escalate to a paid tier\n//\n// Ralph says: \"I need a grown-up!\"\n\nconst item = $input.first().json;\nconst config = item.quality_config;\n\n// Determine escalation target\nconst currentTier = item.tier_used || 'primary_free';\nconst fallbackTier = item.tier_config?.fallback || 'paid_anthropic';\n\n// Build escalation context with history\nconst escalationPrompt = `## ESCALATED REQUEST\n\n**Previous attempts:** ${item.iteration_count} iterations on ${currentTier}\n**Best score achieved:** ${item.quality_assessment.score}/100\n**Required threshold:** ${config.quality_threshold}\n\n### Previous Attempt Issues:\n${(item.improvements_needed || []).map(i => `- ${i}`).join('\\n') || '- Quality threshold not met'}\n\n### Ralph's Assessment:\n\"${item.quality_assessment.ralph_says}\"\n\n---\n\n### Original Request:\n${item.original_packet?.prompt || item.user_prompt}\n\n---\n\n**This request has been escalated to a premium tier (${fallbackTier}) for better results.**\n\nPlease provide a high-quality, comprehensive response that addresses all requirements.\nThis is an escalated request requiring your best output.`;\n\n// Build escalation packet\nconst escalationPacket = {\n  ...item.original_packet,\n  prompt: escalationPrompt,\n  description: escalationPrompt,\n  routing: {\n    tier: fallbackTier,\n    fallback_enabled: false, // No further escalation\n    escalate_on_failure: false\n  },\n  iteration_count: 0, // Reset iteration count for new tier\n  escalated_from: currentTier,\n  escalation_history: [\n    ...(item.original_packet?.escalation_history || []),\n    {\n      from_tier: currentTier,\n      to_tier: fallbackTier,\n      iterations_attempted: item.iteration_count,\n      best_score: item.quality_assessment.score,\n      timestamp: new Date().toISOString()\n    }\n  ]\n};\n\nreturn {\n  json: {\n    packet: escalationPacket,\n    success: true,\n    message: `Escalating from ${currentTier} to ${fallbackTier} - Ralph says: \"I need a grown-up!\"`\n  }\n};"
+      },
+      "id": "prepare-escalation",
+      "name": "Prepare Escalation (Upgrade Tier)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 840],
+      "notes": "Prepares escalation to paid tier when free tier exhausted.\nRalph says: \"I need a grown-up!\""
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Claudia-Callback",
+              "value": "completion"
+            },
+            {
+              "name": "X-Packet-ID",
+              "value": "={{ $json.packet_id }}"
+            },
+            {
+              "name": "X-Session-ID",
+              "value": "={{ $json.session_id }}"
+            },
+            {
+              "name": "X-Quality-Score",
+              "value": "={{ $json.quality.final_score }}"
+            },
+            {
+              "name": "X-Ralph-Says",
+              "value": "={{ $json.quality.ralph_says }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { sessionId: $json.session_id, type: $json.status === 'completed' ? 'complete' : 'complete', data: { packet_id: $json.packet_id, iteration: $json.quality.iterations_used, score: $json.quality.final_score, output: $json.result.content, filesChanged: [], model: $json.result.model, tier_used: $json.result.tier_used, metadata: $json.metadata, assessment: $json.assessment, ralph_says: $json.quality.ralph_says } } }}",
+        "options": {
+          "timeout": 30000,
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "callback-claudia",
+      "name": "Callback to Claudia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3160, 400],
+      "notes": "POST final results to CLAUDIA_CALLBACK_URL\nDefault: http://192.168.245.211:3000/api/n8n-callback"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// FINAL SUMMARY GENERATOR\n// ============================================\n// Creates execution summary for logging and monitoring\n\nconst item = $input.first().json;\n\nconst summary = {\n  execution_summary: {\n    execution_id: `EXEC-${Date.now()}`,\n    workflow: 'Claudia Orchestrator v2.0',\n    workflow_name: 'Intelligent Multi-Tier Router with Ralph Wiggum Quality Loop',\n    \n    // Packet info\n    packet_id: item.packet_id || item.data?.packet_id || 'unknown',\n    session_id: item.session_id || item.data?.session_id || 'unknown',\n    \n    // Processing results\n    final_status: item.status || 'completed',\n    quality_score: item.quality?.final_score || item.data?.score || 0,\n    quality_threshold: item.quality?.threshold || 70,\n    iterations_used: item.quality?.iterations_used || item.data?.iteration || 1,\n    tier_used: item.result?.tier_used || item.data?.tier_used || 'unknown',\n    model_used: item.result?.model || item.data?.model || 'unknown',\n    \n    // Ralph's wisdom\n    ralph_says: item.quality?.ralph_says || item.data?.ralph_says || \"I'm a student!\",\n    \n    // Callback info\n    callback_sent: true,\n    callback_url: item.callback_url || 'http://192.168.245.211:3000/api/n8n-callback',\n    \n    // Timestamps\n    completed_at: new Date().toISOString()\n  }\n};\n\nconsole.log('[Claudia Orchestrator] Execution complete:', JSON.stringify(summary.execution_summary, null, 2));\n\nreturn { json: summary };"
+      },
+      "id": "final-summary",
+      "name": "Generate Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3400, 400],
+      "notes": "Creates final execution summary for logging"
+    }
+  ],
+  "connections": {
+    "Webhook: /claudia-execute": {
+      "main": [
+        [
+          {
+            "node": "Validate & Normalize Packet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Normalize Packet": {
+      "main": [
+        [
+          {
+            "node": "Validation OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation OK?": {
+      "main": [
+        [
+          {
+            "node": "Respond: Accepted (202)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Accepted (202)": {
+      "main": [
+        [
+          {
+            "node": "Intelligent Command Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intelligent Command Router": {
+      "main": [
+        [
+          {
+            "node": "Route to Tier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route to Tier": {
+      "main": [
+        [
+          {
+            "node": "/primary_free: LM Studio Beast",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "/secondary_free: LM Studio Bedroom",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "/paid_chatgpt: OpenAI API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "/paid_gemini: Google Gemini API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "/paid_anthropic: Anthropic Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "/paid_claudecode: Claude Code Executor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "/ssh: SSH Command Executor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback: Unknown Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "/primary_free: LM Studio Beast": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "/secondary_free: LM Studio Bedroom": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "/paid_chatgpt: OpenAI API": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "/paid_gemini: Google Gemini API": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "/paid_anthropic: Anthropic Claude API": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "/paid_claudecode: Claude Code Executor": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "/ssh: SSH Command Executor": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback: Unknown Route": {
+      "main": [
+        [
+          {
+            "node": "Merge Tier Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Tier Responses": {
+      "main": [
+        [
+          {
+            "node": "Normalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Response": {
+      "main": [
+        [
+          {
+            "node": "Ralph Wiggum Quality Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ralph Wiggum Quality Loop": {
+      "main": [
+        [
+          {
+            "node": "Quality Decision Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quality Decision Router": {
+      "main": [
+        [
+          {
+            "node": "Response Aggregator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Iteration (Ralph Loop)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Escalation (Upgrade Tier)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Response Aggregator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Aggregator": {
+      "main": [
+        [
+          {
+            "node": "Callback to Claudia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Callback to Claudia": {
+      "main": [
+        [
+          {
+            "node": "Generate Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Iteration (Ralph Loop)": {
+      "main": [
+        [
+          {
+            "node": "Intelligent Command Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Escalation (Upgrade Tier)": {
+      "main": [
+        [
+          {
+            "node": "Intelligent Command Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "timezone": "America/Los_Angeles",
+    "executionTimeout": 600
+  },
+  "staticData": null,
+  "tags": [
+    "claudia",
+    "orchestrator",
+    "webhook",
+    "quality-loop",
+    "ralph-wiggum",
+    "multi-tier",
+    "lmstudio",
+    "openai",
+    "anthropic",
+    "gemini",
+    "ssh"
+  ],
+  "triggerCount": 0,
+  "versionId": "2.0.0",
+  "meta": {
+    "instanceId": "claudia-orchestrator-v2",
+    "templateCredsSetupCompleted": false,
+    "description": "Intelligent multi-tier LLM router with Ralph Wiggum quality loop. Routes to free (LM Studio) or paid (OpenAI, Gemini, Anthropic, Claude Code) tiers based on request hints. Includes SSH command execution support."
+  }
+}

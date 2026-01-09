@@ -19,7 +19,19 @@ export interface CloudProviderConfig {
   apiKey?: string
   enabledModels: string[]
   isDefault?: boolean  // Is this the default cloud provider
-  authMethod?: "api_key" | "oauth"  // How the user authenticated
+  // OAuth-specific fields (for Anthropic with Google sign-in)
+  authMethod?: "apiKey" | "oauth"
+  oauthTokens?: {
+    accessToken: string
+    refreshToken?: string
+    expiresAt?: number
+    idToken?: string
+  }
+  oauthUser?: {
+    email: string
+    name?: string
+    picture?: string
+  }
 }
 
 export interface DefaultModelConfig {

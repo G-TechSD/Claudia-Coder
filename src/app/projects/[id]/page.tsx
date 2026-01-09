@@ -42,20 +42,34 @@ import {
   Check,
   X,
   Pencil,
-  Star
+  Star,
+  Terminal,
+  Play,
+  AlertTriangle
 } from "lucide-react"
-import { getProject, updateProject, deleteProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar } from "@/lib/data/projects"
+import { getProject, updateProject, deleteProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar, getEffectiveWorkingDirectory } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
 import { getResourcesForProject, getBrainDumpsForProject } from "@/lib/data/resources"
+import { PacketCard, type Packet } from "@/components/packets/packet-card"
+import { PacketHistory } from "@/components/packets/packet-history"
+import { PacketOutput } from "@/components/packets/packet-output"
+import { PacketFeedback } from "@/components/packets/packet-feedback"
+import { useLegacyPacketExecution, type ExecutionLog } from "@/hooks/usePacketExecution"
+import type { PacketRun, PacketRunRating } from "@/lib/data/types"
 import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
 import { ResourceUpload } from "@/components/project/resource-upload"
 import { RepoBrowser } from "@/components/project/repo-browser"
 import { BuildPlanEditor } from "@/components/project/build-plan-editor"
 import { ProjectTimeline } from "@/components/project/project-timeline"
+import { StartBuildHero } from "@/components/project/start-build-hero"
+import { getBuildPlanForProject } from "@/lib/data/build-plans"
+import { FolderInitializer } from "@/components/project/folder-initializer"
 import { BrainDumpList } from "@/components/brain-dump/brain-dump-list"
 import { AudioRecorder } from "@/components/brain-dump/audio-recorder"
 import { ExecutionPanel, LaunchTestPanel } from "@/components/execution"
+import { ClaudeCodeTerminal } from "@/components/claude-code/terminal"
+import { ClaudiaSyncStatus } from "@/components/project/claudia-sync-status"
 import {
   Select,
   SelectContent,
@@ -64,7 +78,7 @@ import {
   SelectValue
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import type { Project, ProjectStatus, InterviewMessage } from "@/lib/data/types"
+import type { Project, ProjectStatus, InterviewMessage, StoredBuildPlan } from "@/lib/data/types"
 
 interface ProviderOption {
   name: string
@@ -115,19 +129,48 @@ export default function ProjectDetailPage() {
     status: string
     tasks: Array<{ id: string; description: string; completed: boolean }>
     acceptanceCriteria: string[]
+    runs?: PacketRun[]
   }>>([])
+
+  // Packet detail panel state
+  const [selectedPacketId, setSelectedPacketId] = useState<string | null>(null)
+  const [selectedRun, setSelectedRun] = useState<PacketRun | null>(null)
+  const [packetRuns, setPacketRuns] = useState<Record<string, PacketRun[]>>({})
+
+  // Packet execution hook
+  const {
+    execute: executePacket,
+    isExecuting: isPacketExecuting,
+    currentPacketId: executingPacketId,
+    logs: executionLogs,
+    error: executionError
+  } = useLegacyPacketExecution()
+
+  // Build plan state
+  const [hasBuildPlan, setHasBuildPlan] = useState(false)
+  const [buildPlanApproved, setBuildPlanApproved] = useState(false)
+  const [currentBuildPlan, setCurrentBuildPlan] = useState<StoredBuildPlan | null>(null)
 
   // State for editing repo local path
   const [editingRepoId, setEditingRepoId] = useState<number | null>(null)
   const [editingLocalPath, setEditingLocalPath] = useState("")
 
+  // Claude Code terminal state
+  const [claudeCodeStarted, setClaudeCodeStarted] = useState(false)
+  const [claudeCodeKey, setClaudeCodeKey] = useState(0)
+  const [claudeCodeWorkDir, setClaudeCodeWorkDir] = useState<string | null>(null)
+  const [claudeCodeLoading, setClaudeCodeLoading] = useState(false)
+  const [claudeCodeError, setClaudeCodeError] = useState<string | null>(null)
+  const [bypassPermissions, setBypassPermissions] = useState(false)
+
   // Starred projects hook for sidebar sync
   const { toggleStar } = useStarredProjects()
 
-  // Load packets for this project
+  // Load packets and build plan status for this project
   useEffect(() => {
     if (!projectId) return
 
+    // Load packets
     const storedPackets = localStorage.getItem("claudia_packets")
     if (storedPackets) {
       try {
@@ -138,6 +181,18 @@ export default function ProjectDetailPage() {
       } catch {
         console.error("Failed to parse packets")
       }
+    }
+
+    // Load build plan status
+    const buildPlan = getBuildPlanForProject(projectId)
+    if (buildPlan) {
+      setHasBuildPlan(true)
+      setBuildPlanApproved(buildPlan.status === "approved" || buildPlan.status === "locked")
+      setCurrentBuildPlan(buildPlan)
+    } else {
+      setHasBuildPlan(false)
+      setBuildPlanApproved(false)
+      setCurrentBuildPlan(null)
     }
   }, [projectId])
 
@@ -187,10 +242,13 @@ export default function ProjectDetailPage() {
 
           setProviders(providerOptions)
 
-          // Auto-select first online provider
-          const firstOnline = providerOptions.find(p => p.status === "online")
-          if (firstOnline && !selectedProvider) {
-            setSelectedProvider(firstOnline.name)
+          // Auto-select provider: prefer online local, then online cloud, then anthropic as fallback
+          const onlineLocal = providerOptions.find(p => p.status === "online" && p.type === "local")
+          const onlineCloud = providerOptions.find(p => p.status === "online" && p.type === "cloud")
+          const anthropicProvider = providerOptions.find(p => p.name === "anthropic")
+          const defaultProvider = onlineLocal || onlineCloud || anthropicProvider
+          if (defaultProvider) {
+            setSelectedProvider(defaultProvider.name)
           }
         }
       } catch (error) {
@@ -200,6 +258,178 @@ export default function ProjectDetailPage() {
 
     fetchProviders()
   }, [])
+
+  // Load packet runs from localStorage
+  useEffect(() => {
+    if (!projectId) return
+
+    const storedRuns = localStorage.getItem("claudia_packet_runs")
+    if (storedRuns) {
+      try {
+        const allRuns: Record<string, PacketRun[]> = JSON.parse(storedRuns)
+        // Filter runs for packets in this project
+        const projectPacketIds = packets.map(p => p.id)
+        const filteredRuns: Record<string, PacketRun[]> = {}
+        for (const [packetId, runs] of Object.entries(allRuns)) {
+          if (projectPacketIds.includes(packetId)) {
+            filteredRuns[packetId] = runs
+          }
+        }
+        setPacketRuns(filteredRuns)
+      } catch {
+        console.error("Failed to parse packet runs")
+      }
+    }
+  }, [projectId, packets])
+
+  // Get selected packet
+  const selectedPacket = selectedPacketId
+    ? packets.find(p => p.id === selectedPacketId)
+    : null
+
+  // Get runs for selected packet
+  const selectedPacketRuns = selectedPacketId
+    ? packetRuns[selectedPacketId] || []
+    : []
+
+  // Handler for starting packet execution
+  const handleStartPacket = async (packetId: string) => {
+    if (!projectId) return
+
+    // Create a new run record
+    const newRun: PacketRun = {
+      id: `run-${Date.now()}`,
+      packetId,
+      projectId,
+      iteration: (packetRuns[packetId]?.length || 0) + 1,
+      startedAt: new Date().toISOString(),
+      status: "running",
+      output: ""
+    }
+
+    // Update local state
+    setPacketRuns(prev => ({
+      ...prev,
+      [packetId]: [...(prev[packetId] || []), newRun]
+    }))
+
+    // Save to localStorage
+    const storedRuns = localStorage.getItem("claudia_packet_runs")
+    const allRuns = storedRuns ? JSON.parse(storedRuns) : {}
+    allRuns[packetId] = [...(allRuns[packetId] || []), newRun]
+    localStorage.setItem("claudia_packet_runs", JSON.stringify(allRuns))
+
+    // Select this packet and run
+    setSelectedPacketId(packetId)
+    setSelectedRun(newRun)
+
+    try {
+      // Execute the packet
+      const result = await executePacket(packetId, projectId)
+
+      // Update the run with results
+      const completedRun: PacketRun = {
+        ...newRun,
+        status: result.success ? "completed" : "failed",
+        completedAt: new Date().toISOString(),
+        output: result.rawOutput || result.logs.map((l: ExecutionLog) => `[${l.level}] ${l.message}`).join("\n"),
+        exitCode: result.success ? 0 : 1
+      }
+
+      // Update local state
+      setPacketRuns(prev => ({
+        ...prev,
+        [packetId]: prev[packetId].map(r => r.id === newRun.id ? completedRun : r)
+      }))
+
+      // Update localStorage
+      const updatedStoredRuns = localStorage.getItem("claudia_packet_runs")
+      const updatedAllRuns = updatedStoredRuns ? JSON.parse(updatedStoredRuns) : {}
+      updatedAllRuns[packetId] = updatedAllRuns[packetId].map((r: PacketRun) =>
+        r.id === newRun.id ? completedRun : r
+      )
+      localStorage.setItem("claudia_packet_runs", JSON.stringify(updatedAllRuns))
+
+      // Update selected run
+      setSelectedRun(completedRun)
+
+      // Update packet status
+      setPackets(prev => prev.map(p =>
+        p.id === packetId
+          ? { ...p, status: result.success ? "completed" : "failed" }
+          : p
+      ))
+    } catch (err) {
+      console.error("Packet execution failed:", err)
+    }
+  }
+
+  // Handler for stopping packet execution
+  const handleStopPacket = (packetId: string) => {
+    // Find the running run
+    const runs = packetRuns[packetId] || []
+    const runningRun = runs.find(r => r.status === "running")
+    if (!runningRun) return
+
+    // Update run status to cancelled
+    const cancelledRun: PacketRun = {
+      ...runningRun,
+      status: "cancelled",
+      completedAt: new Date().toISOString()
+    }
+
+    // Update local state
+    setPacketRuns(prev => ({
+      ...prev,
+      [packetId]: prev[packetId].map(r => r.id === runningRun.id ? cancelledRun : r)
+    }))
+
+    // Update localStorage
+    const storedRuns = localStorage.getItem("claudia_packet_runs")
+    const allRuns = storedRuns ? JSON.parse(storedRuns) : {}
+    allRuns[packetId] = allRuns[packetId].map((r: PacketRun) =>
+      r.id === runningRun.id ? cancelledRun : r
+    )
+    localStorage.setItem("claudia_packet_runs", JSON.stringify(allRuns))
+
+    // Update selected run if it was the running one
+    if (selectedRun?.id === runningRun.id) {
+      setSelectedRun(cancelledRun)
+    }
+  }
+
+  // Handler for packet feedback
+  const handlePacketFeedback = (run: PacketRun, rating: PacketRunRating, comment?: string) => {
+    const updatedRun: PacketRun = {
+      ...run,
+      rating,
+      comment
+    }
+
+    // Update local state
+    setPacketRuns(prev => ({
+      ...prev,
+      [run.packetId]: prev[run.packetId].map(r => r.id === run.id ? updatedRun : r)
+    }))
+
+    // Update localStorage
+    const storedRuns = localStorage.getItem("claudia_packet_runs")
+    const allRuns = storedRuns ? JSON.parse(storedRuns) : {}
+    allRuns[run.packetId] = allRuns[run.packetId].map((r: PacketRun) =>
+      r.id === run.id ? updatedRun : r
+    )
+    localStorage.setItem("claudia_packet_runs", JSON.stringify(allRuns))
+
+    // Update selected run
+    if (selectedRun?.id === run.id) {
+      setSelectedRun(updatedRun)
+    }
+  }
+
+  // Handler for selecting a run from history
+  const handleSelectRun = (run: PacketRun) => {
+    setSelectedRun(run)
+  }
 
   const refreshResourceCount = () => {
     if (!projectId) return
@@ -267,6 +497,73 @@ export default function ProjectDetailPage() {
   const handleCancelEditLocalPath = () => {
     setEditingRepoId(null)
     setEditingLocalPath("")
+  }
+
+  // Handler for Start Build hero - scrolls to execution panel
+  const handleStartBuild = () => {
+    // Find and scroll to the execution panel
+    const executionPanel = document.querySelector('[data-execution-panel]')
+    if (executionPanel) {
+      executionPanel.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
+  // Handler for starting Claude Code session
+  const handleStartClaudeCode = async () => {
+    if (!project) return
+
+    setClaudeCodeLoading(true)
+    setClaudeCodeError(null)
+
+    try {
+      // Get the effective working directory for this project
+      const workDir = getEffectiveWorkingDirectory(project)
+
+      // Ensure the directory exists
+      const response = await fetch("/api/projects/ensure-working-directory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: project.id,
+          projectName: project.name,
+          existingWorkingDirectory: project.workingDirectory,
+          repoLocalPath: project.repos.find(r => r.localPath)?.localPath
+        })
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to prepare working directory")
+      }
+
+      const data = await response.json()
+      setClaudeCodeWorkDir(data.workingDirectory)
+      setClaudeCodeStarted(true)
+      setClaudeCodeKey(prev => prev + 1)
+    } catch (err) {
+      setClaudeCodeError(err instanceof Error ? err.message : "Failed to start Claude Code")
+    } finally {
+      setClaudeCodeLoading(false)
+    }
+  }
+
+  // Handler for launching Claude Code with a specific working directory (e.g., from folder initializer)
+  const handleLaunchClaudeCodeWithDir = (workingDirectory: string) => {
+    setClaudeCodeWorkDir(workingDirectory)
+    setClaudeCodeStarted(true)
+    setClaudeCodeKey(prev => prev + 1)
+    setClaudeCodeError(null)
+  }
+
+  // Handler for folder initialization completion
+  const handleFolderInitialized = (workingDirectory: string) => {
+    // Update project with the new working directory
+    if (project) {
+      const updated = updateProject(project.id, { workingDirectory })
+      if (updated) {
+        setProject(updated)
+      }
+    }
   }
 
   const handleAddToQueue = () => {
@@ -500,10 +797,26 @@ export default function ProjectDetailPage() {
             Launch & Test
             <Zap className="h-3 w-3 ml-1 text-blue-500" />
           </TabsTrigger>
+          <TabsTrigger value="claude-code">
+            Claude Code
+            <Terminal className="h-3 w-3 ml-1 text-purple-500" />
+          </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
+          {/* Start Build Hero - Prominent CTA when ready to execute */}
+          <StartBuildHero
+            projectId={project.id}
+            projectName={project.name}
+            packets={packets}
+            hasBuildPlan={hasBuildPlan}
+            buildPlanApproved={buildPlanApproved}
+            isExecuting={isExecuting}
+            hasLinkedRepo={project.repos.length > 0}
+            onStartBuild={handleStartBuild}
+          />
+
           {/* Build Plan Section - Prominent for Planning Phase */}
           {project.status === "planning" && (
             <Card className="border-blue-500/30 bg-blue-500/5">
@@ -530,16 +843,35 @@ export default function ProjectDetailPage() {
             </Card>
           )}
 
+          {/* Folder Initializer - Show when build plan is approved */}
+          {buildPlanApproved && (
+            <FolderInitializer
+              projectId={project.id}
+              projectName={project.name}
+              projectDescription={project.description}
+              buildPlan={currentBuildPlan}
+              linkedRepo={project.repos.length > 0 ? {
+                name: project.repos[0].name,
+                url: project.repos[0].url,
+                localPath: project.repos[0].localPath
+              } : undefined}
+              onInitialized={handleFolderInitialized}
+              onLaunchClaudeCode={handleLaunchClaudeCodeWithDir}
+            />
+          )}
+
           {/* GO BUTTON - The Star of the Show */}
-          <ExecutionPanel
-            project={{
-              id: project.id,
-              name: project.name,
-              description: project.description,
-              repos: project.repos
-            }}
-            packets={packets}
-          />
+          <div data-execution-panel>
+            <ExecutionPanel
+              project={{
+                id: project.id,
+                name: project.name,
+                description: project.description,
+                repos: project.repos
+              }}
+              packets={packets}
+            />
+          </div>
 
           {/* Project Timeline */}
           <ProjectTimeline
@@ -789,7 +1121,7 @@ export default function ProjectDetailPage() {
             </Button>
           </div>
 
-          {project.packetIds.length === 0 ? (
+          {packets.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
                 <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -801,22 +1133,139 @@ export default function ProjectDetailPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-2">
-              {project.packetIds.map((packetId) => (
-                <Card key={packetId}>
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Package className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">Packet {packetId}</p>
+            <div className="flex gap-6">
+              {/* Packet Cards Grid */}
+              <div className={cn(
+                "transition-all duration-300",
+                selectedPacketId ? "w-1/2" : "w-full"
+              )}>
+                <div className={cn(
+                  "grid gap-4",
+                  selectedPacketId ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
+                )}>
+                  {packets.map((packet) => {
+                    // Convert packet to the format expected by PacketCard
+                    const packetForCard: Packet = {
+                      id: packet.id,
+                      title: packet.title,
+                      description: packet.description,
+                      type: packet.type,
+                      priority: packet.priority as Packet["priority"],
+                      status: packet.status as Packet["status"],
+                      tasks: packet.tasks.map(t => ({
+                        id: t.id,
+                        title: t.description,
+                        completed: t.completed
+                      })),
+                      acceptanceCriteria: packet.acceptanceCriteria
+                    }
+
+                    const isExecuting = executingPacketId === packet.id
+                    const isSelected = selectedPacketId === packet.id
+
+                    return (
+                      <div
+                        key={packet.id}
+                        className={cn(
+                          "cursor-pointer transition-all",
+                          isSelected && "ring-2 ring-primary rounded-lg"
+                        )}
+                        onClick={() => setSelectedPacketId(
+                          selectedPacketId === packet.id ? null : packet.id
+                        )}
+                      >
+                        <PacketCard
+                          packet={packetForCard}
+                          onStart={() => handleStartPacket(packet.id)}
+                          onStop={() => handleStopPacket(packet.id)}
+                          isExecuting={isExecuting}
+                        />
                       </div>
-                    </div>
-                    <Button variant="ghost" size="sm">
-                      View
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Detail Panel - shows when a packet is selected */}
+              {selectedPacketId && selectedPacket && (
+                <div className="w-1/2 space-y-4">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{selectedPacket.title}</CardTitle>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedPacketId(null)
+                            setSelectedRun(null)
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {selectedPacket.description}
+                      </p>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {/* Execution History */}
+                      <div>
+                        <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                          <Clock className="h-4 w-4" />
+                          Execution History
+                        </h4>
+                        <PacketHistory
+                          runs={selectedPacketRuns}
+                          onSelectRun={handleSelectRun}
+                          selectedRunId={selectedRun?.id}
+                          className="max-h-[200px]"
+                        />
+                      </div>
+
+                      {/* Selected Run Output */}
+                      {selectedRun && (
+                        <div className="space-y-3">
+                          <PacketOutput
+                            run={selectedRun}
+                            onClose={() => setSelectedRun(null)}
+                          />
+
+                          {/* Feedback Section */}
+                          {selectedRun.status !== "running" && (
+                            <PacketFeedback
+                              run={selectedRun}
+                              onFeedback={(rating, comment) =>
+                                handlePacketFeedback(selectedRun, rating, comment)
+                              }
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      {/* No runs yet message */}
+                      {selectedPacketRuns.length === 0 && !selectedRun && (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Play className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">No execution history yet</p>
+                          <p className="text-xs mt-1">Click &quot;Start&quot; on the packet card to begin</p>
+                        </div>
+                      )}
+
+                      {/* Execution error */}
+                      {executionError && executingPacketId === selectedPacketId && (
+                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4" />
+                            <span className="font-medium">Execution Error</span>
+                          </div>
+                          <p className="mt-1">{executionError}</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
@@ -997,6 +1446,139 @@ export default function ProjectDetailPage() {
               repos: project.repos
             }}
           />
+        </TabsContent>
+
+        {/* Claude Code Tab */}
+        <TabsContent value="claude-code" className="space-y-4">
+          {/* Sync Status - Shows Claude Code activity and pending requests */}
+          <ClaudiaSyncStatus
+            projectId={project.id}
+            projectPath={claudeCodeWorkDir || getEffectiveWorkingDirectory(project) || ""}
+          />
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Terminal className="h-5 w-5 text-purple-500" />
+                    Claude Code Terminal
+                  </CardTitle>
+                  <CardDescription>
+                    Interactive Claude Code session for {project.name}
+                  </CardDescription>
+                </div>
+                <Button
+                  onClick={handleStartClaudeCode}
+                  disabled={claudeCodeLoading}
+                  className="gap-2"
+                >
+                  {claudeCodeLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Preparing...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4" />
+                      {claudeCodeStarted ? "Restart Session" : "Start Session"}
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Working Directory Info */}
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="h-4 w-4" />
+                  <span>Working Directory:</span>
+                  <code className="bg-muted px-2 py-0.5 rounded text-xs font-mono">
+                    {claudeCodeWorkDir || getEffectiveWorkingDirectory(project) || "Will be created on start"}
+                  </code>
+                </div>
+                {project.repos.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <GitBranch className="h-4 w-4" />
+                    <span>{project.repos[0].name}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Error Display */}
+              {claudeCodeError && (
+                <div className="flex items-center gap-2 text-red-500 text-sm p-3 bg-red-500/10 rounded-lg">
+                  <AlertTriangle className="h-4 w-4" />
+                  {claudeCodeError}
+                </div>
+              )}
+
+              {/* Terminal */}
+              {claudeCodeStarted && claudeCodeWorkDir ? (
+                <ClaudeCodeTerminal
+                  key={claudeCodeKey}
+                  projectId={project.id}
+                  projectName={project.name}
+                  projectDescription={project.description}
+                  workingDirectory={claudeCodeWorkDir}
+                  bypassPermissions={bypassPermissions}
+                  className="h-[500px]"
+                  onSessionEnd={() => setClaudeCodeStarted(false)}
+                  currentPacket={selectedPacket ? {
+                    id: selectedPacket.id,
+                    title: selectedPacket.title,
+                    description: selectedPacket.description,
+                    type: selectedPacket.type,
+                    priority: selectedPacket.priority,
+                    tasks: selectedPacket.tasks,
+                    acceptanceCriteria: selectedPacket.acceptanceCriteria
+                  } : undefined}
+                  allPackets={packets.map(p => ({ id: p.id, title: p.title, status: p.status }))}
+                />
+              ) : (
+                <div className="h-[500px] rounded-lg bg-zinc-900 border border-zinc-800 p-4 font-mono text-sm flex flex-col">
+                  <div className="flex-1 flex flex-col items-center justify-center text-zinc-500">
+                    {claudeCodeLoading ? (
+                      <>
+                        <Loader2 className="h-12 w-12 mb-4 animate-spin text-zinc-400" />
+                        <p className="text-zinc-400">Preparing working directory...</p>
+                      </>
+                    ) : (
+                      <>
+                        <Terminal className="h-12 w-12 mb-4 opacity-50" />
+                        <p className="text-zinc-400">Ready to launch Claude Code</p>
+                        <p className="mt-2 text-zinc-600 text-sm">Project: {project.name}</p>
+                        <p className="text-zinc-600 mt-4 text-sm">Click &quot;Start Session&quot; above to begin...</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Options */}
+              <div className="flex items-center gap-4 p-3 rounded-lg border border-orange-500/20 bg-orange-500/5">
+                <input
+                  type="checkbox"
+                  id="bypass-permissions-project"
+                  checked={bypassPermissions}
+                  onChange={(e) => setBypassPermissions(e.target.checked)}
+                  className="rounded"
+                />
+                <div className="space-y-1">
+                  <label
+                    htmlFor="bypass-permissions-project"
+                    className="flex items-center gap-2 cursor-pointer font-medium text-sm"
+                  >
+                    <AlertTriangle className="h-4 w-4 text-orange-500" />
+                    Dangerously bypass permissions
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Skip permission prompts for file operations. Use with caution.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

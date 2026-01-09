@@ -209,12 +209,18 @@ async function fetchLMStudioModels(baseUrl: string): Promise<FetchedModel[]> {
 
     const data = await response.json()
 
-    return (data.data || []).map((model: { id: string }) => ({
-      id: model.id,
-      name: model.id,
-      provider: "lmstudio",
-      type: "local" as const
-    }))
+    // Filter out embedding models - they cannot be used for chat/generation
+    return (data.data || [])
+      .filter((model: { id: string; type?: string }) => {
+        const id = model.id.toLowerCase()
+        return !id.includes('embed') && !id.includes('embedding') && model.type !== 'embedding'
+      })
+      .map((model: { id: string }) => ({
+        id: model.id,
+        name: model.id,
+        provider: "lmstudio",
+        type: "local" as const
+      }))
   } catch {
     return []
   }
@@ -234,16 +240,22 @@ async function fetchOllamaModels(baseUrl: string): Promise<FetchedModel[]> {
 
     const data = await response.json()
 
-    return (data.models || []).map((model: {
-      name: string
-      details?: { parameter_size?: string }
-    }) => ({
-      id: model.name,
-      name: model.name,
-      provider: "ollama",
-      type: "local" as const,
-      description: model.details?.parameter_size
-    }))
+    // Filter out embedding models - they cannot be used for chat/generation
+    return (data.models || [])
+      .filter((model: { name: string }) => {
+        const name = model.name.toLowerCase()
+        return !name.includes('embed') && !name.includes('embedding')
+      })
+      .map((model: {
+        name: string
+        details?: { parameter_size?: string }
+      }) => ({
+        id: model.name,
+        name: model.name,
+        provider: "ollama",
+        type: "local" as const,
+        description: model.details?.parameter_size
+      }))
   } catch {
     return []
   }

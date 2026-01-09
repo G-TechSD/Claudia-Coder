@@ -11,12 +11,17 @@ export interface ProviderInfo {
   displayName: string
   type: "local" | "cloud"
   status: "online" | "offline" | "checking" | "not-configured"
-  model?: string
-  models?: string[]
+  baseUrl?: string
+  model?: string  // Currently loaded model (if any)
+  models?: string[]  // All available models on this server
 }
 
-// Check if a local server is reachable
-async function checkLocalServer(url: string, type: "lmstudio" | "ollama"): Promise<{ online: boolean; model?: string }> {
+// Check if a local server is reachable and get available models
+async function checkLocalServer(url: string, type: "lmstudio" | "ollama"): Promise<{
+  online: boolean
+  loadedModel?: string
+  availableModels?: string[]
+}> {
   try {
     const modelsUrl = type === "ollama"
       ? `${url}/api/tags`
@@ -24,7 +29,7 @@ async function checkLocalServer(url: string, type: "lmstudio" | "ollama"): Promi
 
     const response = await fetch(modelsUrl, {
       method: "GET",
-      signal: AbortSignal.timeout(3000)
+      signal: AbortSignal.timeout(5000)
     })
 
     if (!response.ok) {
@@ -33,17 +38,68 @@ async function checkLocalServer(url: string, type: "lmstudio" | "ollama"): Promi
 
     const data = await response.json()
 
-    // Extract current/first model
-    let model: string | undefined
-    if (type === "lmstudio" && data.data?.[0]?.id) {
-      model = data.data[0].id
-    } else if (type === "ollama" && data.models?.[0]?.name) {
-      model = data.models[0].name
+    // Extract all available models and filter out embedding models
+    // Embedding models should NEVER be used for chat/generation
+    let availableModels: string[] = []
+    if (type === "lmstudio" && data.data) {
+      availableModels = data.data
+        .filter((m: { id: string; type?: string }) => {
+          const id = m.id.toLowerCase()
+          // Filter out embedding models by name patterns or type
+          return !id.includes('embed') &&
+                 !id.includes('embedding') &&
+                 m.type !== 'embedding'
+        })
+        .map((m: { id: string }) => m.id)
+    } else if (type === "ollama" && data.models) {
+      availableModels = data.models
+        .filter((m: { name: string }) => {
+          const name = m.name.toLowerCase()
+          return !name.includes('embed') && !name.includes('embedding')
+        })
+        .map((m: { name: string }) => m.name)
     }
 
-    return { online: true, model }
+    // For LM Studio, try to detect which model is actually loaded
+    // by making a minimal test request
+    let loadedModel: string | undefined
+    if (type === "lmstudio") {
+      loadedModel = await detectLoadedLMStudioModel(url)
+    } else if (type === "ollama" && availableModels.length > 0) {
+      // Ollama doesn't have a "loaded" concept - models load on demand
+      loadedModel = undefined
+    }
+
+    return { online: true, loadedModel, availableModels }
   } catch {
     return { online: false }
+  }
+}
+
+// Detect which model is currently loaded in LM Studio
+async function detectLoadedLMStudioModel(url: string): Promise<string | undefined> {
+  try {
+    // Make a minimal request to see which model responds
+    const response = await fetch(`${url}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "test" }],
+        max_tokens: 1,
+        stream: false
+      }),
+      signal: AbortSignal.timeout(3000)
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      return data.model || undefined
+    }
+
+    // If we get a 400/422 with "No models loaded", no model is loaded
+    return undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -59,11 +115,13 @@ export async function GET() {
   if (lmstudioBeast) {
     const status = await checkLocalServer(lmstudioBeast, "lmstudio")
     providers.push({
-      name: "beast",
+      name: "Beast",
       displayName: "Beast (LM Studio)",
       type: "local",
       status: status.online ? "online" : "offline",
-      model: status.model
+      baseUrl: lmstudioBeast,
+      model: status.loadedModel,  // Currently loaded model (may be undefined)
+      models: status.availableModels || []  // All available models
     })
   }
 
@@ -71,11 +129,13 @@ export async function GET() {
   if (lmstudioBedroom) {
     const status = await checkLocalServer(lmstudioBedroom, "lmstudio")
     providers.push({
-      name: "bedroom",
+      name: "Bedroom",
       displayName: "Bedroom (LM Studio)",
       type: "local",
       status: status.online ? "online" : "offline",
-      model: status.model
+      baseUrl: lmstudioBedroom,
+      model: status.loadedModel,  // Currently loaded model (may be undefined)
+      models: status.availableModels || []  // All available models
     })
   }
 
@@ -87,7 +147,9 @@ export async function GET() {
       displayName: "Ollama",
       type: "local",
       status: status.online ? "online" : "offline",
-      model: status.model
+      baseUrl: ollamaUrl,
+      model: status.loadedModel,
+      models: status.availableModels || []
     })
   }
 

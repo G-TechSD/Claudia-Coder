@@ -1,0 +1,1610 @@
+{
+  "updatedAt": "2026-01-02T01:20:37.532Z",
+  "createdAt": "2026-01-02T00:53:28.238Z",
+  "id": "9JoFVmCveQLWoCxw",
+  "name": "Autonomous Dev with Quality Loop",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quality-loop-test",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "manual-trigger-1",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        400
+      ],
+      "webhookId": "quality-loop-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "uY29FyKg9JFPZa9a",
+          "cachedResultName": "ClaudiaCodeIssuePackets"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "queued"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "get-next-packet",
+      "name": "Get Next Queued Packet",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        464,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analyze task complexity and estimate success probability\nconst packet = $input.first().json;\n\n// Parse packetJSON if it's a string\nlet packetData = packet.packetJSON;\nif (typeof packetData === 'string') {\n  try {\n    packetData = JSON.parse(packetData);\n  } catch (e) {\n    packetData = { title: packet.packetID, summary: 'Parse error', issues: [] };\n  }\n}\n\nconst title = packetData.title || '';\nconst summary = packetData.summary || '';\nconst description = (title + ' ' + summary).toLowerCase();\n\nlet complexity = 0;\n\n// Keyword-based complexity scoring\nconst complexKeywords = {\n  'distributed': 15, 'microservice': 15, 'scalable': 10, 'production': 10,\n  'security': 15, 'authentication': 12, 'authorization': 12, 'cryptographic': 15,\n  'optimization': 10, 'performance': 8, 'real-time': 12, 'streaming': 12,\n  'machine learning': 15, 'ai': 10, 'algorithm': 10, 'complex': 8,\n  'integration': 10, 'multi-tenant': 12, 'async': 8, 'concurrent': 10,\n  'database migration': 12, 'schema change': 10, 'refactor': 8\n};\n\nconst simpleKeywords = {\n  'simple': -8, 'basic': -8, 'utility': -5, 'helper': -5,\n  'format': -5, 'parse': -5, 'validate': -5, 'convert': -5,\n  'calculate': -5, 'display': -5, 'show': -5, 'list': -5\n};\n\n// Score based on keywords\nfor (const [keyword, score] of Object.entries(complexKeywords)) {\n  if (description.includes(keyword)) complexity += score;\n}\n\nfor (const [keyword, score] of Object.entries(simpleKeywords)) {\n  if (description.includes(keyword)) complexity += score;\n}\n\n// Description length (longer = more complex)\ncomplexity += Math.min(description.length / 100, 20);\n\n// Issue count (more issues = more complex)\nconst issueCount = packetData.issues?.length || 1;\ncomplexity += Math.min(issueCount * 5, 20);\n\n// Normalize to 0-100\ncomplexity = Math.max(0, Math.min(100, complexity));\n\n// Detect libraries/frameworks\nconst libraries = [];\nconst libraryKeywords = {\n  'fastapi': ['fastapi', 'rest api', 'uvicorn'],\n  'pydantic': ['pydantic', 'data validation'],\n  'pytest': ['pytest', 'testing', 'test'],\n  'sqlalchemy': ['sqlalchemy', 'database', 'orm'],\n  'pandas': ['pandas', 'dataframe'],\n  'numpy': ['numpy', 'numerical'],\n  'react': ['react', 'component', 'jsx'],\n  'vue': ['vue', 'vuejs'],\n  'django': ['django'],\n  'flask': ['flask'],\n  'express': ['express', 'nodejs'],\n  'typescript': ['typescript', 'ts'],\n  'docker': ['docker', 'container'],\n  'kubernetes': ['kubernetes', 'k8s']\n};\n\nfor (const [lib, keywords] of Object.entries(libraryKeywords)) {\n  if (keywords.some(kw => description.includes(kw))) {\n    libraries.push(lib);\n  }\n}\n\n// Success probability based on complexity and documentation availability\nlet probability = 100 - complexity;\nif (libraries.length > 0) probability += 20;  // Boost if we can get docs\n\n// Model capability factor\nconst localModelCapability = 70;  // Local models are ~70% as capable as paid\nprobability = Math.min(100, (probability * (localModelCapability / 100)) + 30);\nprobability = Math.round(Math.max(0, Math.min(100, probability)));\n\n// Recommended model\nlet recommendedModel = 'gpt-oss-20b';  // Default\nif (complexity < 20 && probability > 85) {\n  recommendedModel = 'ministral-3-3b';\n} else if (complexity < 40 && probability > 70) {\n  recommendedModel = 'gpt-oss-20b';\n} else if (complexity < 70) {\n  recommendedModel = 'gpt-oss-20b+context7';\n} else {\n  recommendedModel = 'needs-planning';  // Escalate to planning\n}\n\nreturn {\n  json: {\n    ...packet,\n    packetData: packetData,\n    complexity: {\n      score: complexity,\n      probability: probability,\n      recommendedModel: recommendedModel,\n      detectedLibraries: libraries,\n      requiresPlanning: complexity >= 70,\n      requiresContext7: libraries.length > 0 || complexity >= 30,\n      estimatedTokens: Math.round(complexity * 100 + 3000)\n    },\n    iteration: 0,  // Start at iteration 0\n    maxIterations: 3,\n    qualityHistory: []\n  }\n};"
+      },
+      "id": "analyze-complexity",
+      "name": "Analyze Complexity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{ $json.complexity.requiresPlanning }}",
+                    "value2": true
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Needs Planning"
+            },
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{ $json.complexity.requiresContext7 }}",
+                    "value2": true
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Needs Tools"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": 2
+        }
+      },
+      "id": "route-by-complexity",
+      "name": "Route by Complexity",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        912,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if user has auto-approval enabled and budget available\nconst item = $input.first().json;\n\n// Simulate user settings (would come from ClaudiaCodeSettings table)\nconst userSettings = {\n  auto_approve_planning: false,\n  max_planning_budget: 5.00,\n  max_execution_budget: 10.00,\n  auto_approve_under: 2.00\n};\n\n// Estimate costs\nconst planningCost = 0.50;  // ~$0.50 for Claude planning\nconst executionCost = item.complexity.score > 70 ? 3.00 : 0.00;\nconst totalCost = planningCost + executionCost;\n\nconst needsApproval = !userSettings.auto_approve_planning && totalCost > userSettings.auto_approve_under;\n\nreturn {\n  json: {\n    ...item,\n    escalation: {\n      needsApproval: needsApproval,\n      estimatedCost: totalCost,\n      planningCost: planningCost,\n      executionCost: executionCost,\n      reason: `Complexity ${item.complexity.score}/100 exceeds local capabilities. Planning recommended.`\n    }\n  }\n};"
+      },
+      "id": "check-escalation",
+      "name": "Check Escalation Settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.escalation.needsApproval }}",
+              "value2": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "auto-approved",
+      "name": "Auto-Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mark packet as awaiting approval and notify user\nconst item = $input.first().json;\n\nreturn {\n  json: {\n    ...item,\n    status: 'awaiting_approval',\n    message: `Task requires planning. Estimated cost: $${item.escalation.estimatedCost.toFixed(2)}. Reply '/approve ${item.packetID}' to proceed or '/skip ${item.packetID}' to skip.`\n  }\n};"
+      },
+      "id": "request-approval",
+      "name": "Request Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build prompt for local model (simple path)\nconst item = $input.first().json;\nconst packetData = item.packetData;\n\nconst prompt = `You are an expert software developer. Implement this task completely.\n\n# Task\n**Title:** ${packetData.title || 'Untitled'}\n\n**Description:**\n${packetData.summary || 'No description'}\n\n# Requirements\n- Write COMPLETE, WORKING code (no placeholders, no TODOs)\n- Include ALL necessary imports and dependencies\n- Add comprehensive error handling\n- Write tests for critical functionality\n- Follow best practices and conventions\n- Be concise but thorough\n\n# Issues to Address\n${packetData.issues?.map(i => `- ${i.id}: ${i.title}`).join('\\n') || 'No specific issues'}\n\n# Acceptance Criteria\n${packetData.acceptanceCriteria?.join('\\n- ') || 'Implement as described'}\n\n# Output Format\nProvide:\n1. Complete implementation code\n2. Brief explanation of approach\n3. Test cases (if applicable)\n4. Dependencies/requirements\n\nBegin implementation:`;\n\nreturn {\n  json: {\n    ...item,\n    prompt: prompt,\n    modelToUse: 'ministral-3-3b'\n  }\n};"
+      },
+      "id": "build-simple-prompt",
+      "name": "Build Simple Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Context7 disabled for now - MCP nodes not available in n8n\nconst item = $input.first().json;\n\nreturn {\n  json: {\n    ...item,\n    context7Docs: null,\n    skipContext7: true\n  }\n};\n"
+      },
+      "id": "prepare-context7",
+      "name": "Prepare Context7 Queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skipContext7 }}",
+              "value2": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "needs-context7",
+      "name": "Needs Context7?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split into separate items for each library\nconst item = $input.first().json;\nconst queries = item.context7Queries || [];\n\nreturn queries.map((q, index) => ({\n  json: {\n    ...item,\n    currentQuery: q,\n    queryIndex: index\n  }\n}));"
+      },
+      "id": "split-queries",
+      "name": "Split Context7 Queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all Context7 results\nconst items = $input.all();\n\nconst docs = items.map(item => ({\n  library: item.json.currentQuery.library,\n  content: item.json.answer || 'No documentation found'\n}));\n\nconst baseItem = items[0].json;\n\n// Remove temporary fields\ndelete baseItem.currentQuery;\ndelete baseItem.queryIndex;\ndelete baseItem.context7Queries;\n\nreturn {\n  json: {\n    ...baseItem,\n    context7Docs: docs\n  }\n};"
+      },
+      "id": "aggregate-context7",
+      "name": "Aggregate Context7 Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build enhanced prompt with Context7 documentation\nconst item = $input.first().json;\nconst packetData = item.packetData;\nconst docs = item.context7Docs || [];\n\nlet docsSection = '';\nif (docs.length > 0) {\n  docsSection = `\\n# Official Documentation Retrieved\\n${docs.map(d => `## ${d.library}\\n${d.content}`).join('\\n\\n')}\\n`;\n}\n\nconst prompt = `You are an expert software developer with access to official documentation. Implement this task completely.\n\n# Task\n**Title:** ${packetData.title || 'Untitled'}\n\n**Description:**\n${packetData.summary || 'No description'}\n${docsSection}\n# Requirements\n- Follow the official documentation patterns shown above\n- Write COMPLETE, WORKING code (no placeholders, no TODOs)\n- Use the exact APIs and patterns from the documentation\n- Include ALL necessary imports and dependencies\n- Add comprehensive error handling\n- Write tests for critical functionality\n- Follow framework/library best practices\n\n# Issues to Address\n${packetData.issues?.map(i => `- ${i.id}: ${i.title}`).join('\\n') || 'No specific issues'}\n\n# Acceptance Criteria\n${packetData.acceptanceCriteria?.join('\\n- ') || 'Implement as described'}\n\n# Output Format\nProvide:\n1. Complete implementation code\n2. Brief explanation of approach\n3. Test cases\n4. Dependencies with versions\n\nBegin implementation:`;\n\nreturn {\n  json: {\n    ...item,\n    prompt: prompt,\n    modelToUse: 'gpt-oss-20b'\n  }\n};"
+      },
+      "id": "build-enhanced-prompt",
+      "name": "Build Enhanced Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        512
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "merge-paths",
+      "name": "Merge Execution Paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2448,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:1234/v1/chat/completions",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{ $json.modelToUse || 'gpt-oss-20b' }}"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{role: 'user', content: $json.prompt}] }}"
+            },
+            {
+              "name": "temperature",
+              "value": "={{ $json.iteration > 0 ? 0.1 : 0.2 }}"
+            },
+            {
+              "name": "max_tokens",
+              "value": "={{ $json.complexity.estimatedTokens || 4000 }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "execute-local-model",
+      "name": "Execute Local Model",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2672,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Save initial output for validation\nconst item = $input.first();\nconst response = item.json.choices?.[0]?.message?.content || '';\nconst metadata = $node[\"Merge Execution Paths\"].json;\n\nconst now = new Date().toISOString();\nconst filename = `${metadata.packetID}-iter${metadata.iteration}-temp.md`;\n\nconst output = `# ${metadata.packetData.title}\n\n**Packet ID:** ${metadata.packetID}\n**Iteration:** ${metadata.iteration}\n**Model:** ${metadata.modelToUse}\n**Timestamp:** ${now}\n\n---\n\n${response}\n\n---\n\n## Metadata\n- Complexity: ${metadata.complexity.score}/100\n- Success Probability: ${metadata.complexity.probability}%\n- Libraries: ${metadata.complexity.detectedLibraries.join(', ') || 'None'}\n`;\n\nreturn {\n  json: {\n    ...metadata,\n    generatedOutput: response,\n    outputMarkdown: output,\n    outputFilename: filename,\n    generatedAt: now\n  }\n};"
+      },
+      "id": "format-output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "qwen/qwen3-vl-8b",
+          "mode": "list"
+        },
+        "builtInTools": {},
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        3104,
+        592
+      ],
+      "id": "validator-model",
+      "name": "Qwen3-VL-8b Validator",
+      "credentials": {
+        "openAiApi": {
+          "id": "FYFVsKzjVFK0h0V2",
+          "name": "Bedroom LMStudio"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse quality validation results\nconst item = $input.first();\nconst rawOutput = item.json.output || '';\n\nlet qualityReport;\ntry {\n  // Try to parse as JSON\n  const jsonMatch = rawOutput.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    qualityReport = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  // Fallback: manual decision based on content\n  qualityReport = {\n    overall_score: 50,\n    decision: 'REJECT',\n    reasoning: 'Validator failed to produce valid JSON',\n    issues: [{type: 'validation_error', severity: 'critical', description: 'Could not parse validation output'}]\n  };\n}\n\nconst metadata = $node[\"Format Output\"].json;\n\n// Add to quality history\nconst qualityHistory = metadata.qualityHistory || [];\nqualityHistory.push({\n  iteration: metadata.iteration,\n  score: qualityReport.overall_score,\n  decision: qualityReport.decision,\n  timestamp: new Date().toISOString()\n});\n\nreturn {\n  json: {\n    ...metadata,\n    qualityReport: qualityReport,\n    qualityHistory: qualityHistory,\n    currentScore: qualityReport.overall_score,\n    currentDecision: qualityReport.decision\n  }\n};"
+      },
+      "id": "parse-quality-report",
+      "name": "Parse Quality Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3328,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.currentDecision }}",
+                    "operation": "equals",
+                    "value2": "ACCEPT"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ACCEPT"
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.currentDecision }}",
+                    "operation": "equals",
+                    "value2": "ITERATE"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ITERATE"
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.currentDecision }}",
+                    "operation": "equals",
+                    "value2": "REJECT"
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "REJECT"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "decision-router",
+      "name": "Decision Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        3552,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Save accepted output to final location\nconst fs = require('fs');\nconst path = require('path');\n\nconst item = $input.first().json;\n\nconst finalFilename = `${item.packetID}-ACCEPTED-${Date.now()}.md`;\nconst finalPath = `/mnt/n8n-nas/packet_outputs/${finalFilename}`;\n\nconst finalMarkdown = `# ACCEPTED: ${item.packetData.title}\n\n**Packet ID:** ${item.packetID}\n**Final Iteration:** ${item.iteration}\n**Quality Score:** ${item.currentScore}/100\n**Model:** ${item.modelToUse}\n**Timestamp:** ${new Date().toISOString()}\n\n---\n\n## Implementation\n\n${item.generatedOutput}\n\n---\n\n## Quality Metrics\n- Overall Score: ${item.qualityReport.overall_score}/100\n- Completeness: ${item.qualityReport.completeness}/100\n- Correctness: ${item.qualityReport.correctness}/100\n- Code Quality: ${item.qualityReport.code_quality}/100\n- Security: ${item.qualityReport.security}/100\n\n## Quality History\n${item.qualityHistory.map(h => `- Iteration ${h.iteration}: ${h.score}/100 (${h.decision})`).join('\\n')}\n\n## Issues Found\n${item.qualityReport.issues?.length > 0 ? item.qualityReport.issues.map(i => `- **[${i.severity}] ${i.type}**: ${i.description} (${i.location})`).join('\\n') : 'None'}\n`;\n\n// Ensure directory exists\nconst dir = path.dirname(finalPath);\nif (!fs.existsSync(dir)) {\n  fs.mkdirSync(dir, { recursive: true });\n}\n\n// Write file\nfs.writeFileSync(finalPath, finalMarkdown, 'utf8');\n\nreturn {\n  json: {\n    ...item,\n    finalFilename: finalFilename,\n    finalPath: finalPath,\n    status: 'completed',\n    completedAt: new Date().toISOString()\n  }\n};"
+      },
+      "id": "save-accepted",
+      "name": "Save Accepted Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "uY29FyKg9JFPZa9a",
+          "cachedResultName": "ClaudiaCodeIssuePackets"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "packetID",
+              "keyValue": "={{ $json.packetID }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "completed",
+            "completedAt": "={{ $json.completedAt }}",
+            "finalScore": "={{ $json.currentScore }}",
+            "iterations": "={{ $json.iteration + 1 }}",
+            "outputFile": "={{ $json.finalFilename }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "update-completed",
+      "name": "Update Packet Status (Completed)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        3984,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build fix prompt for ITERATE path\nconst item = $input.first().json;\nconst issues = item.qualityReport.issues || [];\nconst suggestions = item.qualityReport.fix_suggestions || [];\n\nconst fixPrompt = `You previously generated code for: ${item.packetData.title}\n\nYour code has been reviewed and needs the following fixes:\n\n# Issues to Fix\n${issues.map((issue, i) => `${i + 1}. **[${issue.severity}] ${issue.type}**: ${issue.description}\\n   Location: ${issue.location}`).join('\\n\\n')}\n\n# Fix Suggestions\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join('\\n')}\n\n# Original Code\n${item.generatedOutput}\n\n# Requirements\n- Fix ONLY the issues listed above\n- Do NOT rewrite everything from scratch\n- Maintain the existing structure where possible\n- Ensure fixes are complete and correct\n- Return the complete corrected code\n\nProvide the fixed implementation:`;\n\nreturn {\n  json: {\n    ...item,\n    iteration: item.iteration + 1,\n    prompt: fixPrompt,\n    mode: 'fix'\n  }\n};"
+      },
+      "id": "build-fix-prompt",
+      "name": "Build Fix Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build retry prompt for REJECT path\nconst item = $input.first().json;\nconst retryGuidance = item.qualityReport.retry_guidance || 'Previous attempt had fundamental issues';\nconst issues = item.qualityReport.issues || [];\n\nconst retryPrompt = `RETRY: Implement this task with careful attention to detail.\n\n# Task\n**Title:** ${item.packetData.title}\n**Description:** ${item.packetData.summary}\n\n# Why Previous Attempt Failed\n${retryGuidance}\n\n# Critical Issues to Avoid\n${issues.filter(i => i.severity === 'critical').map((issue, i) => `${i + 1}. **${issue.type}**: ${issue.description}`).join('\\n')}\n\n# STRICT Requirements\n- NO placeholders (no TODO, FIXME, \"implement this\", \"...\")\n- NO hallucinations (only use real libraries and APIs)\n- COMPLETE implementation (all functions fully written)\n- WORKING code (no syntax errors, no broken logic)\n- TESTS included (at least basic test cases)\n- ERROR handling (try/catch, validation)\n\n# Issues to Address\n${item.packetData.issues?.map(i => `- ${i.id}: ${i.title}`).join('\\n') || 'No specific issues'}\n\n# Acceptance Criteria\n${item.packetData.acceptanceCriteria?.join('\\n- ') || 'Implement as described'}\n\n${item.context7Docs && item.context7Docs.length > 0 ? '# Official Documentation\\n' + item.context7Docs.map(d => `## ${d.library}\\n${d.content}`).join('\\n\\n') : ''}\n\nThis is attempt ${item.iteration + 1}. Take your time and be thorough.\n\nProvide complete implementation:`;\n\nreturn {\n  json: {\n    ...item,\n    iteration: item.iteration + 1,\n    prompt: retryPrompt,\n    mode: 'retry'\n  }\n};"
+      },
+      "id": "build-retry-prompt",
+      "name": "Build Retry Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.iteration }}",
+              "operation": "largerEqual",
+              "value2": "={{ $json.maxIterations }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-max-iterations",
+      "name": "Max Iterations Reached?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3984,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mark as failed after max iterations\nconst item = $input.first().json;\n\nconst failureReason = `Failed after ${item.iteration} iterations. Final score: ${item.currentScore}/100. Last decision: ${item.currentDecision}.`;\n\nreturn {\n  json: {\n    ...item,\n    status: 'failed',\n    failureReason: failureReason,\n    failedAt: new Date().toISOString()\n  }\n};"
+      },
+      "id": "mark-failed",
+      "name": "Mark as Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4208,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "uY29FyKg9JFPZa9a",
+          "cachedResultName": "ClaudiaCodeIssuePackets"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "packetID",
+              "keyValue": "={{ $json.packetID }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "failed",
+            "failureReason": "={{ $json.failureReason }}",
+            "failedAt": "={{ $json.failedAt }}",
+            "finalScore": "={{ $json.currentScore }}",
+            "iterations": "={{ $json.iteration }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "update-failed",
+      "name": "Update Packet Status (Failed)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        4432,
+        608
+      ]
+    }
+  ],
+  "connections": {
+    "Get Next Queued Packet": {
+      "main": [
+        [
+          {
+            "node": "Analyze Complexity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Complexity": {
+      "main": [
+        [
+          {
+            "node": "Route by Complexity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Complexity": {
+      "main": [
+        [
+          {
+            "node": "Check Escalation Settings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Context7 Queries",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Simple Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Escalation Settings": {
+      "main": [
+        [
+          {
+            "node": "Auto-Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-Approved?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Context7 Queries",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Request Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Simple Prompt": {
+      "main": [
+        [
+          {
+            "node": "Merge Execution Paths",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Prepare Context7 Queries": {
+      "main": [
+        [
+          {
+            "node": "Needs Context7?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Context7?": {
+      "main": [
+        [
+          {
+            "node": "Split Context7 Queries",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Enhanced Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Context7 Results": {
+      "main": [
+        [
+          {
+            "node": "Build Enhanced Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Enhanced Prompt": {
+      "main": [
+        [
+          {
+            "node": "Merge Execution Paths",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Execution Paths": {
+      "main": [
+        [
+          {
+            "node": "Execute Local Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Local Model": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Quality Report": {
+      "main": [
+        [
+          {
+            "node": "Decision Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decision Router": {
+      "main": [
+        [
+          {
+            "node": "Save Accepted Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Fix Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Retry Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Accepted Output": {
+      "main": [
+        [
+          {
+            "node": "Update Packet Status (Completed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Failed": {
+      "main": [
+        [
+          {
+            "node": "Update Packet Status (Failed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Next Queued Packet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "b96365fe-0801-4bce-be0b-795d1c348dec",
+  "activeVersionId": "2dd05cea-45f1-483d-9cfc-a36d9d39aaf6",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-01-02T00:53:28.242Z",
+      "createdAt": "2026-01-02T00:53:28.242Z",
+      "role": "workflow:owner",
+      "workflowId": "9JoFVmCveQLWoCxw",
+      "projectId": "CDNyPtsGxHdhfdhy"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-01-02T01:11:02.186Z",
+    "createdAt": "2026-01-02T01:11:02.186Z",
+    "versionId": "2dd05cea-45f1-483d-9cfc-a36d9d39aaf6",
+    "workflowId": "9JoFVmCveQLWoCxw",
+    "nodes": [
+      {
+        "id": "manual-trigger-1",
+        "name": "Webhook Trigger",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          240,
+          400
+        ],
+        "parameters": {
+          "path": "quality-loop-test",
+          "httpMethod": "POST",
+          "responseMode": "lastNode",
+          "options": {}
+        },
+        "webhookId": "quality-loop-webhook"
+      },
+      {
+        "parameters": {
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "uY29FyKg9JFPZa9a",
+            "cachedResultName": "ClaudiaCodeIssuePackets"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "status",
+                "keyValue": "queued"
+              }
+            ]
+          },
+          "sort": {
+            "fields": [
+              {
+                "fieldName": "createdAt",
+                "order": "ASC"
+              }
+            ]
+          },
+          "returnAll": false,
+          "limit": 1
+        },
+        "id": "get-next-packet",
+        "name": "Get Next Queued Packet",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1,
+        "position": [
+          460,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Analyze task complexity and estimate success probability\nconst packet = $input.first().json;\n\n// Parse packetJSON if it's a string\nlet packetData = packet.packetJSON;\nif (typeof packetData === 'string') {\n  try {\n    packetData = JSON.parse(packetData);\n  } catch (e) {\n    packetData = { title: packet.packetID, summary: 'Parse error', issues: [] };\n  }\n}\n\nconst title = packetData.title || '';\nconst summary = packetData.summary || '';\nconst description = (title + ' ' + summary).toLowerCase();\n\nlet complexity = 0;\n\n// Keyword-based complexity scoring\nconst complexKeywords = {\n  'distributed': 15, 'microservice': 15, 'scalable': 10, 'production': 10,\n  'security': 15, 'authentication': 12, 'authorization': 12, 'cryptographic': 15,\n  'optimization': 10, 'performance': 8, 'real-time': 12, 'streaming': 12,\n  'machine learning': 15, 'ai': 10, 'algorithm': 10, 'complex': 8,\n  'integration': 10, 'multi-tenant': 12, 'async': 8, 'concurrent': 10,\n  'database migration': 12, 'schema change': 10, 'refactor': 8\n};\n\nconst simpleKeywords = {\n  'simple': -8, 'basic': -8, 'utility': -5, 'helper': -5,\n  'format': -5, 'parse': -5, 'validate': -5, 'convert': -5,\n  'calculate': -5, 'display': -5, 'show': -5, 'list': -5\n};\n\n// Score based on keywords\nfor (const [keyword, score] of Object.entries(complexKeywords)) {\n  if (description.includes(keyword)) complexity += score;\n}\n\nfor (const [keyword, score] of Object.entries(simpleKeywords)) {\n  if (description.includes(keyword)) complexity += score;\n}\n\n// Description length (longer = more complex)\ncomplexity += Math.min(description.length / 100, 20);\n\n// Issue count (more issues = more complex)\nconst issueCount = packetData.issues?.length || 1;\ncomplexity += Math.min(issueCount * 5, 20);\n\n// Normalize to 0-100\ncomplexity = Math.max(0, Math.min(100, complexity));\n\n// Detect libraries/frameworks\nconst libraries = [];\nconst libraryKeywords = {\n  'fastapi': ['fastapi', 'rest api', 'uvicorn'],\n  'pydantic': ['pydantic', 'data validation'],\n  'pytest': ['pytest', 'testing', 'test'],\n  'sqlalchemy': ['sqlalchemy', 'database', 'orm'],\n  'pandas': ['pandas', 'dataframe'],\n  'numpy': ['numpy', 'numerical'],\n  'react': ['react', 'component', 'jsx'],\n  'vue': ['vue', 'vuejs'],\n  'django': ['django'],\n  'flask': ['flask'],\n  'express': ['express', 'nodejs'],\n  'typescript': ['typescript', 'ts'],\n  'docker': ['docker', 'container'],\n  'kubernetes': ['kubernetes', 'k8s']\n};\n\nfor (const [lib, keywords] of Object.entries(libraryKeywords)) {\n  if (keywords.some(kw => description.includes(kw))) {\n    libraries.push(lib);\n  }\n}\n\n// Success probability based on complexity and documentation availability\nlet probability = 100 - complexity;\nif (libraries.length > 0) probability += 20;  // Boost if we can get docs\n\n// Model capability factor\nconst localModelCapability = 70;  // Local models are ~70% as capable as paid\nprobability = Math.min(100, (probability * (localModelCapability / 100)) + 30);\nprobability = Math.round(Math.max(0, Math.min(100, probability)));\n\n// Recommended model\nlet recommendedModel = 'gpt-oss-20b';  // Default\nif (complexity < 20 && probability > 85) {\n  recommendedModel = 'ministral-3-3b';\n} else if (complexity < 40 && probability > 70) {\n  recommendedModel = 'gpt-oss-20b';\n} else if (complexity < 70) {\n  recommendedModel = 'gpt-oss-20b+context7';\n} else {\n  recommendedModel = 'needs-planning';  // Escalate to planning\n}\n\nreturn {\n  json: {\n    ...packet,\n    packetData: packetData,\n    complexity: {\n      score: complexity,\n      probability: probability,\n      recommendedModel: recommendedModel,\n      detectedLibraries: libraries,\n      requiresPlanning: complexity >= 70,\n      requiresContext7: libraries.length > 0 || complexity >= 30,\n      estimatedTokens: Math.round(complexity * 100 + 3000)\n    },\n    iteration: 0,  // Start at iteration 0\n    maxIterations: 3,\n    qualityHistory: []\n  }\n};"
+        },
+        "id": "analyze-complexity",
+        "name": "Analyze Complexity",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          680,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "boolean": [
+                    {
+                      "value1": "={{ $json.complexity.requiresPlanning }}",
+                      "value2": true
+                    }
+                  ]
+                },
+                "output": 0,
+                "renameOutput": true,
+                "outputKey": "Needs Planning"
+              },
+              {
+                "conditions": {
+                  "boolean": [
+                    {
+                      "value1": "={{ $json.complexity.requiresContext7 }}",
+                      "value2": true
+                    }
+                  ]
+                },
+                "output": 1,
+                "renameOutput": true,
+                "outputKey": "Needs Tools"
+              }
+            ]
+          },
+          "options": {
+            "fallbackOutput": 2
+          }
+        },
+        "id": "route-by-complexity",
+        "name": "Route by Complexity",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3,
+        "position": [
+          900,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Check if user has auto-approval enabled and budget available\nconst item = $input.first().json;\n\n// Simulate user settings (would come from ClaudiaCodeSettings table)\nconst userSettings = {\n  auto_approve_planning: false,\n  max_planning_budget: 5.00,\n  max_execution_budget: 10.00,\n  auto_approve_under: 2.00\n};\n\n// Estimate costs\nconst planningCost = 0.50;  // ~$0.50 for Claude planning\nconst executionCost = item.complexity.score > 70 ? 3.00 : 0.00;\nconst totalCost = planningCost + executionCost;\n\nconst needsApproval = !userSettings.auto_approve_planning && totalCost > userSettings.auto_approve_under;\n\nreturn {\n  json: {\n    ...item,\n    escalation: {\n      needsApproval: needsApproval,\n      estimatedCost: totalCost,\n      planningCost: planningCost,\n      executionCost: executionCost,\n      reason: `Complexity ${item.complexity.score}/100 exceeds local capabilities. Planning recommended.`\n    }\n  }\n};"
+        },
+        "id": "check-escalation",
+        "name": "Check Escalation Settings",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          200
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{ $json.escalation.needsApproval }}",
+                "value2": false
+              }
+            ]
+          }
+        },
+        "id": "auto-approved",
+        "name": "Auto-Approved?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1340,
+          200
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Mark packet as awaiting approval and notify user\nconst item = $input.first().json;\n\nreturn {\n  json: {\n    ...item,\n    status: 'awaiting_approval',\n    message: `Task requires planning. Estimated cost: $${item.escalation.estimatedCost.toFixed(2)}. Reply '/approve ${item.packetID}' to proceed or '/skip ${item.packetID}' to skip.`\n  }\n};"
+        },
+        "id": "request-approval",
+        "name": "Request Approval",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1560,
+          100
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Build prompt for local model (simple path)\nconst item = $input.first().json;\nconst packetData = item.packetData;\n\nconst prompt = `You are an expert software developer. Implement this task completely.\n\n# Task\n**Title:** ${packetData.title || 'Untitled'}\n\n**Description:**\n${packetData.summary || 'No description'}\n\n# Requirements\n- Write COMPLETE, WORKING code (no placeholders, no TODOs)\n- Include ALL necessary imports and dependencies\n- Add comprehensive error handling\n- Write tests for critical functionality\n- Follow best practices and conventions\n- Be concise but thorough\n\n# Issues to Address\n${packetData.issues?.map(i => `- ${i.id}: ${i.title}`).join('\\n') || 'No specific issues'}\n\n# Acceptance Criteria\n${packetData.acceptanceCriteria?.join('\\n- ') || 'Implement as described'}\n\n# Output Format\nProvide:\n1. Complete implementation code\n2. Brief explanation of approach\n3. Test cases (if applicable)\n4. Dependencies/requirements\n\nBegin implementation:`;\n\nreturn {\n  json: {\n    ...item,\n    prompt: prompt,\n    modelToUse: 'ministral-3-3b'\n  }\n};"
+        },
+        "id": "build-simple-prompt",
+        "name": "Build Simple Prompt",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          600
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "\n// Context7 disabled for now - MCP nodes not available in n8n\nconst item = $input.first().json;\n\nreturn {\n  json: {\n    ...item,\n    context7Docs: null,\n    skipContext7: true\n  }\n};\n"
+        },
+        "id": "prepare-context7",
+        "name": "Prepare Context7 Queries",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{ $json.skipContext7 }}",
+                "value2": false
+              }
+            ]
+          }
+        },
+        "id": "needs-context7",
+        "name": "Needs Context7?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1340,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Split into separate items for each library\nconst item = $input.first().json;\nconst queries = item.context7Queries || [];\n\nreturn queries.map((q, index) => ({\n  json: {\n    ...item,\n    currentQuery: q,\n    queryIndex: index\n  }\n}));"
+        },
+        "id": "split-queries",
+        "name": "Split Context7 Queries",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1560,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Aggregate all Context7 results\nconst items = $input.all();\n\nconst docs = items.map(item => ({\n  library: item.json.currentQuery.library,\n  content: item.json.answer || 'No documentation found'\n}));\n\nconst baseItem = items[0].json;\n\n// Remove temporary fields\ndelete baseItem.currentQuery;\ndelete baseItem.queryIndex;\ndelete baseItem.context7Queries;\n\nreturn {\n  json: {\n    ...baseItem,\n    context7Docs: docs\n  }\n};"
+        },
+        "id": "aggregate-context7",
+        "name": "Aggregate Context7 Results",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2220,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Build enhanced prompt with Context7 documentation\nconst item = $input.first().json;\nconst packetData = item.packetData;\nconst docs = item.context7Docs || [];\n\nlet docsSection = '';\nif (docs.length > 0) {\n  docsSection = `\\n# Official Documentation Retrieved\\n${docs.map(d => `## ${d.library}\\n${d.content}`).join('\\n\\n')}\\n`;\n}\n\nconst prompt = `You are an expert software developer with access to official documentation. Implement this task completely.\n\n# Task\n**Title:** ${packetData.title || 'Untitled'}\n\n**Description:**\n${packetData.summary || 'No description'}\n${docsSection}\n# Requirements\n- Follow the official documentation patterns shown above\n- Write COMPLETE, WORKING code (no placeholders, no TODOs)\n- Use the exact APIs and patterns from the documentation\n- Include ALL necessary imports and dependencies\n- Add comprehensive error handling\n- Write tests for critical functionality\n- Follow framework/library best practices\n\n# Issues to Address\n${packetData.issues?.map(i => `- ${i.id}: ${i.title}`).join('\\n') || 'No specific issues'}\n\n# Acceptance Criteria\n${packetData.acceptanceCriteria?.join('\\n- ') || 'Implement as described'}\n\n# Output Format\nProvide:\n1. Complete implementation code\n2. Brief explanation of approach\n3. Test cases\n4. Dependencies with versions\n\nBegin implementation:`;\n\nreturn {\n  json: {\n    ...item,\n    prompt: prompt,\n    modelToUse: 'gpt-oss-20b'\n  }\n};"
+        },
+        "id": "build-enhanced-prompt",
+        "name": "Build Enhanced Prompt",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2220,
+          500
+        ]
+      },
+      {
+        "parameters": {},
+        "id": "merge-paths",
+        "name": "Merge Execution Paths",
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3,
+        "position": [
+          2440,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://localhost:1234/v1/chat/completions",
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "model",
+                "value": "={{ $json.modelToUse || 'gpt-oss-20b' }}"
+              },
+              {
+                "name": "messages",
+                "value": "={{ [{role: 'user', content: $json.prompt}] }}"
+              },
+              {
+                "name": "temperature",
+                "value": "={{ $json.iteration > 0 ? 0.1 : 0.2 }}"
+              },
+              {
+                "name": "max_tokens",
+                "value": "={{ $json.complexity.estimatedTokens || 4000 }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 180000
+          }
+        },
+        "id": "execute-local-model",
+        "name": "Execute Local Model",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2660,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Save initial output for validation\nconst item = $input.first();\nconst response = item.json.choices?.[0]?.message?.content || '';\nconst metadata = $node[\"Merge Execution Paths\"].json;\n\nconst now = new Date().toISOString();\nconst filename = `${metadata.packetID}-iter${metadata.iteration}-temp.md`;\n\nconst output = `# ${metadata.packetData.title}\n\n**Packet ID:** ${metadata.packetID}\n**Iteration:** ${metadata.iteration}\n**Model:** ${metadata.modelToUse}\n**Timestamp:** ${now}\n\n---\n\n${response}\n\n---\n\n## Metadata\n- Complexity: ${metadata.complexity.score}/100\n- Success Probability: ${metadata.complexity.probability}%\n- Libraries: ${metadata.complexity.detectedLibraries.join(', ') || 'None'}\n`;\n\nreturn {\n  json: {\n    ...metadata,\n    generatedOutput: response,\n    outputMarkdown: output,\n    outputFilename: filename,\n    generatedAt: now\n  }\n};"
+        },
+        "id": "format-output",
+        "name": "Format Output",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2880,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "model": {
+            "__rl": true,
+            "value": "qwen/qwen3-vl-8b",
+            "mode": "list"
+          },
+          "options": {
+            "timeout": 120000
+          }
+        },
+        "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+        "typeVersion": 1.3,
+        "position": [
+          3100,
+          592
+        ],
+        "id": "validator-model",
+        "name": "Qwen3-VL-8b Validator",
+        "credentials": {
+          "openAiApi": {
+            "id": "FYFVsKzjVFK0h0V2",
+            "name": "Bedroom LMStudio"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Parse quality validation results\nconst item = $input.first();\nconst rawOutput = item.json.output || '';\n\nlet qualityReport;\ntry {\n  // Try to parse as JSON\n  const jsonMatch = rawOutput.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    qualityReport = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found');\n  }\n} catch (e) {\n  // Fallback: manual decision based on content\n  qualityReport = {\n    overall_score: 50,\n    decision: 'REJECT',\n    reasoning: 'Validator failed to produce valid JSON',\n    issues: [{type: 'validation_error', severity: 'critical', description: 'Could not parse validation output'}]\n  };\n}\n\nconst metadata = $node[\"Format Output\"].json;\n\n// Add to quality history\nconst qualityHistory = metadata.qualityHistory || [];\nqualityHistory.push({\n  iteration: metadata.iteration,\n  score: qualityReport.overall_score,\n  decision: qualityReport.decision,\n  timestamp: new Date().toISOString()\n});\n\nreturn {\n  json: {\n    ...metadata,\n    qualityReport: qualityReport,\n    qualityHistory: qualityHistory,\n    currentScore: qualityReport.overall_score,\n    currentDecision: qualityReport.decision\n  }\n};"
+        },
+        "id": "parse-quality-report",
+        "name": "Parse Quality Report",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3320,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "string": [
+                    {
+                      "value1": "={{ $json.currentDecision }}",
+                      "operation": "equals",
+                      "value2": "ACCEPT"
+                    }
+                  ]
+                },
+                "output": 0,
+                "renameOutput": true,
+                "outputKey": "ACCEPT"
+              },
+              {
+                "conditions": {
+                  "string": [
+                    {
+                      "value1": "={{ $json.currentDecision }}",
+                      "operation": "equals",
+                      "value2": "ITERATE"
+                    }
+                  ]
+                },
+                "output": 1,
+                "renameOutput": true,
+                "outputKey": "ITERATE"
+              },
+              {
+                "conditions": {
+                  "string": [
+                    {
+                      "value1": "={{ $json.currentDecision }}",
+                      "operation": "equals",
+                      "value2": "REJECT"
+                    }
+                  ]
+                },
+                "output": 2,
+                "renameOutput": true,
+                "outputKey": "REJECT"
+              }
+            ]
+          }
+        },
+        "id": "decision-router",
+        "name": "Decision Router",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3,
+        "position": [
+          3540,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Save accepted output to final location\nconst fs = require('fs');\nconst path = require('path');\n\nconst item = $input.first().json;\n\nconst finalFilename = `${item.packetID}-ACCEPTED-${Date.now()}.md`;\nconst finalPath = `/mnt/n8n-nas/packet_outputs/${finalFilename}`;\n\nconst finalMarkdown = `# ACCEPTED: ${item.packetData.title}\n\n**Packet ID:** ${item.packetID}\n**Final Iteration:** ${item.iteration}\n**Quality Score:** ${item.currentScore}/100\n**Model:** ${item.modelToUse}\n**Timestamp:** ${new Date().toISOString()}\n\n---\n\n## Implementation\n\n${item.generatedOutput}\n\n---\n\n## Quality Metrics\n- Overall Score: ${item.qualityReport.overall_score}/100\n- Completeness: ${item.qualityReport.completeness}/100\n- Correctness: ${item.qualityReport.correctness}/100\n- Code Quality: ${item.qualityReport.code_quality}/100\n- Security: ${item.qualityReport.security}/100\n\n## Quality History\n${item.qualityHistory.map(h => `- Iteration ${h.iteration}: ${h.score}/100 (${h.decision})`).join('\\n')}\n\n## Issues Found\n${item.qualityReport.issues?.length > 0 ? item.qualityReport.issues.map(i => `- **[${i.severity}] ${i.type}**: ${i.description} (${i.location})`).join('\\n') : 'None'}\n`;\n\n// Ensure directory exists\nconst dir = path.dirname(finalPath);\nif (!fs.existsSync(dir)) {\n  fs.mkdirSync(dir, { recursive: true });\n}\n\n// Write file\nfs.writeFileSync(finalPath, finalMarkdown, 'utf8');\n\nreturn {\n  json: {\n    ...item,\n    finalFilename: finalFilename,\n    finalPath: finalPath,\n    status: 'completed',\n    completedAt: new Date().toISOString()\n  }\n};"
+        },
+        "id": "save-accepted",
+        "name": "Save Accepted Output",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3760,
+          200
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "uY29FyKg9JFPZa9a",
+            "cachedResultName": "ClaudiaCodeIssuePackets"
+          },
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "packetID",
+                "keyValue": "={{ $json.packetID }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "status": "completed",
+              "completedAt": "={{ $json.completedAt }}",
+              "finalScore": "={{ $json.currentScore }}",
+              "iterations": "={{ $json.iteration + 1 }}",
+              "outputFile": "={{ $json.finalFilename }}"
+            }
+          }
+        },
+        "id": "update-completed",
+        "name": "Update Packet Status (Completed)",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1,
+        "position": [
+          3980,
+          200
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Build fix prompt for ITERATE path\nconst item = $input.first().json;\nconst issues = item.qualityReport.issues || [];\nconst suggestions = item.qualityReport.fix_suggestions || [];\n\nconst fixPrompt = `You previously generated code for: ${item.packetData.title}\n\nYour code has been reviewed and needs the following fixes:\n\n# Issues to Fix\n${issues.map((issue, i) => `${i + 1}. **[${issue.severity}] ${issue.type}**: ${issue.description}\\n   Location: ${issue.location}`).join('\\n\\n')}\n\n# Fix Suggestions\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join('\\n')}\n\n# Original Code\n${item.generatedOutput}\n\n# Requirements\n- Fix ONLY the issues listed above\n- Do NOT rewrite everything from scratch\n- Maintain the existing structure where possible\n- Ensure fixes are complete and correct\n- Return the complete corrected code\n\nProvide the fixed implementation:`;\n\nreturn {\n  json: {\n    ...item,\n    iteration: item.iteration + 1,\n    prompt: fixPrompt,\n    mode: 'fix'\n  }\n};"
+        },
+        "id": "build-fix-prompt",
+        "name": "Build Fix Prompt",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3760,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Build retry prompt for REJECT path\nconst item = $input.first().json;\nconst retryGuidance = item.qualityReport.retry_guidance || 'Previous attempt had fundamental issues';\nconst issues = item.qualityReport.issues || [];\n\nconst retryPrompt = `RETRY: Implement this task with careful attention to detail.\n\n# Task\n**Title:** ${item.packetData.title}\n**Description:** ${item.packetData.summary}\n\n# Why Previous Attempt Failed\n${retryGuidance}\n\n# Critical Issues to Avoid\n${issues.filter(i => i.severity === 'critical').map((issue, i) => `${i + 1}. **${issue.type}**: ${issue.description}`).join('\\n')}\n\n# STRICT Requirements\n- NO placeholders (no TODO, FIXME, \"implement this\", \"...\")\n- NO hallucinations (only use real libraries and APIs)\n- COMPLETE implementation (all functions fully written)\n- WORKING code (no syntax errors, no broken logic)\n- TESTS included (at least basic test cases)\n- ERROR handling (try/catch, validation)\n\n# Issues to Address\n${item.packetData.issues?.map(i => `- ${i.id}: ${i.title}`).join('\\n') || 'No specific issues'}\n\n# Acceptance Criteria\n${item.packetData.acceptanceCriteria?.join('\\n- ') || 'Implement as described'}\n\n${item.context7Docs && item.context7Docs.length > 0 ? '# Official Documentation\\n' + item.context7Docs.map(d => `## ${d.library}\\n${d.content}`).join('\\n\\n') : ''}\n\nThis is attempt ${item.iteration + 1}. Take your time and be thorough.\n\nProvide complete implementation:`;\n\nreturn {\n  json: {\n    ...item,\n    iteration: item.iteration + 1,\n    prompt: retryPrompt,\n    mode: 'retry'\n  }\n};"
+        },
+        "id": "build-retry-prompt",
+        "name": "Build Retry Prompt",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3760,
+          600
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "number": [
+              {
+                "value1": "={{ $json.iteration }}",
+                "operation": "largerEqual",
+                "value2": "={{ $json.maxIterations }}"
+              }
+            ]
+          }
+        },
+        "id": "check-max-iterations",
+        "name": "Max Iterations Reached?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          3980,
+          500
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Mark as failed after max iterations\nconst item = $input.first().json;\n\nconst failureReason = `Failed after ${item.iteration} iterations. Final score: ${item.currentScore}/100. Last decision: ${item.currentDecision}.`;\n\nreturn {\n  json: {\n    ...item,\n    status: 'failed',\n    failureReason: failureReason,\n    failedAt: new Date().toISOString()\n  }\n};"
+        },
+        "id": "mark-failed",
+        "name": "Mark as Failed",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          4200,
+          600
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "list",
+            "value": "uY29FyKg9JFPZa9a",
+            "cachedResultName": "ClaudiaCodeIssuePackets"
+          },
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "packetID",
+                "keyValue": "={{ $json.packetID }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "status": "failed",
+              "failureReason": "={{ $json.failureReason }}",
+              "failedAt": "={{ $json.failedAt }}",
+              "finalScore": "={{ $json.currentScore }}",
+              "iterations": "={{ $json.iteration }}"
+            }
+          }
+        },
+        "id": "update-failed",
+        "name": "Update Packet Status (Failed)",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1,
+        "position": [
+          4420,
+          600
+        ]
+      }
+    ],
+    "connections": {
+      "Get Next Queued Packet": {
+        "main": [
+          [
+            {
+              "node": "Analyze Complexity",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Analyze Complexity": {
+        "main": [
+          [
+            {
+              "node": "Route by Complexity",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route by Complexity": {
+        "main": [
+          [
+            {
+              "node": "Check Escalation Settings",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Context7 Queries",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Simple Prompt",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check Escalation Settings": {
+        "main": [
+          [
+            {
+              "node": "Auto-Approved?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Auto-Approved?": {
+        "main": [
+          [
+            {
+              "node": "Prepare Context7 Queries",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Request Approval",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Simple Prompt": {
+        "main": [
+          [
+            {
+              "node": "Merge Execution Paths",
+              "type": "main",
+              "index": 2
+            }
+          ]
+        ]
+      },
+      "Prepare Context7 Queries": {
+        "main": [
+          [
+            {
+              "node": "Needs Context7?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Needs Context7?": {
+        "main": [
+          [
+            {
+              "node": "Split Context7 Queries",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Enhanced Prompt",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Aggregate Context7 Results": {
+        "main": [
+          [
+            {
+              "node": "Build Enhanced Prompt",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Enhanced Prompt": {
+        "main": [
+          [
+            {
+              "node": "Merge Execution Paths",
+              "type": "main",
+              "index": 1
+            }
+          ]
+        ]
+      },
+      "Merge Execution Paths": {
+        "main": [
+          [
+            {
+              "node": "Execute Local Model",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Execute Local Model": {
+        "main": [
+          [
+            {
+              "node": "Format Output",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Quality Report": {
+        "main": [
+          [
+            {
+              "node": "Decision Router",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Decision Router": {
+        "main": [
+          [
+            {
+              "node": "Save Accepted Output",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Fix Prompt",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Retry Prompt",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Save Accepted Output": {
+        "main": [
+          [
+            {
+              "node": "Update Packet Status (Completed)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mark as Failed": {
+        "main": [
+          [
+            {
+              "node": "Update Packet Status (Failed)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook Trigger": {
+        "main": [
+          [
+            {
+              "node": "Get Next Queued Packet",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Bill Griffith",
+    "name": null,
+    "description": null
+  },
+  "tags": [
+    {
+      "updatedAt": "2026-01-01T23:41:10.347Z",
+      "createdAt": "2026-01-01T23:41:10.347Z",
+      "id": "59v2I1DDZaqntzwf",
+      "name": "AI GENERATED"
+    },
+    {
+      "updatedAt": "2026-01-01T23:44:48.788Z",
+      "createdAt": "2026-01-01T23:44:48.788Z",
+      "id": "l6FVWknceeDeKEoz",
+      "name": "SANDBOX"
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import {
   Filter,
   Play,
   Pause,
+  Square,
   XCircle,
   RotateCcw,
   ChevronDown,
@@ -20,75 +21,65 @@ import {
   Loader2,
   GitBranch,
   User,
-  Calendar,
-  Hash,
   ExternalLink,
   Terminal,
-  Zap
+  Zap,
+  ThumbsUp,
+  ThumbsDown,
+  RefreshCw,
+  StopCircle
 } from "lucide-react"
-import { getAllPackets, getPacketsForProject, type WorkPacket } from "@/lib/ai/build-plan"
-import { getProjects } from "@/lib/data/projects"
-import { usePacketExecution, type ExecutionLog } from "@/hooks/usePacketExecution"
+import { useLegacyPacketExecution, type ExecutionLog, type ExecutionResult } from "@/hooks/usePacketExecution"
 
-type PacketStatus = "queued" | "running" | "blocked" | "completed" | "failed"
+// Extended status types to match N8N data
+type PacketStatus = "queued" | "running" | "paused" | "blocked" | "completed" | "failed" | "cancelled"
 type PacketPriority = "high" | "normal" | "low"
+type FeedbackType = "thumbs_up" | "thumbs_down" | null
 
 interface Packet {
   id: string
-  projectId: string
+  packetID: string
+  projectID: string
+  planRunID: string
   title: string
-  description: string
+  summary: string
   status: PacketStatus
   priority: PacketPriority
-  agent: string | null
-  createdAt: Date
+  assignedWorker: string | null
+  issueIDs: string[]
+  issues: Array<{ id: string; title: string; description: string }>
+  acceptanceCriteria: string[]
+  risks: string[]
+  dependencies: string[]
+  feedback: FeedbackType
+  feedbackComment: string | null
   startedAt: Date | null
   completedAt: Date | null
-  source: string
-  branch: string
-  tasks: { total: number; completed: number }
-  estimatedCost: number
-  actualCost: number | null
-  blockedReason?: string
-  errorMessage?: string
-  acceptanceCriteria?: string[]
+  createdAt: Date | null
+  updatedAt: Date | null
 }
 
-// Convert WorkPacket from build-plan to Packet for display
-function workPacketToPacket(wp: WorkPacket, projectId: string): Packet {
-  const completedTasks = wp.tasks.filter(t => t.completed).length
-
-  // Map work packet status to display status
-  let status: PacketStatus = "queued"
-  if (wp.status === "completed") status = "completed"
-  else if (wp.status === "in_progress" || wp.status === "assigned") status = "running"
-  else if (wp.status === "blocked") status = "blocked"
-  else if (wp.status === "review") status = "running"
-
-  // Map priority
-  let priority: PacketPriority = "normal"
-  if (wp.priority === "critical" || wp.priority === "high") priority = "high"
-  else if (wp.priority === "low") priority = "low"
-
-  return {
-    id: wp.id,
-    projectId,
-    title: wp.title,
-    description: wp.description,
-    status,
-    priority,
-    agent: wp.assignedModel || null,
-    createdAt: new Date(),
-    startedAt: wp.status === "in_progress" ? new Date() : null,
-    completedAt: wp.status === "completed" ? new Date() : null,
-    source: "Linear",
-    branch: `claudia/${wp.id.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`,
-    tasks: { total: wp.tasks.length, completed: completedTasks },
-    estimatedCost: wp.estimatedTokens / 1000 * 0.002, // Rough estimate
-    actualCost: wp.status === "completed" ? wp.estimatedTokens / 1000 * 0.002 : null,
-    blockedReason: wp.blockedBy?.length > 0 ? `Depends on: ${wp.blockedBy.join(", ")}` : undefined,
-    acceptanceCriteria: wp.acceptanceCriteria,
-  }
+// API response type
+interface ApiPacket {
+  id: string
+  packetID: string
+  projectID: string
+  planRunID: string
+  title: string
+  summary: string
+  status: string
+  assignedWorker: string | null
+  issueIDs: string[]
+  issues: Array<{ id: string; title: string; description: string }>
+  acceptanceCriteria: string[]
+  risks: string[]
+  dependencies: string[]
+  feedback: FeedbackType
+  feedbackComment: string | null
+  startedAt: string | null
+  completedAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
 }
 
 const statusConfig: Record<PacketStatus, {
@@ -114,6 +105,13 @@ const statusConfig: Record<PacketStatus, {
     animate: true,
     badgeVariant: "default"
   },
+  paused: {
+    icon: Pause,
+    color: "text-orange-400",
+    bg: "bg-orange-400",
+    label: "Paused",
+    badgeVariant: "warning"
+  },
   blocked: {
     icon: AlertTriangle,
     color: "text-yellow-400",
@@ -134,17 +132,21 @@ const statusConfig: Record<PacketStatus, {
     bg: "bg-red-400",
     label: "Failed",
     badgeVariant: "destructive"
+  },
+  cancelled: {
+    icon: StopCircle,
+    color: "text-gray-400",
+    bg: "bg-gray-400",
+    label: "Cancelled",
+    badgeVariant: "secondary"
   }
 }
 
-const priorityConfig = {
-  high: { label: "High", color: "text-red-400", bg: "bg-red-400/10" },
-  normal: { label: "Normal", color: "text-muted-foreground", bg: "" },
-  low: { label: "Low", color: "text-muted-foreground", bg: "bg-muted/50" }
+const workerConfig: Record<string, { label: string; color: string }> = {
+  worker_bee_gptoss: { label: "GPT-OSS", color: "text-blue-400" },
+  worker_bee_opus: { label: "Claude Opus", color: "text-purple-400" },
+  vision_worker: { label: "Vision", color: "text-green-400" },
 }
-
-// Mock packets are now empty - real packets come from storage
-const mockPackets: Packet[] = []
 
 function formatDate(date: Date | null): string {
   if (!date) return "-"
@@ -166,12 +168,27 @@ function formatDuration(start: Date | null, end: Date | null): string {
   return `${minutes}m`
 }
 
+function transformApiPacket(apiPacket: ApiPacket): Packet {
+  return {
+    ...apiPacket,
+    status: (apiPacket.status as PacketStatus) || "queued",
+    priority: "normal" as PacketPriority, // Default priority
+    startedAt: apiPacket.startedAt ? new Date(apiPacket.startedAt) : null,
+    completedAt: apiPacket.completedAt ? new Date(apiPacket.completedAt) : null,
+    createdAt: apiPacket.createdAt ? new Date(apiPacket.createdAt) : null,
+    updatedAt: apiPacket.updatedAt ? new Date(apiPacket.updatedAt) : null,
+  }
+}
+
 export default function PacketsPage() {
-  const [packets, setPackets] = useState<Packet[]>(mockPackets)
+  const [packets, setPackets] = useState<Packet[]>([])
   const [selectedPacket, setSelectedPacket] = useState<Packet | null>(null)
   const [filter, setFilter] = useState<PacketStatus | "all">("all")
   const [search, setSearch] = useState("")
   const [showExecutionLogs, setShowExecutionLogs] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   // Execution hook
   const {
@@ -180,9 +197,8 @@ export default function PacketsPage() {
     currentPacketId,
     lastResult,
     logs,
-    error: executionError,
     checkServerStatus
-  } = usePacketExecution()
+  } = useLegacyPacketExecution()
 
   interface ServerInfo {
     name: string
@@ -197,30 +213,42 @@ export default function PacketsPage() {
   const [selectedServer, setSelectedServer] = useState<string | null>(null)
   const [executionMode, setExecutionMode] = useState<"standard" | "long-horizon">("standard")
 
-  // Load real packets from storage on mount
-  const loadPackets = useCallback(() => {
-    const projects = getProjects()
-    const allPackets: Packet[] = []
+  // Fetch packets from API
+  const loadPackets = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
 
-    for (const project of projects) {
-      const projectPackets = getPacketsForProject(project.id)
-      for (const wp of projectPackets) {
-        allPackets.push(workPacketToPacket(wp, project.id))
-      }
-    }
+    try {
+      const response = await fetch("/api/packets")
+      const data = await response.json()
 
-    if (allPackets.length > 0) {
-      setPackets(allPackets)
-      if (!selectedPacket) {
-        setSelectedPacket(allPackets[0])
+      if (data.success && data.packets) {
+        const transformedPackets = data.packets.map(transformApiPacket)
+        setPackets(transformedPackets)
+
+        // Auto-select first packet if none selected
+        if (transformedPackets.length > 0 && !selectedPacket) {
+          setSelectedPacket(transformedPackets[0])
+        }
+      } else {
+        setError(data.error || "Failed to load packets")
       }
+    } catch (err) {
+      console.error("Failed to fetch packets:", err)
+      setError("Failed to connect to packets API")
+    } finally {
+      setIsLoading(false)
     }
   }, [selectedPacket])
 
   useEffect(() => {
     loadPackets()
-    // Check server status
-    checkServerStatus().then(setServerStatus)
+    checkServerStatus().then((result: { servers: unknown[]; available: boolean }) => {
+      setServerStatus({
+        servers: result.servers as ServerInfo[],
+        available: result.available
+      })
+    })
   }, [loadPackets, checkServerStatus])
 
   // Refresh packets after execution
@@ -230,10 +258,65 @@ export default function PacketsPage() {
     }
   }, [lastResult, loadPackets])
 
-  // Handle packet execution
+  // Handle packet actions
+  const handlePacketAction = async (packetId: string, action: "start" | "stop" | "pause" | "cancel") => {
+    setActionLoading(packetId)
+
+    try {
+      const response = await fetch("/api/packets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, packetId })
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        // Refresh packets list
+        await loadPackets()
+      } else {
+        console.error("Action failed:", result.error)
+      }
+    } catch (err) {
+      console.error("Failed to perform action:", err)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // Handle feedback
+  const handleFeedback = async (packetId: string, feedback: "thumbs_up" | "thumbs_down", comment?: string) => {
+    setActionLoading(packetId)
+
+    try {
+      const response = await fetch("/api/packets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "feedback", packetId, feedback, comment })
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        // Update local state immediately for responsiveness
+        setPackets(prev => prev.map(p =>
+          p.id === packetId ? { ...p, feedback } : p
+        ))
+        if (selectedPacket?.id === packetId) {
+          setSelectedPacket(prev => prev ? { ...prev, feedback } : null)
+        }
+      }
+    } catch (err) {
+      console.error("Failed to submit feedback:", err)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // Handle packet execution via LLM
   const handleExecute = async (packet: Packet) => {
     setShowExecutionLogs(true)
-    await execute(packet.id, packet.projectId, {
+    await execute(packet.id, packet.projectID, {
       preferredServer: selectedServer || undefined,
       useIteration: executionMode === "long-horizon",
       maxIterations: executionMode === "long-horizon" ? 10 : 3,
@@ -245,16 +328,19 @@ export default function PacketsPage() {
     const matchesFilter = filter === "all" || packet.status === filter
     const matchesSearch = search === "" ||
       packet.title.toLowerCase().includes(search.toLowerCase()) ||
-      packet.id.toLowerCase().includes(search.toLowerCase())
+      packet.id.toLowerCase().includes(search.toLowerCase()) ||
+      packet.issueIDs.some(id => id.toLowerCase().includes(search.toLowerCase()))
     return matchesFilter && matchesSearch
   })
 
   const stats = {
     queued: packets.filter(p => p.status === "queued").length,
     running: packets.filter(p => p.status === "running").length,
+    paused: packets.filter(p => p.status === "paused").length,
     blocked: packets.filter(p => p.status === "blocked").length,
     completed: packets.filter(p => p.status === "completed").length,
     failed: packets.filter(p => p.status === "failed").length,
+    cancelled: packets.filter(p => p.status === "cancelled").length,
   }
 
   return (
@@ -264,7 +350,7 @@ export default function PacketsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Packet Queue</h1>
           <p className="text-sm text-muted-foreground">
-            Manage and monitor development task packets
+            Manage and monitor development task packets from N8N
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -307,6 +393,18 @@ export default function PacketsPage() {
               {serverStatus?.available ? "LLM Online" : "LLM Offline"}
             </span>
           </div>
+
+          {/* Refresh Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={loadPackets}
+            disabled={isLoading}
+          >
+            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -336,9 +434,19 @@ export default function PacketsPage() {
         </div>
       </div>
 
+      {/* Error Banner */}
+      {error && (
+        <div className="rounded-lg bg-red-400/10 border border-red-400/30 p-4 text-sm text-red-400">
+          <strong>Error:</strong> {error}
+          <Button variant="link" size="sm" onClick={loadPackets} className="ml-2 text-red-400 underline">
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Stats Bar */}
       <div className="flex flex-wrap gap-2 sm:gap-4">
-        {(["queued", "running", "blocked", "completed", "failed"] as const).map(status => {
+        {(["queued", "running", "paused", "blocked", "completed", "failed"] as const).map(status => {
           const config = statusConfig[status]
           return (
             <button
@@ -365,7 +473,7 @@ export default function PacketsPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search packets..."
+            placeholder="Search packets or issues..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-9 w-full rounded-md border border-input bg-transparent pl-10 pr-4 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -388,66 +496,194 @@ export default function PacketsPage() {
                 All Packets
               </CardTitle>
               <span className="text-sm text-muted-foreground">
-                {filteredPackets.length} items
+                {isLoading ? "Loading..." : `${filteredPackets.length} items`}
               </span>
             </div>
           </CardHeader>
           <CardContent className="flex-1 overflow-auto p-0">
-            <div className="divide-y">
-              {filteredPackets.map(packet => {
-                const config = statusConfig[packet.status]
-                const Icon = config.icon
-                const isSelected = selectedPacket?.id === packet.id
-                const priorityConf = priorityConfig[packet.priority]
-                return (
-                  <div
-                    key={packet.id}
-                    onClick={() => setSelectedPacket(packet)}
-                    className={cn(
-                      "flex items-start gap-4 p-4 cursor-pointer transition-colors",
-                      isSelected ? "bg-accent" : "hover:bg-accent/50"
-                    )}
-                  >
-                    <div className="flex-none pt-0.5">
-                      <Icon className={cn("h-5 w-5", config.color, config.animate && "animate-spin")} />
-                    </div>
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {packet.id}
-                        </span>
-                        {packet.priority === "high" && (
-                          <Badge variant="destructive" className="text-xs px-1.5 py-0">
-                            High
-                          </Badge>
-                        )}
+            {isLoading ? (
+              <div className="flex items-center justify-center h-32">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredPackets.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+                <Package className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">No packets found</p>
+                <p className="text-xs">
+                  {packets.length === 0
+                    ? "Packets will appear here when loaded from N8N"
+                    : "Try adjusting your filters"}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {filteredPackets.map(packet => {
+                  const config = statusConfig[packet.status]
+                  const Icon = config.icon
+                  const isSelected = selectedPacket?.id === packet.id
+                  const isActionLoading = actionLoading === packet.id
+                  const workerInfo = packet.assignedWorker ? workerConfig[packet.assignedWorker] : null
+
+                  return (
+                    <div
+                      key={packet.id}
+                      onClick={() => setSelectedPacket(packet)}
+                      className={cn(
+                        "flex items-start gap-3 p-4 cursor-pointer transition-colors",
+                        isSelected ? "bg-accent" : "hover:bg-accent/50"
+                      )}
+                    >
+                      <div className="flex-none pt-0.5">
+                        <Icon className={cn("h-5 w-5", config.color, config.animate && "animate-spin")} />
                       </div>
-                      <p className="font-medium truncate">{packet.title}</p>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <GitBranch className="h-3 w-3" />
-                          {packet.branch}
-                        </span>
-                        {packet.agent && (
-                          <span className="flex items-center gap-1">
-                            <User className="h-3 w-3" />
-                            {packet.agent}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {packet.packetID || packet.id}
                           </span>
+                          {packet.feedback && (
+                            <span className={cn(
+                              "flex items-center",
+                              packet.feedback === "thumbs_up" ? "text-green-400" : "text-red-400"
+                            )}>
+                              {packet.feedback === "thumbs_up" ? (
+                                <ThumbsUp className="h-3 w-3" />
+                              ) : (
+                                <ThumbsDown className="h-3 w-3" />
+                              )}
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-medium truncate">{packet.title}</p>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          {packet.issueIDs.length > 0 && (
+                            <span className="flex items-center gap-1">
+                              <GitBranch className="h-3 w-3" />
+                              {packet.issueIDs.slice(0, 2).join(", ")}
+                              {packet.issueIDs.length > 2 && ` +${packet.issueIDs.length - 2}`}
+                            </span>
+                          )}
+                          {workerInfo && (
+                            <span className={cn("flex items-center gap-1", workerInfo.color)}>
+                              <User className="h-3 w-3" />
+                              {workerInfo.label}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Buttons - visible on each row */}
+                      <div className="flex-none flex items-center gap-1">
+                        {/* Start/Stop Button */}
+                        {packet.status === "queued" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-green-400 hover:text-green-300 hover:bg-green-400/10"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handlePacketAction(packet.id, "start")
+                            }}
+                            disabled={isActionLoading}
+                          >
+                            {isActionLoading ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                        {packet.status === "running" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-orange-400 hover:text-orange-300 hover:bg-orange-400/10"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handlePacketAction(packet.id, "stop")
+                            }}
+                            disabled={isActionLoading}
+                          >
+                            {isActionLoading ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Square className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                        {packet.status === "paused" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-green-400 hover:text-green-300 hover:bg-green-400/10"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handlePacketAction(packet.id, "start")
+                            }}
+                            disabled={isActionLoading}
+                          >
+                            {isActionLoading ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+
+                        {/* Thumbs Up/Down - show for completed or running */}
+                        {(packet.status === "completed" || packet.status === "running") && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-7 w-7",
+                                packet.feedback === "thumbs_up"
+                                  ? "text-green-400 bg-green-400/10"
+                                  : "text-muted-foreground hover:text-green-400 hover:bg-green-400/10"
+                              )}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleFeedback(packet.id, "thumbs_up")
+                              }}
+                              disabled={isActionLoading}
+                            >
+                              <ThumbsUp className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-7 w-7",
+                                packet.feedback === "thumbs_down"
+                                  ? "text-red-400 bg-red-400/10"
+                                  : "text-muted-foreground hover:text-red-400 hover:bg-red-400/10"
+                              )}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleFeedback(packet.id, "thumbs_down")
+                              }}
+                              disabled={isActionLoading}
+                            >
+                              <ThumbsDown className="h-4 w-4" />
+                            </Button>
+                          </>
                         )}
                       </div>
+
+                      <div className="flex-none text-right space-y-1">
+                        <Badge className={cn("text-xs", `bg-${config.bg.replace('bg-', '')}/10`, config.color)}>
+                          {config.label}
+                        </Badge>
+                        <p className="text-xs text-muted-foreground">
+                          {packet.issues.length} issue{packet.issues.length !== 1 ? "s" : ""}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex-none text-right space-y-1">
-                      <Badge className={cn("text-xs", `bg-${config.bg.replace('bg-', '')}/10`, config.color)}>
-                        {config.label}
-                      </Badge>
-                      <p className="text-xs text-muted-foreground">
-                        {packet.tasks.completed}/{packet.tasks.total} tasks
-                      </p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -461,21 +697,22 @@ export default function PacketsPage() {
               <div className="space-y-6">
                 {/* Header */}
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge variant="outline" className="font-mono">
-                      {selectedPacket.id}
+                      {selectedPacket.packetID || selectedPacket.id}
                     </Badge>
-                    <Badge className={cn(
-                      priorityConfig[selectedPacket.priority].color,
-                      priorityConfig[selectedPacket.priority].bg
-                    )}>
-                      {priorityConfig[selectedPacket.priority].label}
-                    </Badge>
+                    {selectedPacket.planRunID && (
+                      <Badge variant="outline" className="font-mono text-xs">
+                        Run: {selectedPacket.planRunID}
+                      </Badge>
+                    )}
                   </div>
                   <h3 className="text-lg font-semibold">{selectedPacket.title}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedPacket.description}
-                  </p>
+                  {selectedPacket.summary && (
+                    <p className="text-sm text-muted-foreground">
+                      {selectedPacket.summary}
+                    </p>
+                  )}
                 </div>
 
                 {/* Status */}
@@ -487,58 +724,98 @@ export default function PacketsPage() {
                     </Badge>
                   </div>
 
-                  {selectedPacket.blockedReason && (
-                    <div className="rounded-md bg-yellow-400/10 p-3 text-sm text-yellow-400">
-                      <strong>Blocked:</strong> {selectedPacket.blockedReason}
+                  {/* Worker Assignment */}
+                  {selectedPacket.assignedWorker && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Worker</span>
+                      <span className={cn(
+                        "text-sm font-medium",
+                        workerConfig[selectedPacket.assignedWorker]?.color || "text-muted-foreground"
+                      )}>
+                        {workerConfig[selectedPacket.assignedWorker]?.label || selectedPacket.assignedWorker}
+                      </span>
                     </div>
                   )}
 
-                  {selectedPacket.errorMessage && (
-                    <div className="rounded-md bg-red-400/10 p-3 text-sm text-red-400">
-                      <strong>Error:</strong> {selectedPacket.errorMessage}
+                  {/* Feedback Status */}
+                  {selectedPacket.feedback && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Feedback</span>
+                      <span className={cn(
+                        "flex items-center gap-1 text-sm",
+                        selectedPacket.feedback === "thumbs_up" ? "text-green-400" : "text-red-400"
+                      )}>
+                        {selectedPacket.feedback === "thumbs_up" ? (
+                          <>
+                            <ThumbsUp className="h-4 w-4" />
+                            Approved
+                          </>
+                        ) : (
+                          <>
+                            <ThumbsDown className="h-4 w-4" />
+                            Rejected
+                          </>
+                        )}
+                      </span>
                     </div>
                   )}
                 </div>
 
-                {/* Progress */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Progress</span>
-                    <span className="font-medium">
-                      {selectedPacket.tasks.completed}/{selectedPacket.tasks.total} tasks
+                {/* Issues */}
+                {selectedPacket.issues.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Issues</span>
+                    <div className="space-y-2">
+                      {selectedPacket.issues.map((issue, i) => (
+                        <div key={i} className="rounded-md border p-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="font-mono text-xs">
+                              {issue.id}
+                            </Badge>
+                          </div>
+                          <p className="text-sm font-medium mt-1">{issue.title}</p>
+                          {issue.description && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                              {issue.description}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Acceptance Criteria */}
+                {selectedPacket.acceptanceCriteria.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">
+                      Acceptance Criteria
                     </span>
+                    <ul className="space-y-1">
+                      {selectedPacket.acceptanceCriteria.map((criterion, i) => (
+                        <li key={i} className="text-sm flex items-start gap-2">
+                          <CheckCircle className="h-4 w-4 text-muted-foreground mt-0.5 flex-none" />
+                          {criterion}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <div className="h-2 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all"
-                      style={{
-                        width: `${(selectedPacket.tasks.completed / selectedPacket.tasks.total) * 100}%`
-                      }}
-                    />
-                  </div>
-                </div>
+                )}
 
-                {/* Details Grid */}
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Source</p>
-                    <p className="font-medium">{selectedPacket.source}</p>
+                {/* Risks */}
+                {selectedPacket.risks.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Risks</span>
+                    <ul className="space-y-1">
+                      {selectedPacket.risks.map((risk, i) => (
+                        <li key={i} className="text-sm flex items-start gap-2 text-yellow-400">
+                          <AlertTriangle className="h-4 w-4 mt-0.5 flex-none" />
+                          {risk}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Agent</p>
-                    <p className="font-medium">{selectedPacket.agent || "Unassigned"}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Branch</p>
-                    <p className="font-mono text-xs">{selectedPacket.branch}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Duration</p>
-                    <p className="font-medium">
-                      {formatDuration(selectedPacket.startedAt, selectedPacket.completedAt)}
-                    </p>
-                  </div>
-                </div>
+                )}
 
                 {/* Timestamps */}
                 <div className="space-y-2 text-sm">
@@ -554,23 +831,14 @@ export default function PacketsPage() {
                     <span className="text-muted-foreground">Completed</span>
                     <span className="font-mono text-xs">{formatDate(selectedPacket.completedAt)}</span>
                   </div>
-                </div>
-
-                {/* Costs */}
-                <div className="rounded-lg border p-3 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Estimated Cost</span>
-                    <span className="font-medium">${selectedPacket.estimatedCost.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Actual Cost</span>
-                    <span className="font-medium">
-                      {selectedPacket.actualCost !== null
-                        ? `$${selectedPacket.actualCost.toFixed(2)}`
-                        : "-"
-                      }
-                    </span>
-                  </div>
+                  {selectedPacket.startedAt && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Duration</span>
+                      <span className="font-mono text-xs">
+                        {formatDuration(selectedPacket.startedAt, selectedPacket.completedAt)}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Execution Result */}
@@ -624,14 +892,74 @@ export default function PacketsPage() {
                       Executing...
                     </div>
                   )}
-                  {selectedPacket.status === "running" && currentPacketId !== selectedPacket.id && (
-                    <Button variant="outline" className="w-full gap-2" disabled>
-                      <Pause className="h-4 w-4" />
-                      Pause Packet
-                    </Button>
-                  )}
+
+                  {/* Start/Stop/Pause Buttons */}
                   {selectedPacket.status === "queued" && (
                     <Button
+                      className="w-full gap-2"
+                      onClick={() => handlePacketAction(selectedPacket.id, "start")}
+                      disabled={actionLoading === selectedPacket.id}
+                    >
+                      {actionLoading === selectedPacket.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
+                      Start Packet
+                    </Button>
+                  )}
+
+                  {selectedPacket.status === "running" && (
+                    <Button
+                      variant="outline"
+                      className="w-full gap-2"
+                      onClick={() => handlePacketAction(selectedPacket.id, "stop")}
+                      disabled={actionLoading === selectedPacket.id}
+                    >
+                      {actionLoading === selectedPacket.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                      Stop Packet
+                    </Button>
+                  )}
+
+                  {selectedPacket.status === "paused" && (
+                    <Button
+                      className="w-full gap-2"
+                      onClick={() => handlePacketAction(selectedPacket.id, "start")}
+                      disabled={actionLoading === selectedPacket.id}
+                    >
+                      {actionLoading === selectedPacket.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
+                      Resume Packet
+                    </Button>
+                  )}
+
+                  {(selectedPacket.status === "failed" || selectedPacket.status === "blocked") && (
+                    <Button
+                      variant="outline"
+                      className="w-full gap-2"
+                      onClick={() => handlePacketAction(selectedPacket.id, "start")}
+                      disabled={actionLoading === selectedPacket.id}
+                    >
+                      {actionLoading === selectedPacket.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4" />
+                      )}
+                      Retry Packet
+                    </Button>
+                  )}
+
+                  {/* Execute with LLM */}
+                  {(selectedPacket.status === "queued" || selectedPacket.status === "paused") && (
+                    <Button
+                      variant="outline"
                       className="w-full gap-2"
                       onClick={() => handleExecute(selectedPacket)}
                       disabled={isExecuting || !serverStatus?.available}
@@ -641,34 +969,52 @@ export default function PacketsPage() {
                       ) : (
                         <Zap className="h-4 w-4" />
                       )}
-                      Execute Now
+                      Execute with LLM
                     </Button>
                   )}
-                  {selectedPacket.status === "blocked" && (
+
+                  {/* Feedback Buttons */}
+                  {(selectedPacket.status === "completed" || selectedPacket.status === "running") && (
+                    <div className="flex gap-2">
+                      <Button
+                        variant={selectedPacket.feedback === "thumbs_up" ? "default" : "outline"}
+                        className={cn(
+                          "flex-1 gap-2",
+                          selectedPacket.feedback === "thumbs_up" && "bg-green-600 hover:bg-green-700"
+                        )}
+                        onClick={() => handleFeedback(selectedPacket.id, "thumbs_up")}
+                        disabled={actionLoading === selectedPacket.id}
+                      >
+                        <ThumbsUp className="h-4 w-4" />
+                        Good
+                      </Button>
+                      <Button
+                        variant={selectedPacket.feedback === "thumbs_down" ? "default" : "outline"}
+                        className={cn(
+                          "flex-1 gap-2",
+                          selectedPacket.feedback === "thumbs_down" && "bg-red-600 hover:bg-red-700"
+                        )}
+                        onClick={() => handleFeedback(selectedPacket.id, "thumbs_down")}
+                        disabled={actionLoading === selectedPacket.id}
+                      >
+                        <ThumbsDown className="h-4 w-4" />
+                        Bad
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Cancel Button */}
+                  {(selectedPacket.status === "queued" || selectedPacket.status === "running" || selectedPacket.status === "paused") && (
                     <Button
-                      className="w-full gap-2"
-                      onClick={() => handleExecute(selectedPacket)}
-                      disabled={isExecuting || !serverStatus?.available}
+                      variant="ghost"
+                      className="w-full gap-2 text-destructive"
+                      onClick={() => handlePacketAction(selectedPacket.id, "cancel")}
+                      disabled={actionLoading === selectedPacket.id}
                     >
-                      <CheckCircle className="h-4 w-4" />
-                      Retry Execution
+                      <XCircle className="h-4 w-4" />
+                      Cancel Packet
                     </Button>
                   )}
-                  {selectedPacket.status === "failed" && (
-                    <Button
-                      variant="outline"
-                      className="w-full gap-2"
-                      onClick={() => handleExecute(selectedPacket)}
-                      disabled={isExecuting || !serverStatus?.available}
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                      Retry Packet
-                    </Button>
-                  )}
-                  <Button variant="ghost" className="w-full gap-2 text-destructive">
-                    <XCircle className="h-4 w-4" />
-                    Cancel Packet
-                  </Button>
                 </div>
               </div>
             ) : (
@@ -703,7 +1049,7 @@ export default function PacketsPage() {
               {logs.length === 0 ? (
                 <p className="text-zinc-500">No execution logs yet. Start a packet to see output.</p>
               ) : (
-                logs.map((log, i) => (
+                logs.map((log: ExecutionLog, i: number) => (
                   <div key={i} className="flex gap-2">
                     <span className="text-zinc-500 w-20 flex-none">
                       {new Date(log.timestamp).toLocaleTimeString()}

@@ -71,15 +71,19 @@ export function getConfiguredServers(): LLMServer[] {
 }
 
 // Check if a server is online and get loaded model
-export async function checkServerStatus(server: LLMServer, verifyModel = false): Promise<LLMServer> {
+// timeout parameter allows longer waits for explicitly preferred servers
+// preferredModel parameter allows selecting a specific model instead of using the first one
+export async function checkServerStatus(server: LLMServer, verifyModel = false, timeout = 5000, preferredModel?: string): Promise<LLMServer> {
   try {
     const modelsUrl = server.type === "ollama"
       ? `${server.url}/api/tags`
       : `${server.url}/v1/models`
 
+    console.log(`[LLM] checkServerStatus: ${server.name} at ${modelsUrl} (timeout: ${timeout}ms, verifyModel: ${verifyModel})`)
+
     const response = await fetch(modelsUrl, {
       method: "GET",
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(timeout)
     })
 
     if (!response.ok) {
@@ -90,15 +94,48 @@ export async function checkServerStatus(server: LLMServer, verifyModel = false):
 
     // LM Studio returns { data: [{ id: "model-name", ... }] }
     // Ollama returns { models: [{ name: "model-name", ... }] }
+    // IMPORTANT: Filter out embedding models - they cannot be used for chat/generation
     let currentModel: string | undefined
     let availableModels: string[] = []
 
     if (server.type === "lmstudio" && data.data) {
-      availableModels = data.data.map((m: { id: string }) => m.id)
-      currentModel = data.data[0]?.id // Use whatever model is loaded
+      // Filter out embedding models
+      const llmModels = data.data.filter((m: { id: string; type?: string }) => {
+        const id = m.id.toLowerCase()
+        return !id.includes('embed') && !id.includes('embedding') && m.type !== 'embedding'
+      })
+      availableModels = llmModels.map((m: { id: string }) => m.id)
+
+      // Use preferred model if specified and available, otherwise use first available
+      if (preferredModel && availableModels.includes(preferredModel)) {
+        currentModel = preferredModel
+        console.log(`[LLM] checkServerStatus: Using preferred model: ${preferredModel}`)
+      } else if (preferredModel) {
+        // Preferred model specified but not available - log warning and use first
+        console.warn(`[LLM] checkServerStatus: Preferred model "${preferredModel}" not available on ${server.name}. Available: ${availableModels.join(', ')}`)
+        currentModel = llmModels[0]?.id
+      } else {
+        currentModel = llmModels[0]?.id
+      }
     } else if (server.type === "ollama" && data.models) {
-      availableModels = data.models.map((m: { name: string }) => m.name)
-      currentModel = data.models[0]?.name // Use whatever model is loaded
+      // Filter out embedding models
+      const llmModels = data.models.filter((m: { name: string }) => {
+        const name = m.name.toLowerCase()
+        return !name.includes('embed') && !name.includes('embedding')
+      })
+      availableModels = llmModels.map((m: { name: string }) => m.name)
+
+      // Use preferred model if specified and available, otherwise use first available
+      if (preferredModel && availableModels.includes(preferredModel)) {
+        currentModel = preferredModel
+        console.log(`[LLM] checkServerStatus: Using preferred model: ${preferredModel}`)
+      } else if (preferredModel) {
+        // Preferred model specified but not available - log warning and use first
+        console.warn(`[LLM] checkServerStatus: Preferred model "${preferredModel}" not available on ${server.name}. Available: ${availableModels.join(', ')}`)
+        currentModel = llmModels[0]?.name
+      } else {
+        currentModel = llmModels[0]?.name
+      }
     }
 
     // Optionally verify the model is actually loaded and ready
@@ -109,13 +146,15 @@ export async function checkServerStatus(server: LLMServer, verifyModel = false):
       }
     }
 
+    console.log(`[LLM] checkServerStatus: ${server.name} online with model: ${currentModel}`)
     return {
       ...server,
       status: "online",
       currentModel,
       availableModels
     }
-  } catch {
+  } catch (error) {
+    console.error(`[LLM] checkServerStatus: ${server.name} failed:`, error instanceof Error ? error.message : error)
     return { ...server, status: "offline" }
   }
 }
@@ -137,9 +176,14 @@ export async function getServerDetails(server: LLMServer): Promise<LLMServer & {
         signal: AbortSignal.timeout(5000)
       })
       const data = await response.json()
+      // Filter out embedding models
+      const llmModels = data.data?.filter((m: { id: string; type?: string }) => {
+        const id = m.id.toLowerCase()
+        return !id.includes('embed') && !id.includes('embedding') && m.type !== 'embedding'
+      })
       return {
         ...status,
-        modelInfo: data.data?.map((m: { id: string; owned_by?: string }) => ({
+        modelInfo: llmModels?.map((m: { id: string; owned_by?: string }) => ({
           id: m.id,
           owner: m.owned_by
         }))
@@ -209,6 +253,8 @@ export async function chatCompletion(
       ? `${server.url}/api/chat`
       : `${server.url}/v1/chat/completions`
 
+    console.log(`[LLM] chatCompletion: Sending request to ${server.name} at ${endpoint}`)
+
     // Format request based on server type
     let body: unknown
 
@@ -245,10 +291,12 @@ export async function chatCompletion(
 
     if (!response.ok) {
       const errorText = await response.text()
+      console.error(`[LLM] chatCompletion: ${server.name} returned error ${response.status}: ${errorText}`)
       return { content: "", error: `Server error: ${response.status} - ${errorText}` }
     }
 
     const data = await response.json()
+    console.log(`[LLM] chatCompletion: ${server.name} returned successfully, model: ${data.model}`)
 
     // Extract content based on server type
     let content: string
@@ -282,6 +330,7 @@ export async function generateWithLocalLLM(
     temperature?: number
     max_tokens?: number
     preferredServer?: string  // Defaults to "beast" for code tasks
+    preferredModel?: string   // Specific model ID to use (e.g., "gpt-oss-20b")
   }
 ): Promise<{ content: string; server?: string; model?: string; error?: string }> {
   const servers = getConfiguredServers()
@@ -289,19 +338,92 @@ export async function generateWithLocalLLM(
   // Default to Beast server which has the better code model (34B vs 3B)
   const preferredServer = options?.preferredServer ?? "beast"
 
-  // Try preferred server first
-  let serversToTry = servers
+  // Track if we've explicitly requested a server (not using default)
+  const hasExplicitPreference = options?.preferredServer !== undefined
+
+  console.log(`[LLM] generateWithLocalLLM called with preferredServer: "${options?.preferredServer}", preferredModel: "${options?.preferredModel}", hasExplicitPreference: ${hasExplicitPreference}`)
+
   // Case-insensitive comparison (API uses lowercase, servers use capitalized)
   const preferredLower = preferredServer.toLowerCase()
-  const preferred = servers.find(s => s.name.toLowerCase() === preferredLower)
-  if (preferred) {
-    serversToTry = [preferred, ...servers.filter(s => s.name.toLowerCase() !== preferredLower)]
+  const preferredServerObj = servers.find(s => s.name.toLowerCase() === preferredLower)
+
+  // CRITICAL FIX: If user explicitly selected a server, ONLY try that server
+  // Do NOT silently fall back to another server - that's confusing!
+  if (hasExplicitPreference) {
+    if (!preferredServerObj) {
+      console.error(`[LLM] ERROR: User explicitly requested server "${preferredServer}" but it's not configured`)
+      return {
+        content: "",
+        error: `Server "${preferredServer}" is not configured. Check environment variables.`
+      }
+    }
+
+    console.log(`[LLM] User explicitly selected: ${preferredServerObj.name} (${preferredServerObj.url})`)
+
+    // Use longer timeout for explicitly preferred servers (20s)
+    // This gives Beast's larger model time to respond
+    // Pass preferredModel to use specific model instead of first available
+    const status = await checkServerStatus(preferredServerObj, false, 20000, options?.preferredModel)
+
+    console.log(`[LLM] Explicitly selected server ${preferredServerObj.name} status: ${status.status}, model: ${status.currentModel}`)
+
+    if (status.status !== "online" && status.status !== "busy") {
+      console.error(`[LLM] ERROR: User selected server ${preferredServerObj.name} is ${status.status}`)
+      return {
+        content: "",
+        error: `Selected server "${preferredServerObj.name}" (${preferredServerObj.url}) is ${status.status}. Please check if LM Studio is running.`
+      }
+    }
+
+    console.log(`[LLM] Using explicitly selected server: ${preferredServerObj.name}`)
+
+    const response = await chatCompletion(status, {
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: options?.temperature,
+      max_tokens: options?.max_tokens
+    })
+
+    if (response.error) {
+      console.error(`[LLM] ERROR: Chat completion failed on ${preferredServerObj.name}:`, response.error)
+      return {
+        content: "",
+        server: preferredServerObj.name,
+        error: `Server "${preferredServerObj.name}" failed: ${response.error}`
+      }
+    }
+
+    return {
+      content: response.content,
+      server: preferredServerObj.name,
+      model: response.model
+    }
   }
 
+  // No explicit preference - try servers in order (Beast first, then Bedroom)
+  let serversToTry = servers
+  if (preferredServerObj) {
+    serversToTry = [preferredServerObj, ...servers.filter(s => s.name.toLowerCase() !== preferredLower)]
+  }
+
+  console.log(`[LLM] No explicit preference, trying servers in order: ${serversToTry.map(s => s.name).join(", ")}`)
+
   for (const server of serversToTry) {
-    // Use verifyModel=true to skip servers with unloaded models
-    const status = await checkServerStatus(server, true)
-    if (status.status !== "online") continue
+    console.log(`[LLM] Trying server: ${server.name} (url: ${server.url})`)
+
+    // Pass preferredModel if specified (though typically used with explicit server selection)
+    const status = await checkServerStatus(server, true, 5000, options?.preferredModel)
+
+    console.log(`[LLM] Server ${server.name} status: ${status.status}, model: ${status.currentModel}`)
+
+    if (status.status !== "online") {
+      console.log(`[LLM] Skipping ${server.name} - status: ${status.status}`)
+      continue
+    }
+
+    console.log(`[LLM] Using server: ${server.name}`)
 
     const response = await chatCompletion(status, {
       messages: [
@@ -320,7 +442,7 @@ export async function generateWithLocalLLM(
       }
     }
 
-    console.warn(`LLM error on ${server.name}:`, response.error)
+    console.warn(`[LLM] Error on ${server.name}:`, response.error)
   }
 
   return {

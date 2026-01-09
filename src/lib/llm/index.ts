@@ -105,7 +105,7 @@ export async function getLLMStatus(): Promise<{
   hasPaidConfigured: boolean
 }> {
   const servers = getConfiguredServers()
-  const statusChecks = await Promise.all(servers.map(checkServerStatus))
+  const statusChecks = await Promise.all(servers.map(server => checkServerStatus(server)))
 
   return {
     servers: statusChecks,

@@ -117,9 +117,11 @@ const SelectContent = React.forwardRef<HTMLDivElement, SelectContentProps>(
         ref={ref}
         role="listbox"
         className={cn(
-          "absolute z-50 top-full left-0 mt-1 w-full min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95",
+          "absolute z-50 top-full left-0 mt-1 w-full min-w-[8rem] overflow-hidden rounded-md border border-border shadow-lg animate-in fade-in-0 zoom-in-95",
+          "bg-[hsl(var(--bg-overlay))] text-[hsl(var(--text-primary))]",
           className
         )}
+        style={{ backgroundColor: 'hsl(var(--bg-overlay))' }}
         {...props}
       >
         <div className="p-1">{children}</div>
@@ -167,4 +169,19 @@ const SelectItem = React.forwardRef<HTMLDivElement, SelectItemProps>(
 )
 SelectItem.displayName = "SelectItem"
 
-export { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
+interface SelectSeparatorProps extends React.HTMLAttributes<HTMLDivElement> {}
+
+const SelectSeparator = React.forwardRef<HTMLDivElement, SelectSeparatorProps>(
+  ({ className, ...props }, ref) => {
+    return (
+      <div
+        ref={ref}
+        className={cn("-mx-1 my-1 h-px bg-muted", className)}
+        {...props}
+      />
+    )
+  }
+)
+SelectSeparator.displayName = "SelectSeparator"
+
+export { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectSeparator }

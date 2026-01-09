@@ -317,8 +317,8 @@ function createSSEResponse(session: SessionState): Response {
           const newUpdates = currentSession.updates.slice(lastSentIndex)
           for (const update of newUpdates) {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-              type: "update",
               ...update,
+              type: "update",
               currentIteration: currentSession.currentIteration,
               latestScore: currentSession.latestScore,
               status: currentSession.status

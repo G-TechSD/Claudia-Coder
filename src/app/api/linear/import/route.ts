@@ -153,51 +153,65 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { projectId } = body
+    const { projectIds, projectId } = body
 
-    if (!projectId) {
+    // Support both single projectId (legacy) and multiple projectIds
+    const idsToImport: string[] = projectIds || (projectId ? [projectId] : [])
+
+    if (idsToImport.length === 0) {
       return NextResponse.json(
-        { error: "projectId is required" },
+        { error: "projectIds or projectId is required" },
         { status: 400 }
       )
     }
 
-    // Import the project and issues from Linear
-    const importResult = await importProject(projectId)
+    // Import all selected projects in parallel
+    const importResults = await Promise.all(
+      idsToImport.map(id => importProject(id))
+    )
 
     // Create a default phase for imported issues
     const defaultPhaseId = `phase-${generateId()}`
 
+    // Combine all issues from all projects
+    const allIssues = importResults.flatMap(result => result.issues)
+
     // Convert issues to work packets
-    const packets = importResult.issues.map(issue =>
+    const packets = allIssues.map(issue =>
       issueToPacket(issue, defaultPhaseId)
     )
+
+    // Build project names for the phase description
+    const projectNames = importResults.map(r => r.project.name).join(", ")
 
     // Group packets by their inferred type for phase organization
     const phases = [
       {
         id: defaultPhaseId,
         name: "Imported from Linear",
-        description: `${packets.length} issues imported from ${importResult.project.name}`,
+        description: `${packets.length} issues imported from ${projectNames}`,
         order: 0,
         status: "not_started" as const
       }
     ]
 
+    // Build the projects array for the response
+    const projects = importResults.map(result => ({
+      name: result.project.name,
+      description: result.project.description || "",
+      linearProjectId: result.project.id,
+      teamIds: result.teams.map(t => t.id),
+      progress: result.project.progress
+    }))
+
     // Build the import response
     return NextResponse.json({
       success: true,
-      project: {
-        name: importResult.project.name,
-        description: importResult.project.description || "",
-        linearProjectId: importResult.project.id,
-        teamIds: importResult.teams.map(t => t.id),
-        progress: importResult.project.progress
-      },
+      projects,
       phases,
       packets,
       summary: {
-        totalIssues: importResult.issues.length,
+        totalIssues: allIssues.length,
         byPriority: {
           critical: packets.filter(p => p.priority === "critical").length,
           high: packets.filter(p => p.priority === "high").length,

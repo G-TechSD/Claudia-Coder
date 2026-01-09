@@ -9,7 +9,8 @@ import {
   ProjectFilter,
   ProjectStats,
   LinearSyncConfig,
-  InterviewSession
+  InterviewSession,
+  LinkedRepo
 } from "./types"
 
 // UUID generator that works in all contexts (HTTP, HTTPS, localhost)
@@ -28,6 +29,112 @@ function generateUUID(): string {
 
 const STORAGE_KEY = "claudia_projects"
 const INTERVIEWS_KEY = "claudia_interviews"
+
+// Base directory for all Claudia project working directories
+const CLAUDIA_PROJECTS_BASE = "/home/bill/claudia-projects"
+
+// ============ Working Directory Helpers ============
+
+/**
+ * Generate a slug from a project name for use in directory paths
+ * e.g., "My Cool Project" -> "my-cool-project"
+ */
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "") // Remove special characters
+    .replace(/\s+/g, "-")         // Replace spaces with hyphens
+    .replace(/-+/g, "-")          // Replace multiple hyphens with single
+    .replace(/^-|-$/g, "")        // Remove leading/trailing hyphens
+    || "project"                   // Fallback if empty
+}
+
+/**
+ * Generate the working directory path for a project
+ * Format: /home/bill/claudia-projects/{project-slug}/
+ */
+export function generateWorkingDirectoryPath(projectName: string, projectId?: string): string {
+  const slug = generateSlug(projectName)
+  // Add a short ID suffix to avoid collisions
+  const suffix = projectId ? `-${projectId.slice(0, 8)}` : ""
+  return `${CLAUDIA_PROJECTS_BASE}/${slug}${suffix}`
+}
+
+/**
+ * Get the effective working directory for a project
+ * Priority:
+ * 1. Project's workingDirectory field (if set)
+ * 2. First repo with localPath
+ * 3. Generate a new working directory path
+ */
+export function getEffectiveWorkingDirectory(project: Project): string {
+  // First check project's own working directory
+  if (project.workingDirectory) {
+    return project.workingDirectory
+  }
+
+  // Then check for repo with local path
+  const repoWithPath = project.repos.find(r => r.localPath)
+  if (repoWithPath?.localPath) {
+    return repoWithPath.localPath
+  }
+
+  // Generate a path (won't be persisted until ensureWorkingDirectory is called)
+  return generateWorkingDirectoryPath(project.name, project.id)
+}
+
+/**
+ * Ensure working directory exists for a project
+ * This should be called from the server/API side
+ * Returns the working directory path
+ */
+export async function ensureProjectWorkingDirectory(projectId: string): Promise<string | null> {
+  // This is a client-side function that just returns the path
+  // The actual directory creation happens on the server via API
+  const project = getProject(projectId)
+  if (!project) return null
+
+  const workingDir = getEffectiveWorkingDirectory(project)
+
+  // If project doesn't have a working directory set, update it
+  if (!project.workingDirectory) {
+    updateProject(projectId, { workingDirectory: workingDir })
+  }
+
+  return workingDir
+}
+
+/**
+ * Migrate existing projects without working directories
+ * Sets the workingDirectory field for all projects that don't have one
+ */
+export function migrateProjectWorkingDirectories(): number {
+  const projects = getStoredProjects()
+  let migratedCount = 0
+
+  for (const project of projects) {
+    if (!project.workingDirectory) {
+      const workingDir = generateWorkingDirectoryPath(project.name, project.id)
+      updateProject(project.id, { workingDirectory: workingDir })
+      migratedCount++
+    }
+  }
+
+  return migratedCount
+}
+
+/**
+ * Get the working directory for a project by ID
+ * Returns the workingDirectory path or null if project not found
+ * This ensures the project has a working directory set before returning
+ */
+export function getProjectWorkingDirectory(projectId: string): string | null {
+  const project = getProject(projectId)
+  if (!project) return null
+
+  // getProject already ensures workingDirectory is set
+  return project.workingDirectory || null
+}
 
 // ============ Storage Helpers ============
 
@@ -64,16 +171,36 @@ export const getProjects = getAllProjects
 
 export function getProject(id: string): Project | null {
   const projects = getStoredProjects()
-  return projects.find(p => p.id === id) || null
+  const project = projects.find(p => p.id === id)
+
+  if (!project) return null
+
+  // Ensure workingDirectory is set (migrate older projects)
+  if (!project.workingDirectory) {
+    const workingDir = generateWorkingDirectoryPath(project.name, project.id)
+    const updatedProject = updateProject(id, { workingDirectory: workingDir })
+    return updatedProject
+  }
+
+  return project
 }
 
 export function createProject(data: Omit<Project, "id" | "createdAt" | "updatedAt">): Project {
   const projects = getStoredProjects()
   const now = new Date().toISOString()
+  const id = generateUUID()
+
+  // Generate working directory if not provided
+  const workingDirectory = data.workingDirectory || generateWorkingDirectoryPath(data.name, id)
+
+  // Set basePath: use provided value, or derive from first repo's localPath, or default to workingDirectory
+  const basePath = data.basePath || data.repos?.find(r => r.localPath)?.localPath || workingDirectory
 
   const project: Project = {
     ...data,
-    id: generateUUID(),
+    id,
+    workingDirectory,
+    basePath,
     createdAt: now,
     updatedAt: now
   }
@@ -188,7 +315,7 @@ export function getProjectStats(): ProjectStats {
 
 export function linkRepoToProject(
   projectId: string,
-  repo: { provider: "gitlab" | "github"; id: number; name: string; path: string; url: string }
+  repo: LinkedRepo
 ): Project | null {
   const project = getProject(projectId)
   if (!project) return null
@@ -205,7 +332,7 @@ export function linkRepoToProject(
 
 export function unlinkRepoFromProject(
   projectId: string,
-  provider: "gitlab" | "github",
+  provider: LinkedRepo["provider"],
   repoId: number
 ): Project | null {
   const project = getProject(projectId)
@@ -392,8 +519,8 @@ export function seedSampleProjects(): void {
       }
     },
     {
-      name: "Claudia Admin Panel",
-      description: "Admin dashboard for the Claudia Dev Agent Orchestrator",
+      name: "Claudia Coder",
+      description: "Admin dashboard for the Claudia Coder",
       status: "active",
       priority: "high",
       repos: [],

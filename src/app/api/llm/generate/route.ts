@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
 // GET endpoint to check server status
 export async function GET() {
   const servers = getConfiguredServers()
-  const statusChecks = await Promise.all(servers.map(checkServerStatus))
+  const statusChecks = await Promise.all(servers.map(s => checkServerStatus(s)))
 
   return NextResponse.json({
     servers: statusChecks,

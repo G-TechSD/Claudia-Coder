@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Claudia Admin",
-  description: "Claudia Code Dev Agent Orchestrator",
+  title: "Claudia Coder",
+  description: "Claudia Coder Dev Agent Orchestrator",
 };
 
 export default function RootLayout({

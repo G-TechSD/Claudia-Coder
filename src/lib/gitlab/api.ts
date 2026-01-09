@@ -80,8 +80,22 @@ export async function createGitLabRepo(options: CreateRepoOptions): Promise<GitL
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Unknown error" }))
-    throw new Error(error.message || `Failed to create repository: ${response.status}`)
+    const errorData = await response.json().catch(() => ({ message: "Unknown error" }))
+    // GitLab returns errors in various formats - handle them all
+    let errorMessage: string
+    if (typeof errorData.message === "string") {
+      errorMessage = errorData.message
+    } else if (typeof errorData.message === "object" && errorData.message !== null) {
+      // Validation errors come as { message: { field: ["error1", "error2"] } }
+      errorMessage = Object.entries(errorData.message)
+        .map(([field, errors]) => `${field}: ${Array.isArray(errors) ? errors.join(", ") : errors}`)
+        .join("; ")
+    } else if (typeof errorData.error === "string") {
+      errorMessage = errorData.error
+    } else {
+      errorMessage = `Failed to create repository: ${response.status}`
+    }
+    throw new Error(errorMessage)
   }
 
   return response.json()

@@ -37,7 +37,10 @@ import {
   Brain,
   Lock,
   Sparkles,
-  Info
+  Info,
+  Package,
+  Rocket,
+  Terminal
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { BuildPlan } from "@/lib/ai/build-plan"
@@ -49,6 +52,8 @@ import {
   approveBuildPlan,
   formatFeedbackForRevision
 } from "@/lib/data/build-plans"
+import { savePackets, type WorkPacket } from "@/lib/ai/build-plan"
+import { getProjectDefaultModel, type EnabledInstance } from "@/components/project/model-assignment"
 
 interface ProviderOption {
   name: string
@@ -91,6 +96,19 @@ interface PacketFeedback {
   comment: string
 }
 
+// Model options for regeneration - matching .env.local providers
+const REGENERATION_MODEL_OPTIONS = [
+  // Claudia Coder (special paid option)
+  { value: "paid_claudecode", label: "Claudia Coder (Paid)", type: "paid", icon: "terminal" },
+  // Paid cloud models
+  { value: "chatgpt", label: "ChatGPT (OpenAI)", type: "paid", icon: "cloud" },
+  { value: "gemini", label: "Gemini (Google)", type: "paid", icon: "cloud" },
+  { value: "anthropic", label: "Anthropic Claude", type: "paid", icon: "cloud" },
+  // Local LM Studio models
+  { value: "Beast", label: "Beast (192.168.245.155:1234)", type: "local", icon: "server" },
+  { value: "Bedroom", label: "Bedroom (192.168.27.182:1234)", type: "local", icon: "server" },
+] as const
+
 export function BuildPlanEditor({
   projectId,
   projectName,
@@ -120,6 +138,12 @@ export function BuildPlanEditor({
   const [sectionComments, setSectionComments] = useState<Record<string, string>>({})
   const [expandedPackets, setExpandedPackets] = useState<Set<string>>(new Set())
 
+  // Regeneration model selection - load user's default model if available
+  const [regenerationModel, setRegenerationModel] = useState<string>("")
+  const [isGeneratingPackets, setIsGeneratingPackets] = useState(false)
+  const [packetGenerationStatus, setPacketGenerationStatus] = useState("")
+  const [userDefaultModel, setUserDefaultModel] = useState<EnabledInstance | null>(null)
+
   // Auto-save timer
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -128,6 +152,40 @@ export function BuildPlanEditor({
     projectStatus === "active" ||
     projectStatus === "completed" ||
     projectStatus === "archived"
+
+  // Load user's default model from model assignment on mount
+  useEffect(() => {
+    const defaultModel = getProjectDefaultModel(projectId)
+    setUserDefaultModel(defaultModel)
+
+    if (defaultModel) {
+      // Map the user's default model to a regeneration model value
+      // Check if it matches a known provider pattern
+      const provider = defaultModel.provider?.toLowerCase() || ""
+      const serverName = defaultModel.serverName?.toLowerCase() || ""
+
+      if (provider === "anthropic" || serverName.includes("anthropic")) {
+        setRegenerationModel("anthropic")
+      } else if (provider === "openai" || serverName.includes("openai") || serverName.includes("chatgpt")) {
+        setRegenerationModel("chatgpt")
+      } else if (provider === "google" || serverName.includes("google") || serverName.includes("gemini")) {
+        setRegenerationModel("gemini")
+      } else if (serverName.includes("beast") || defaultModel.baseUrl?.includes("192.168.245.155")) {
+        setRegenerationModel("Beast")
+      } else if (serverName.includes("bedroom") || defaultModel.baseUrl?.includes("192.168.27.182")) {
+        setRegenerationModel("Bedroom")
+      } else if (defaultModel.type === "local" && defaultModel.baseUrl) {
+        // For other local servers, try to use the server name or default to Beast
+        setRegenerationModel(defaultModel.serverName || "Beast")
+      } else {
+        // Default fallback
+        setRegenerationModel("Beast")
+      }
+    } else {
+      // No user default, use Beast as fallback
+      setRegenerationModel("Beast")
+    }
+  }, [projectId])
 
   // Load existing plan on mount
   useEffect(() => {
@@ -273,25 +331,35 @@ export function BuildPlanEditor({
       })
     } else if (planSource) {
       // Create new stored plan
+      // Ensure all spec fields have defaults to prevent save errors
+      const safeSpec = {
+        name: buildPlan.spec.name || "",
+        description: buildPlan.spec.description || "",
+        objectives: buildPlan.spec.objectives || [],
+        nonGoals: buildPlan.spec.nonGoals || [],
+        assumptions: buildPlan.spec.assumptions || [],
+        risks: buildPlan.spec.risks || [],
+        techStack: buildPlan.spec.techStack || []
+      }
       const newPlan = createBuildPlan({
         projectId,
         originalPlan: {
-          spec: buildPlan.spec,
-          phases: buildPlan.phases.map(p => ({
+          spec: safeSpec,
+          phases: (buildPlan.phases || []).map(p => ({
             id: p.id,
             name: p.name,
             description: p.description,
             order: p.order
           })),
-          packets: buildPlan.packets.map(p => ({
+          packets: (buildPlan.packets || []).map(p => ({
             id: p.id,
             phaseId: p.phaseId,
             title: p.title,
             description: p.description,
             type: p.type,
             priority: p.priority,
-            tasks: p.tasks,
-            acceptanceCriteria: p.acceptanceCriteria
+            tasks: p.tasks || [],
+            acceptanceCriteria: p.acceptanceCriteria || []
           }))
         },
         generatedBy: {
@@ -348,6 +416,7 @@ export function BuildPlanEditor({
           projectName,
           projectDescription,
           preferredProvider: selectedProvider,
+          preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
           constraints: {
             requireLocalFirst: true,
             requireHumanApproval: ["planning", "deployment"]
@@ -428,7 +497,8 @@ export function BuildPlanEditor({
           projectDescription,
           originalPlan: storedPlan.originalPlan,
           userFeedback,
-          preferredProvider: selectedProvider
+          preferredProvider: selectedProvider,
+          preferredModel: userDefaultModel?.modelId || null  // Pass specific model ID from user's default model
         })
       })
 
@@ -446,25 +516,35 @@ export function BuildPlanEditor({
         })
 
         // Create new stored plan as revision
+        // Ensure all spec fields have defaults to prevent save errors
+        const revisedSpec = {
+          name: data.plan.spec?.name || "",
+          description: data.plan.spec?.description || "",
+          objectives: data.plan.spec?.objectives || [],
+          nonGoals: data.plan.spec?.nonGoals || [],
+          assumptions: data.plan.spec?.assumptions || [],
+          risks: data.plan.spec?.risks || [],
+          techStack: data.plan.spec?.techStack || []
+        }
         const newPlan = createBuildPlan({
           projectId,
           originalPlan: {
-            spec: data.plan.spec,
-            phases: data.plan.phases.map((p: { id: string; name: string; description: string; order: number }) => ({
+            spec: revisedSpec,
+            phases: (data.plan.phases || []).map((p: { id: string; name: string; description: string; order: number }) => ({
               id: p.id,
               name: p.name,
               description: p.description,
               order: p.order
             })),
-            packets: data.plan.packets.map((p: { id: string; phaseId: string; title: string; description: string; type: string; priority: string; tasks: Array<{ id: string; description: string; completed: boolean; order: number }>; acceptanceCriteria: string[] }) => ({
+            packets: (data.plan.packets || []).map((p: { id: string; phaseId: string; title: string; description: string; type: string; priority: string; tasks: Array<{ id: string; description: string; completed: boolean; order: number }>; acceptanceCriteria: string[] }) => ({
               id: p.id,
               phaseId: p.phaseId,
               title: p.title,
               description: p.description,
               type: p.type,
               priority: p.priority,
-              tasks: p.tasks,
-              acceptanceCriteria: p.acceptanceCriteria
+              tasks: p.tasks || [],
+              acceptanceCriteria: p.acceptanceCriteria || []
             }))
           },
           generatedBy: {
@@ -500,6 +580,133 @@ export function BuildPlanEditor({
     if (!storedPlan) return
     approveBuildPlan(storedPlan.id)
     setStoredPlan({ ...storedPlan, status: "approved", approvedAt: new Date().toISOString() })
+  }
+
+  // Accept build plan and generate packets
+  const handleAcceptAndGeneratePackets = async () => {
+    if (!storedPlan || !buildPlan) return
+
+    setIsGeneratingPackets(true)
+    setPacketGenerationStatus("Approving build plan...")
+
+    try {
+      // First approve the plan
+      approveBuildPlan(storedPlan.id)
+      setStoredPlan({ ...storedPlan, status: "approved", approvedAt: new Date().toISOString() })
+
+      setPacketGenerationStatus("Converting approved packets to work packets...")
+
+      // Get approved packets only (or all if none explicitly rejected)
+      // If packetFeedback is empty, include all packets
+      const feedbackKeys = Object.keys(packetFeedback)
+      const approvedPacketIds = feedbackKeys.length > 0
+        ? Object.entries(packetFeedback)
+            .filter(([, fb]) => fb.approved === true || fb.approved === null)
+            .map(([id]) => id)
+        : buildPlan.packets.map(p => p.id) // Include all if no feedback yet
+
+      // Convert build plan packets to work packets
+      const workPackets: WorkPacket[] = buildPlan.packets
+        .filter(p => approvedPacketIds.includes(p.id))
+        .map(packet => {
+          const feedback = packetFeedback[packet.id]
+          return {
+            id: packet.id,
+            phaseId: packet.phaseId,
+            title: packet.title,
+            description: packet.description,
+            type: packet.type,
+            priority: feedback?.priority || packet.priority,
+            status: "queued" as const,
+            tasks: packet.tasks || [],
+            suggestedTaskType: packet.suggestedTaskType || "coding",
+            blockedBy: packet.blockedBy || [],
+            blocks: packet.blocks || [],
+            estimatedTokens: packet.estimatedTokens || 1000,
+            acceptanceCriteria: packet.acceptanceCriteria || []
+          }
+        })
+
+      setPacketGenerationStatus(`Saving ${workPackets.length} packets to queue...`)
+
+      // Save packets to storage
+      savePackets(projectId, workPackets)
+
+      setPacketGenerationStatus(`Generated ${workPackets.length} packets successfully!`)
+
+      // Show success briefly then clear
+      setTimeout(() => {
+        setPacketGenerationStatus("")
+        setIsGeneratingPackets(false)
+      }, 2000)
+
+    } catch (err) {
+      setPacketGenerationStatus("")
+      setIsGeneratingPackets(false)
+      setError(err instanceof Error ? err.message : "Failed to generate packets")
+    }
+  }
+
+  // Regenerate build plan with selected model
+  const regenerateWithSelectedModel = async () => {
+    if (!regenerationModel) return
+
+    setIsGenerating(true)
+    setError(null)
+    const modelOption = REGENERATION_MODEL_OPTIONS.find(m => m.value === regenerationModel)
+    setGenerationStatus(`Regenerating with ${modelOption?.label || regenerationModel}...`)
+
+    try {
+      const response = await fetch("/api/build-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          projectName,
+          projectDescription,
+          preferredProvider: regenerationModel,
+          preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
+          allowPaidFallback: regenerationModel.startsWith("paid_") ||
+            ["chatgpt", "gemini", "anthropic"].includes(regenerationModel),
+          constraints: {
+            requireLocalFirst: false,
+            requireHumanApproval: ["planning", "deployment"]
+          }
+        })
+      })
+
+      setGenerationStatus("Processing response...")
+
+      const data = await response.json()
+
+      if (data.error) {
+        setError(data.error)
+      } else if (data.plan) {
+        setBuildPlan(data.plan)
+        setPlanSource({
+          server: data.server,
+          model: data.model
+        })
+        setStoredPlan(null) // Reset stored plan so it creates a new one
+
+        // Reset feedback for new plan
+        const feedback: Record<string, PacketFeedback> = {}
+        data.plan.packets.forEach((packet: { id: string; priority?: string }) => {
+          feedback[packet.id] = {
+            approved: null,
+            priority: (packet.priority as PacketFeedback["priority"]) || "medium",
+            comment: ""
+          }
+        })
+        setPacketFeedback(feedback)
+        setSectionComments({})
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to regenerate plan")
+    } finally {
+      setIsGenerating(false)
+      setGenerationStatus("")
+    }
   }
 
   // Objective management
@@ -615,8 +822,15 @@ export function BuildPlanEditor({
 
   const visibleObjectives = objectives.filter(o => !o.isDeleted)
   const visibleNonGoals = nonGoals.filter(ng => !ng.isDeleted)
-  const approvedCount = Object.values(packetFeedback).filter(f => f.approved === true).length
-  const rejectedCount = Object.values(packetFeedback).filter(f => f.approved === false).length
+  // Count packets that will be included (not explicitly rejected)
+  // Fall back to buildPlan.packets.length if packetFeedback is not yet populated
+  const feedbackEntries = Object.values(packetFeedback)
+  const packetsToInclude = feedbackEntries.length > 0
+    ? feedbackEntries.filter(f => f.approved === true || f.approved === null).length
+    : (buildPlan?.packets?.length || 0)
+  // For display, show explicitly approved count
+  const approvedCount = feedbackEntries.filter(f => f.approved === true).length
+  const rejectedCount = feedbackEntries.filter(f => f.approved === false).length
   const hasChanges = objectives.some(o => !o.isOriginal || o.isDeleted) ||
     nonGoals.some(ng => !ng.isOriginal || ng.isDeleted) ||
     Object.values(packetFeedback).some(f => f.approved !== null || f.comment) ||
@@ -658,7 +872,7 @@ export function BuildPlanEditor({
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Select AI provider..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-popover border border-border z-50">
                   {providers.filter(p => p.type === "local").length > 0 && (
                     <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Local</div>
                   )}
@@ -781,17 +995,9 @@ export function BuildPlanEditor({
                     ) : null}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={storedPlan?.status === "approved" ? "default" : "secondary"}>
-                    {storedPlan?.status || "draft"}
-                  </Badge>
-                  {!isLocked && (
-                    <Button variant="outline" size="sm" onClick={generateBuildPlan} disabled={isGenerating || isRevising}>
-                      <RefreshCw className={cn("h-4 w-4 mr-1", isGenerating && "animate-spin")} />
-                      Regenerate
-                    </Button>
-                  )}
-                </div>
+                <Badge variant={storedPlan?.status === "approved" ? "default" : "secondary"}>
+                  {storedPlan?.status || "draft"}
+                </Badge>
               </div>
             </CardHeader>
           </Card>
@@ -805,6 +1011,103 @@ export function BuildPlanEditor({
                 try regenerating with a more capable model like Claude Opus or a large local model.
               </AlertDescription>
             </Alert>
+          )}
+
+          {/* TOP Action Bar */}
+          {!isLocked && storedPlan && (
+            <Card className="border-border/50 bg-muted/30">
+              <CardContent className="p-3">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  {/* Left side: Model Selector + Regenerate */}
+                  <div className="flex items-center gap-2">
+                    <Select value={regenerationModel} onValueChange={setRegenerationModel}>
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder="Select model..." />
+                      </SelectTrigger>
+                      <SelectContent className="bg-popover border border-border z-50">
+                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Paid Models</div>
+                        {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "paid").map(model => (
+                          <SelectItem key={model.value} value={model.value}>
+                            <div className="flex items-center gap-2">
+                              {model.icon === "terminal" ? (
+                                <Terminal className="h-3 w-3 text-purple-500" />
+                              ) : (
+                                <Cloud className="h-3 w-3 text-blue-500" />
+                              )}
+                              <span>{model.label}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Models</div>
+                        {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local").map(model => (
+                          <SelectItem key={model.value} value={model.value}>
+                            <div className="flex items-center gap-2">
+                              <Server className="h-3 w-3 text-green-500" />
+                              <span>{model.label}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      onClick={regenerateWithSelectedModel}
+                      disabled={isGenerating || isRevising || !regenerationModel}
+                    >
+                      {isGenerating ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                      )}
+                      Regenerate
+                    </Button>
+                  </div>
+
+                  {/* Visual separator */}
+                  <div className="hidden sm:block h-8 w-px bg-border" />
+
+                  {/* Right side: Accept Build Plan button */}
+                  <div className="flex items-center gap-3">
+                    <Button
+                      size="default"
+                      className="bg-green-600 hover:bg-green-700 text-white gap-2"
+                      onClick={handleAcceptAndGeneratePackets}
+                      disabled={isGeneratingPackets || packetsToInclude === 0 || storedPlan?.status === "approved"}
+                    >
+                      {isGeneratingPackets ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : storedPlan?.status === "approved" ? (
+                        <CheckCircle2 className="h-4 w-4" />
+                      ) : (
+                        <Rocket className="h-4 w-4" />
+                      )}
+                      {storedPlan?.status === "approved"
+                        ? "Packets Added"
+                        : "Accept Build Plan & Add Packets"}
+                    </Button>
+                    {storedPlan?.status !== "approved" && (
+                      <span className="text-xs text-muted-foreground hidden md:inline">
+                        ({packetsToInclude} packets)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Generation status messages */}
+                {(packetGenerationStatus || (isGenerating && generationStatus)) && (
+                  <div className="mt-3 p-3 bg-primary/5 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      {isGeneratingPackets || isGenerating ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      ) : (
+                        <Package className="h-4 w-4 text-green-600" />
+                      )}
+                      <span className="text-sm">{packetGenerationStatus || generationStatus}</span>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
 
           {/* Editable Objectives */}
@@ -1142,42 +1445,18 @@ export function BuildPlanEditor({
             </CardContent>
           </Card>
 
-          {/* Actions */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">
-                  {approvedCount} packets approved, {rejectedCount} rejected
-                  {hasChanges && !isLocked && (
-                    <span className="ml-2 text-primary">• You have pending changes</span>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  {!isLocked && (
-                    <>
-                      {hasChanges && storedPlan && (
-                        <Button
-                          variant="outline"
-                          onClick={reviseWithFeedback}
-                          disabled={isRevising || isGenerating || !selectedProvider}
-                        >
-                          {isRevising ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : (
-                            <Sparkles className="h-4 w-4 mr-2" />
-                          )}
-                          Revise Based on Feedback
-                        </Button>
-                      )}
-                      <Button
-                        onClick={handleApprovePlan}
-                        disabled={approvedCount === 0 || storedPlan?.status === "approved"}
-                      >
-                        <CheckCircle2 className="h-4 w-4 mr-2" />
-                        {storedPlan?.status === "approved" ? "Approved" : `Approve Plan (${approvedCount} packets)`}
-                      </Button>
-                    </>
-                  )}
+          {/* BOTTOM Action Bar */}
+          <Card className="border-border/50 bg-muted/30">
+            <CardContent className="p-3">
+              <div className="space-y-3">
+                {/* Summary Stats Row */}
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {approvedCount} approved, {rejectedCount} rejected
+                    {hasChanges && !isLocked && (
+                      <span className="ml-2 text-primary">- pending changes</span>
+                    )}
+                  </span>
                   {isLocked && (
                     <Badge variant="outline" className="text-amber-600">
                       <Lock className="h-3 w-3 mr-1" />
@@ -1185,17 +1464,119 @@ export function BuildPlanEditor({
                     </Badge>
                   )}
                 </div>
-              </div>
 
-              {/* Loading status for revision */}
-              {isRevising && generationStatus && (
-                <div className="mt-4 p-4 bg-primary/5 rounded-lg">
-                  <div className="flex items-center justify-center gap-3">
-                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                    <span className="text-sm">{generationStatus}</span>
+                {/* Main Action Bar */}
+                {!isLocked && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                    {/* Left side: Model Selector + Regenerate */}
+                    <div className="flex items-center gap-2">
+                      <Select value={regenerationModel} onValueChange={setRegenerationModel}>
+                        <SelectTrigger className="w-[200px]">
+                          <SelectValue placeholder="Select model..." />
+                        </SelectTrigger>
+                        <SelectContent className="bg-popover border border-border z-50">
+                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Paid Models</div>
+                          {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "paid").map(model => (
+                            <SelectItem key={model.value} value={model.value}>
+                              <div className="flex items-center gap-2">
+                                {model.icon === "terminal" ? (
+                                  <Terminal className="h-3 w-3 text-purple-500" />
+                                ) : (
+                                  <Cloud className="h-3 w-3 text-blue-500" />
+                                )}
+                                <span>{model.label}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Models</div>
+                          {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local").map(model => (
+                            <SelectItem key={model.value} value={model.value}>
+                              <div className="flex items-center gap-2">
+                                <Server className="h-3 w-3 text-green-500" />
+                                <span>{model.label}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="outline"
+                        onClick={regenerateWithSelectedModel}
+                        disabled={isGenerating || isRevising || !regenerationModel}
+                      >
+                        {isGenerating ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                        )}
+                        Regenerate
+                      </Button>
+                    </div>
+
+                    {/* Visual separator */}
+                    <div className="hidden sm:block h-8 w-px bg-border" />
+
+                    {/* Right side: Accept Build Plan button */}
+                    <div className="flex items-center gap-3">
+                      <Button
+                        size="default"
+                        className="bg-green-600 hover:bg-green-700 text-white gap-2"
+                        onClick={handleAcceptAndGeneratePackets}
+                        disabled={isGeneratingPackets || packetsToInclude === 0 || storedPlan?.status === "approved"}
+                      >
+                        {isGeneratingPackets ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : storedPlan?.status === "approved" ? (
+                          <CheckCircle2 className="h-4 w-4" />
+                        ) : (
+                          <Rocket className="h-4 w-4" />
+                        )}
+                        {storedPlan?.status === "approved"
+                          ? "Packets Added"
+                          : "Accept Build Plan & Add Packets"}
+                      </Button>
+                      {storedPlan?.status !== "approved" && (
+                        <span className="text-xs text-muted-foreground hidden md:inline">
+                          ({packetsToInclude} packets)
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+
+                {/* Revise Based on Feedback Button */}
+                {!isLocked && hasChanges && storedPlan && (
+                  <div className="flex justify-end pt-2 border-t border-border/50">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={reviseWithFeedback}
+                      disabled={isRevising || isGenerating || !selectedProvider}
+                    >
+                      {isRevising ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 mr-2" />
+                      )}
+                      Revise Based on Feedback
+                    </Button>
+                  </div>
+                )}
+
+                {/* Generation status messages */}
+                {(packetGenerationStatus || (isRevising && generationStatus)) && (
+                  <div className="p-3 bg-primary/5 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      {isGeneratingPackets || isRevising ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      ) : (
+                        <Package className="h-4 w-4 text-green-600" />
+                      )}
+                      <span className="text-sm">{packetGenerationStatus || generationStatus}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>

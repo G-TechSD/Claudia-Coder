@@ -51,7 +51,7 @@ const mockHistory: VoiceCommand[] = [
   {
     id: "v1",
     type: "user",
-    text: "Hey Claudia, what's the status of the authentication feature?",
+    text: "What's the status of the authentication feature?",
     timestamp: new Date(Date.now() - 300000)
   },
   {
@@ -135,12 +135,11 @@ export default function VoicePage() {
     }
 
     const phrases = [
-      "Hey",
-      "Hey Claudia",
-      "Hey Claudia, show",
-      "Hey Claudia, show me the",
-      "Hey Claudia, show me the current",
-      "Hey Claudia, show me the current status"
+      "Show",
+      "Show me",
+      "Show me the",
+      "Show me the current",
+      "Show me the current status"
     ]
 
     let index = 0
@@ -208,7 +207,7 @@ export default function VoicePage() {
                   ? "Speak your command"
                   : isSpeaking
                     ? "Processing response"
-                    : "Click the microphone or say \"Hey Claudia\""}
+                    : "Press the microphone button to start speaking"}
               </p>
             </div>
 
@@ -360,7 +359,7 @@ export default function VoicePage() {
       <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
         <span>Press</span>
         <kbd className="px-2 py-1 rounded bg-muted text-xs font-mono">Space</kbd>
-        <span>to start/stop listening, or say &ldquo;Hey Claudia&rdquo;</span>
+        <span>or click the microphone to start/stop listening</span>
       </div>
     </div>
   )
