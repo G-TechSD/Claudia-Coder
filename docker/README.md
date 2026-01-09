@@ -418,6 +418,128 @@ This approach requires:
 
 For most deployments, the shared instance with tag isolation is recommended.
 
+## Multi-User GitLab Architecture
+
+This deployment uses a **single shared GitLab instance** with user isolation via namespaces and groups, similar to the n8n approach. Users can also connect their own GitLab instances.
+
+### How GitLab User Isolation Works
+
+Each user's repositories are isolated through:
+
+1. **Group Namespaces**: Each user gets a personal group (e.g., `claudia-users/user-abc123`)
+2. **Project Prefixes**: Projects are prefixed with the user ID (e.g., `user-abc123-my-project`)
+3. **Token Scoping**: Each user has their own Personal Access Token
+4. **API Filtering**: User API calls only return their own projects
+
+**Project Naming Convention:**
+```
+claudia-users/user-abc123/my-project
+```
+
+**Group Structure:**
+```
+claudia-users/                    # Parent group (admin managed)
+├── user-abc123/                  # User A's namespace
+│   ├── project-1
+│   └── project-2
+├── user-def456/                  # User B's namespace
+│   ├── project-3
+│   └── project-4
+└── shared/                       # Shared templates (optional)
+    └── template-nextjs
+```
+
+### Admin Visibility (GitLab)
+
+**Administrators have full visibility into all projects:**
+
+| Access Level | Can View | Can Clone | Can Push | Can Admin |
+|-------------|----------|-----------|----------|-----------|
+| User | Own projects only | Own projects only | Own projects only | Own projects only |
+| Admin | All projects | All projects | All projects | All projects |
+
+Admins can:
+- View all user repositories
+- Access any user's code
+- Manage group permissions
+- Create shared template repositories
+- Monitor repository activity
+
+### Connecting Your Own GitLab Instance
+
+Users can optionally connect their own GitLab instance instead of using the shared one:
+
+1. **Go to Settings > GitLab** in Claudia
+2. **Select "Your Own GitLab Instance"**
+3. **Enter your GitLab URL** (e.g., `https://gitlab.com` or `https://your-gitlab.example.com`)
+4. **Generate a Personal Access Token** with `api` scope
+5. **Test the connection** and save
+
+**Benefits of using your own GitLab:**
+- Complete control over your repositories
+- Private access tokens not shared with the system
+- Use existing GitLab.com account
+- Custom CI/CD configurations
+- Independent storage and backups
+
+**Requirements for external GitLab:**
+- GitLab CE/EE 13.0+ or GitLab.com
+- Personal Access Token with `api` scope
+- HTTPS enabled (recommended)
+- Network reachable from Claudia server
+
+### GitLab Architecture Diagram
+
+```
+                    ┌─────────────────────────────────────────┐
+                    │           Claudia Admin Panel           │
+                    │         (User Management + UI)          │
+                    └──────────────┬──────────────────────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              │                    │                    │
+              ▼                    ▼                    ▼
+    ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+    │  Shared GitLab   │ │  User's GitLab   │ │  GitLab.com      │
+    │  (Group Isolatn) │ │  (Self-Hosted)   │ │  (Cloud Hosted)  │
+    │                  │ │                  │ │                  │
+    │  user-1 group    │ │  Full Control    │ │  Full Control    │
+    │  user-2 group    │ │                  │ │                  │
+    │  user-3 group    │ │                  │ │                  │
+    │  shared templates│ │                  │ │                  │
+    └──────────────────┘ └──────────────────┘ └──────────────────┘
+```
+
+### Setting Up GitLab User Groups (Shared Instance)
+
+For the shared GitLab instance, administrators should set up the parent group structure:
+
+```bash
+# Create the parent group via GitLab UI or API:
+# 1. Log in as admin to GitLab
+# 2. Create group "claudia-users" with visibility "internal"
+# 3. Set "Allowed to create subgroups" for Developers
+
+# Or via API:
+curl --header "PRIVATE-TOKEN: <admin_token>" \
+     --data "name=Claudia Users&path=claudia-users&visibility=internal" \
+     "https://your-gitlab/api/v4/groups"
+```
+
+Users will automatically get subgroups created when they first use Claudia.
+
+### Token Scopes Required
+
+For Personal Access Tokens, the following scope is required:
+
+| Scope | Required | Description |
+|-------|----------|-------------|
+| `api` | Yes | Full API access for creating projects, managing repos |
+| `read_repository` | Optional | Read-only access (if limiting to existing repos) |
+| `write_repository` | Optional | Push access only (no project creation) |
+
+For most users, just the `api` scope is needed.
+
 ## Security Notes
 
 1. **Change all default passwords** in `.env`
