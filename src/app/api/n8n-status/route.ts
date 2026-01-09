@@ -15,25 +15,82 @@ const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211
 const N8N_API_KEY = process.env.NEXT_PUBLIC_N8N_API_KEY || ""
 const N8N_API_URL = process.env.N8N_API_URL || `${N8N_BASE_URL}/api/v1`
 
-// Create an HTTPS agent that accepts self-signed certificates
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false // Accept self-signed certificates
-})
+/**
+ * Make HTTPS request that accepts self-signed certificates
+ */
+function httpsRequest(url: string, options: {
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+  timeout?: number
+}): Promise<{ ok: boolean; status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url)
+    const reqOptions: https.RequestOptions = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || 443,
+      path: urlObj.pathname + urlObj.search,
+      method: options.method || "GET",
+      headers: options.headers || {},
+      rejectUnauthorized: false, // Accept self-signed certificates
+      timeout: options.timeout || 5000,
+    }
+
+    const req = https.request(reqOptions, (res) => {
+      let body = ""
+      res.on("data", (chunk) => { body += chunk })
+      res.on("end", () => {
+        resolve({
+          ok: res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode || 0,
+          body,
+        })
+      })
+    })
+
+    req.on("error", reject)
+    req.on("timeout", () => {
+      req.destroy()
+      reject(new Error("Request timed out"))
+    })
+
+    if (options.body) {
+      req.write(options.body)
+    }
+    req.end()
+  })
+}
 
 /**
  * Fetch with self-signed cert support
  */
-async function fetchWithSelfSignedCert(url: string, options: RequestInit = {}): Promise<Response> {
-  // For HTTPS URLs, we need to use the custom agent
+async function fetchWithSelfSignedCert(
+  url: string,
+  options: { method?: string; headers?: Record<string, string>; body?: string; timeout?: number } = {}
+): Promise<{ ok: boolean; status: number; json: () => Promise<unknown>; text: () => Promise<string> }> {
+  // For HTTPS URLs, use custom https request
   if (url.startsWith("https://")) {
-    // Node.js fetch with custom agent (Node 18+)
-    return fetch(url, {
-      ...options,
-      // @ts-expect-error - Node.js fetch supports 'agent' option but it's not in the TS types
-      agent: httpsAgent,
-    })
+    const result = await httpsRequest(url, options)
+    return {
+      ok: result.ok,
+      status: result.status,
+      json: async () => JSON.parse(result.body),
+      text: async () => result.body,
+    }
   }
-  return fetch(url, options)
+
+  // For HTTP URLs, use regular fetch
+  const response = await fetch(url, {
+    method: options.method,
+    headers: options.headers,
+    body: options.body,
+  })
+  return {
+    ok: response.ok,
+    status: response.status,
+    json: () => response.json(),
+    text: () => response.text(),
+  }
 }
 
 /**
@@ -51,7 +108,7 @@ export async function GET() {
 
     const healthResponse = await fetchWithSelfSignedCert(healthUrl, {
       method: "GET",
-      signal: AbortSignal.timeout(5000),
+      timeout: 5000,
     })
 
     if (healthResponse.ok) {
@@ -63,9 +120,9 @@ export async function GET() {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            ...(N8N_API_KEY && { "X-N8N-API-KEY": N8N_API_KEY }),
+            ...(N8N_API_KEY ? { "X-N8N-API-KEY": N8N_API_KEY } : {}),
           },
-          signal: AbortSignal.timeout(5000),
+          timeout: 5000,
         })
 
         if (workflowsResponse.ok) {
@@ -166,10 +223,10 @@ export async function POST(request: Request) {
       method,
       headers: {
         "Content-Type": "application/json",
-        ...(N8N_API_KEY && { "X-N8N-API-KEY": N8N_API_KEY }),
+        ...(N8N_API_KEY ? { "X-N8N-API-KEY": N8N_API_KEY } : {}),
       },
       body: data ? JSON.stringify(data) : undefined,
-      signal: AbortSignal.timeout(30000),
+      timeout: 30000,
     })
 
     const responseData = await response.json().catch(() => null)
