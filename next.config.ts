@@ -15,6 +15,13 @@ const nextConfig: NextConfig = {
   // Hide the dev tools indicator for a cleaner UI
   // Errors will still be displayed when they occur
   devIndicators: false,
+
+  // Allow requests from these dev origins
+  allowedDevOrigins: [
+    "bill-dev-linux-1",
+    "preview.claudiacoder.com",
+    "preview.claudiacode.com",
+  ],
 };
 
 export default nextConfig;
