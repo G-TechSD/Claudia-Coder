@@ -87,6 +87,7 @@ export default function ProjectsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>("list")
   const [isLoadingHyperHealth, setIsLoadingHyperHealth] = useState(false)
+  const [isLoadingTaskFlow, setIsLoadingTaskFlow] = useState(false)
   const { isStarred, toggleStar, refresh: refreshStarred } = useStarredProjects()
 
   // Load view preference
@@ -218,6 +219,69 @@ export default function ProjectsPage() {
     }
   }
 
+  const handleLoadTaskFlow = async () => {
+    setIsLoadingTaskFlow(true)
+    try {
+      const response = await fetch('/api/projects/create-taskflow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      const data = await response.json()
+
+      if (!data.success) {
+        alert(`Failed to load TaskFlow: ${data.error}`)
+        return
+      }
+
+      // Get existing data from localStorage
+      const existingProjects = JSON.parse(localStorage.getItem('claudia_projects') || '[]')
+      const existingBuildPlans = JSON.parse(localStorage.getItem('claudia_build_plans') || '[]')
+      const existingPackets = JSON.parse(localStorage.getItem('claudia_packets') || '{}')
+
+      // Filter out any existing TaskFlow project to avoid duplicates
+      const taskFlowId = data.project?.id
+      const filteredProjects = existingProjects.filter((p: Project) => p.id !== taskFlowId)
+      const filteredBuildPlans = existingBuildPlans.filter((bp: { projectId: string }) => bp.projectId !== taskFlowId)
+
+      // Add the new TaskFlow project
+      if (data.project) {
+        filteredProjects.push(data.project)
+      }
+
+      // Add the build plan
+      if (data.buildPlan) {
+        filteredBuildPlans.push(data.buildPlan)
+      }
+
+      // Add packets to the packets object
+      const updatedPackets = { ...existingPackets }
+      if (data.packets && Array.isArray(data.packets)) {
+        for (const packet of data.packets) {
+          if (packet.id) {
+            updatedPackets[packet.id] = packet
+          }
+        }
+      }
+
+      // Save to localStorage
+      localStorage.setItem('claudia_projects', JSON.stringify(filteredProjects))
+      localStorage.setItem('claudia_build_plans', JSON.stringify(filteredBuildPlans))
+      localStorage.setItem('claudia_packets', JSON.stringify(updatedPackets))
+
+      // Refresh the projects list
+      loadProjects()
+
+      alert('TaskFlow Benchmark project loaded successfully!')
+    } catch (error) {
+      console.error('Failed to load TaskFlow:', error)
+      alert(`Failed to load TaskFlow: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsLoadingTaskFlow(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4 p-6 h-full">
       {/* Header with inline stats on larger screens */}
@@ -286,6 +350,22 @@ export default function ProjectsPage() {
             )}
             <span className="hidden sm:inline">
               {isLoadingHyperHealth ? "Loading..." : "Load HyperHealth Demo"}
+            </span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleLoadTaskFlow}
+            disabled={isLoadingTaskFlow}
+            className="gap-2"
+          >
+            {isLoadingTaskFlow ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">
+              {isLoadingTaskFlow ? "Loading..." : "Load TaskFlow Benchmark"}
             </span>
           </Button>
           <Button size="sm" className="gap-2" asChild>
