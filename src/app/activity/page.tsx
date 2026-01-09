@@ -185,7 +185,7 @@ export default function ActivityPage() {
 
       // 1. Load from server API (catches curl/API call events)
       try {
-        const response = await fetch("/api/activity-events?limit=100")
+        const response = await fetch("/api/activity-events?limit=500")
         if (response.ok) {
           const data = await response.json()
           if (data.events && Array.isArray(data.events)) {

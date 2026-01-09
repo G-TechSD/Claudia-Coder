@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { MetricCard } from "@/components/dashboard/metric-card"
 import { ActivityPreview } from "@/components/dashboard/activity-preview"
+import { ProjectsPreview } from "@/components/dashboard/projects-preview"
 import { AgentGrid } from "@/components/dashboard/agent-grid"
 import { SetupGuide } from "@/components/setup/setup-guide"
 import { Package, CheckCircle, AlertTriangle, DollarSign, Layers } from "lucide-react"
@@ -149,6 +150,9 @@ export default function Dashboard() {
           variant={metrics.blocked > 0 ? "warning" : "default"}
         />
       </div>
+
+      {/* Projects Section */}
+      <ProjectsPreview />
 
       {/* Main Content */}
       <div className="grid gap-6 lg:grid-cols-3">

@@ -285,7 +285,7 @@ export default function PacketsPage() {
       console.error("Failed to load packets from localStorage:", err)
     }
 
-    // 2. Then try N8N API (for any N8N-managed packets)
+    // 2. Then try the server-side API (loads from N8N and .local-storage files)
     try {
       const response = await fetch("/api/packets")
       const data = await response.json()
@@ -300,8 +300,8 @@ export default function PacketsPage() {
         }
       }
     } catch (err) {
-      console.error("Failed to fetch packets from N8N:", err)
-      // Don't set error if we have localStorage packets
+      console.error("Failed to fetch packets from API:", err)
+      // Don't set error if we have browser localStorage packets
     }
 
     // Sort by priority and creation date
@@ -315,15 +315,13 @@ export default function PacketsPage() {
       return bTime - aTime
     })
 
-    if (allPackets.length > 0) {
-      setPackets(allPackets)
-      // Auto-select first packet if none selected
-      if (!selectedPacket) {
-        setSelectedPacket(allPackets[0])
-      }
-    } else {
-      setError("No packets found. Create a build plan for a project to generate packets.")
+    setPackets(allPackets)
+    // Auto-select first packet if none selected
+    if (allPackets.length > 0 && !selectedPacket) {
+      setSelectedPacket(allPackets[0])
     }
+    // Clear any previous error - empty state is handled in the UI
+    setError(null)
 
     setIsLoading(false)
   }, [selectedPacket])
@@ -437,7 +435,7 @@ export default function PacketsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Packet Queue</h1>
           <p className="text-sm text-muted-foreground">
-            Manage and monitor development task packets from N8N
+            Manage and monitor development work packets across all projects
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -593,14 +591,57 @@ export default function PacketsPage() {
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : filteredPackets.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-                <Package className="h-8 w-8 mb-2 opacity-50" />
-                <p className="text-sm">No packets found</p>
-                <p className="text-xs">
-                  {packets.length === 0
-                    ? "Create a build plan for a project to generate work packets"
-                    : "Try adjusting your filters"}
-                </p>
+              <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+                <div className="rounded-full bg-muted p-4 mb-4">
+                  <Package className="h-8 w-8 text-muted-foreground" />
+                </div>
+                {packets.length === 0 ? (
+                  <>
+                    <h3 className="text-lg font-medium mb-2">No work packets yet</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm mb-4">
+                      Work packets are generated when you create a build plan for a project.
+                      Each packet represents a unit of work that can be assigned and tracked.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => window.location.href = '/projects'}
+                      >
+                        <GitBranch className="h-4 w-4" />
+                        Go to Projects
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={loadPackets}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Refresh
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-lg font-medium mb-2">No matching packets</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm mb-4">
+                      No packets match your current filter or search criteria.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => {
+                        setFilter("all")
+                        setSearch("")
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  </>
+                )}
               </div>
             ) : (
               <div className="divide-y">

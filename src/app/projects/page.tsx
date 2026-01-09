@@ -36,9 +36,10 @@ import {
   getAllProjects,
   getProjectStats,
   filterProjects,
-  deleteProject,
+  trashProject,
   seedSampleProjects,
-  toggleProjectStar
+  toggleProjectStar,
+  getTrashedProjects
 } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
 import type { Project, ProjectStatus, ProjectFilter } from "@/lib/data/types"
@@ -53,7 +54,8 @@ const statusConfig: Record<ProjectStatus, {
   active: { label: "Active", color: "text-green-400", bg: "bg-green-400", icon: PlayCircle },
   paused: { label: "Paused", color: "text-yellow-400", bg: "bg-yellow-400", icon: Pause },
   completed: { label: "Completed", color: "text-purple-400", bg: "bg-purple-400", icon: CheckCircle },
-  archived: { label: "Archived", color: "text-gray-400", bg: "bg-gray-400", icon: Archive }
+  archived: { label: "Archived", color: "text-gray-400", bg: "bg-gray-400", icon: Archive },
+  trashed: { label: "Trashed", color: "text-red-400", bg: "bg-red-400", icon: Trash2 }
 }
 
 const priorityConfig = {
@@ -154,9 +156,12 @@ export default function ProjectsPage() {
   // Stats
   const stats = useMemo(() => getProjectStats(), [projects])
 
-  const handleDelete = (id: string, name: string) => {
-    if (confirm(`Delete project "${name}"? This cannot be undone.`)) {
-      deleteProject(id)
+  // Get trashed projects count for showing badge on Trash link
+  const trashedCount = useMemo(() => getTrashedProjects().length, [projects])
+
+  const handleTrash = (id: string, name: string) => {
+    if (confirm(`Send project "${name}" to trash?`)) {
+      trashProject(id)
       loadProjects()
     }
   }
@@ -342,6 +347,17 @@ export default function ProjectsPage() {
           <Button variant="outline" size="sm" onClick={loadProjects} className="gap-2">
             <RefreshCw className="h-4 w-4" />
             <span className="hidden sm:inline">Refresh</span>
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2" asChild>
+            <Link href="/projects/trash">
+              <Trash2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Trash</span>
+              {trashedCount > 0 && (
+                <Badge variant="secondary" className="ml-1 h-5 min-w-5 rounded-full text-xs">
+                  {trashedCount}
+                </Badge>
+              )}
+            </Link>
           </Button>
           <Button
             variant="outline"
@@ -540,7 +556,8 @@ export default function ProjectsPage() {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-red-400 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100"
-                      onClick={() => handleDelete(project.id, project.name)}
+                      onClick={() => handleTrash(project.id, project.name)}
+                      title="Send to Trash"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -675,7 +692,8 @@ export default function ProjectsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-red-400 hover:text-red-400 hover:bg-red-400/10"
-                          onClick={() => handleDelete(project.id, project.name)}
+                          onClick={() => handleTrash(project.id, project.name)}
+                          title="Send to Trash"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>

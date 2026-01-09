@@ -15,7 +15,65 @@
  * - get_quality_gates: Get quality gate results for a packet
  * - submit_for_approval: Submit completed work for human approval
  * - get_build_plan: Get build plan for a project
+ * - report_costs: Report API costs from Claude Code execution
  */
+
+import * as fs from "fs"
+import * as path from "path"
+
+// Cost storage location
+const COSTS_FILE = "/home/bill/projects/claudia-admin/.local-storage/costs.json"
+
+interface CostEntry {
+  id: string
+  sessionId: string
+  projectId?: string
+  projectName?: string
+  packetId?: string
+  model: string
+  provider: string
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  cost: number
+  timestamp: string
+  description: string
+}
+
+interface CostsData {
+  entries: CostEntry[]
+  lastUpdated: string
+}
+
+// Helper to read costs file
+function readCostsFile(): CostsData {
+  try {
+    if (fs.existsSync(COSTS_FILE)) {
+      const data = fs.readFileSync(COSTS_FILE, "utf-8")
+      return JSON.parse(data)
+    }
+  } catch (error) {
+    console.error("[claudia-mcp] Failed to read costs file:", error)
+  }
+  return { entries: [], lastUpdated: new Date().toISOString() }
+}
+
+// Helper to write costs file
+function writeCostsFile(data: CostsData): void {
+  try {
+    // Ensure directory exists
+    const dir = path.dirname(COSTS_FILE)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    data.lastUpdated = new Date().toISOString()
+    fs.writeFileSync(COSTS_FILE, JSON.stringify(data, null, 2), "utf-8")
+  } catch (error) {
+    console.error("[claudia-mcp] Failed to write costs file:", error)
+    throw error
+  }
+}
 
 const CLAUDIA_API_BASE = process.env.CLAUDIA_API_URL || "https://localhost:3000/api"
 
@@ -229,6 +287,64 @@ const TOOLS = [
       },
       required: ["type", "message"]
     }
+  },
+  {
+    name: "report_costs",
+    description: "Report API costs from Claude Code execution. Call this at the end of each session or when significant work is completed to track spending.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: {
+          type: "string",
+          description: "Unique session identifier (use conversation ID or generate one)"
+        },
+        projectId: {
+          type: "string",
+          description: "The project ID this work was for"
+        },
+        projectName: {
+          type: "string",
+          description: "The project name for display"
+        },
+        packetId: {
+          type: "string",
+          description: "The packet ID if working on a specific packet"
+        },
+        model: {
+          type: "string",
+          description: "The model used (e.g., claude-opus-4-5-20251101, claude-sonnet-4-20250514)"
+        },
+        provider: {
+          type: "string",
+          description: "API provider (e.g., Anthropic, OpenAI)"
+        },
+        inputTokens: {
+          type: "number",
+          description: "Number of input tokens used"
+        },
+        outputTokens: {
+          type: "number",
+          description: "Number of output tokens generated"
+        },
+        cacheReadTokens: {
+          type: "number",
+          description: "Number of tokens read from cache (optional)"
+        },
+        cacheWriteTokens: {
+          type: "number",
+          description: "Number of tokens written to cache (optional)"
+        },
+        cost: {
+          type: "number",
+          description: "Total cost in USD (calculate based on model pricing)"
+        },
+        description: {
+          type: "string",
+          description: "Brief description of the work done"
+        }
+      },
+      required: ["sessionId", "model", "provider", "inputTokens", "outputTokens", "cost", "description"]
+    }
   }
 ]
 
@@ -331,6 +447,74 @@ async function createActivityEvent(type: string, message: string, projectId?: st
   return result
 }
 
+async function reportCosts(
+  sessionId: string,
+  model: string,
+  provider: string,
+  inputTokens: number,
+  outputTokens: number,
+  cost: number,
+  description: string,
+  projectId?: string,
+  projectName?: string,
+  packetId?: string,
+  cacheReadTokens?: number,
+  cacheWriteTokens?: number
+) {
+  // Read current costs
+  const costsData = readCostsFile()
+
+  // Create new cost entry
+  const entry: CostEntry = {
+    id: `cost-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+    sessionId,
+    projectId,
+    projectName,
+    packetId,
+    model,
+    provider,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    cost,
+    timestamp: new Date().toISOString(),
+    description
+  }
+
+  // Add to entries
+  costsData.entries.push(entry)
+
+  // Write back to file
+  writeCostsFile(costsData)
+
+  // Calculate session totals
+  const sessionEntries = costsData.entries.filter(e => e.sessionId === sessionId)
+  const sessionTotal = sessionEntries.reduce((sum, e) => sum + e.cost, 0)
+  const sessionInputTokens = sessionEntries.reduce((sum, e) => sum + e.inputTokens, 0)
+  const sessionOutputTokens = sessionEntries.reduce((sum, e) => sum + e.outputTokens, 0)
+
+  // Calculate project totals if projectId is provided
+  let projectTotal = 0
+  if (projectId) {
+    const projectEntries = costsData.entries.filter(e => e.projectId === projectId)
+    projectTotal = projectEntries.reduce((sum, e) => sum + e.cost, 0)
+  }
+
+  return {
+    success: true,
+    entryId: entry.id,
+    sessionTotals: {
+      cost: sessionTotal,
+      inputTokens: sessionInputTokens,
+      outputTokens: sessionOutputTokens,
+      entries: sessionEntries.length
+    },
+    projectTotal: projectId ? projectTotal : undefined,
+    message: `Cost recorded: $${cost.toFixed(4)} for ${inputTokens} input + ${outputTokens} output tokens`
+  }
+}
+
 // Main server setup
 async function main() {
   const server = new Server(
@@ -406,6 +590,22 @@ async function main() {
             args?.type as string,
             args?.message as string,
             args?.projectId as string
+          )
+          break
+        case "report_costs":
+          result = await reportCosts(
+            args?.sessionId as string,
+            args?.model as string,
+            args?.provider as string,
+            args?.inputTokens as number,
+            args?.outputTokens as number,
+            args?.cost as number,
+            args?.description as string,
+            args?.projectId as string,
+            args?.projectName as string,
+            args?.packetId as string,
+            args?.cacheReadTokens as number,
+            args?.cacheWriteTokens as number
           )
           break
         default:

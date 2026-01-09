@@ -162,8 +162,16 @@ function saveInterviews(interviews: InterviewSession[]): void {
 
 // ============ Project CRUD ============
 
-export function getAllProjects(): Project[] {
-  return getStoredProjects()
+/**
+ * Get all projects, optionally including trashed projects
+ * By default, trashed projects are excluded
+ */
+export function getAllProjects(options?: { includeTrashed?: boolean }): Project[] {
+  const projects = getStoredProjects()
+  if (options?.includeTrashed) {
+    return projects
+  }
+  return projects.filter(p => p.status !== "trashed")
 }
 
 // Alias for getAllProjects
@@ -236,6 +244,77 @@ export function deleteProject(id: string): boolean {
   return true
 }
 
+// ============ Project Trash ============
+
+/**
+ * Send a project to trash
+ * Preserves the previous status so it can be restored later
+ */
+export function trashProject(id: string): Project | null {
+  const projects = getStoredProjects()
+  const project = projects.find(p => p.id === id)
+
+  if (!project || project.status === "trashed") return null
+
+  return updateProject(id, {
+    previousStatus: project.status,
+    status: "trashed",
+    trashedAt: new Date().toISOString()
+  })
+}
+
+/**
+ * Restore a project from trash
+ * Returns to its previous status, or "active" if no previous status was recorded
+ */
+export function restoreProject(id: string): Project | null {
+  const projects = getStoredProjects()
+  const project = projects.find(p => p.id === id)
+
+  if (!project || project.status !== "trashed") return null
+
+  const restoredStatus = project.previousStatus || "active"
+
+  return updateProject(id, {
+    status: restoredStatus,
+    previousStatus: undefined,
+    trashedAt: undefined
+  })
+}
+
+/**
+ * Get all trashed projects
+ */
+export function getTrashedProjects(): Project[] {
+  return getStoredProjects().filter(p => p.status === "trashed")
+}
+
+/**
+ * Permanently delete a project from trash
+ * Only works on trashed projects
+ */
+export function permanentlyDeleteProject(id: string): boolean {
+  const projects = getStoredProjects()
+  const project = projects.find(p => p.id === id)
+
+  // Only allow permanent deletion of trashed projects
+  if (!project || project.status !== "trashed") return false
+
+  return deleteProject(id)
+}
+
+/**
+ * Empty the trash - permanently delete all trashed projects
+ */
+export function emptyTrash(): number {
+  const projects = getStoredProjects()
+  const trashedCount = projects.filter(p => p.status === "trashed").length
+  const remaining = projects.filter(p => p.status !== "trashed")
+
+  saveProjects(remaining)
+  return trashedCount
+}
+
 // ============ Project Starring ============
 
 export function toggleProjectStar(id: string): Project | null {
@@ -289,7 +368,8 @@ export function getProjectStats(): ProjectStats {
     active: 0,
     paused: 0,
     completed: 0,
-    archived: 0
+    archived: 0,
+    trashed: 0
   }
 
   let activeRepos = 0
@@ -303,8 +383,11 @@ export function getProjectStats(): ProjectStats {
     }
   }
 
+  // Total excludes trashed projects for the main count
+  const totalActive = projects.filter(p => p.status !== "trashed").length
+
   return {
-    total: projects.length,
+    total: totalActive,
     byStatus,
     activeRepos,
     activePackets

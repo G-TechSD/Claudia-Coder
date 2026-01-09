@@ -45,9 +45,10 @@ import {
   Star,
   Terminal,
   Play,
-  AlertTriangle
+  AlertTriangle,
+  RotateCcw
 } from "lucide-react"
-import { getProject, updateProject, deleteProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar, getEffectiveWorkingDirectory } from "@/lib/data/projects"
+import { getProject, updateProject, trashProject, restoreProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar, getEffectiveWorkingDirectory } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
 import { getResourcesForProject, getBrainDumpsForProject } from "@/lib/data/resources"
 import { PacketCard, type Packet } from "@/components/packets/packet-card"
@@ -93,7 +94,8 @@ const statusConfig: Record<ProjectStatus, { label: string; color: string; icon: 
   active: { label: "Active", color: "bg-green-500/10 text-green-500 border-green-500/30", icon: PlayCircle },
   paused: { label: "Paused", color: "bg-yellow-500/10 text-yellow-500 border-yellow-500/30", icon: PauseCircle },
   completed: { label: "Completed", color: "bg-emerald-500/10 text-emerald-500 border-emerald-500/30", icon: CheckCircle2 },
-  archived: { label: "Archived", color: "bg-gray-500/10 text-gray-500 border-gray-500/30", icon: Archive }
+  archived: { label: "Archived", color: "bg-gray-500/10 text-gray-500 border-gray-500/30", icon: Archive },
+  trashed: { label: "Trashed", color: "bg-red-500/10 text-red-500 border-red-500/30", icon: Trash2 }
 }
 
 const priorityConfig = {
@@ -463,11 +465,19 @@ export default function ProjectDetailPage() {
     if (updated) setProject(updated)
   }
 
-  const handleDelete = () => {
+  const handleTrash = () => {
     if (!project) return
-    if (confirm("Are you sure you want to delete this project?")) {
-      deleteProject(project.id)
+    if (confirm("Send this project to trash?")) {
+      trashProject(project.id)
       router.push("/projects")
+    }
+  }
+
+  const handleRestore = () => {
+    if (!project) return
+    const restored = restoreProject(project.id)
+    if (restored) {
+      setProject(restored)
     }
   }
 
@@ -702,12 +712,46 @@ export default function ProjectDetailPage() {
             <Edit2 className="h-4 w-4 mr-1" />
             Edit
           </Button>
-          <Button variant="destructive" size="sm" onClick={handleDelete}>
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete
-          </Button>
+          {project.status === "trashed" ? (
+            <Button variant="outline" size="sm" onClick={handleRestore} className="text-green-500 hover:text-green-600">
+              <RotateCcw className="h-4 w-4 mr-1" />
+              Restore
+            </Button>
+          ) : (
+            <Button variant="destructive" size="sm" onClick={handleTrash}>
+              <Trash2 className="h-4 w-4 mr-1" />
+              Trash
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Trashed Project Banner */}
+      {project.status === "trashed" && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <Trash2 className="h-5 w-5 text-red-500 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-red-500">This project is in the trash</p>
+                <p className="text-xs text-muted-foreground">
+                  {project.trashedAt && `Trashed ${new Date(project.trashedAt).toLocaleDateString()}`}
+                  {project.previousStatus && ` - was ${statusConfig[project.previousStatus].label}`}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRestore}
+                className="text-green-500 hover:text-green-600 gap-1"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Restore Project
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Execution Status */}
       {executionStatus && (
@@ -726,33 +770,35 @@ export default function ProjectDetailPage() {
         </Card>
       )}
 
-      {/* Status Actions */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">Change Status:</span>
-            {(["planning", "active", "paused", "completed", "archived"] as ProjectStatus[]).map((status) => {
-              const config = statusConfig[status]
-              const Icon = config.icon
-              return (
-                <Button
-                  key={status}
-                  variant={project.status === status ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => handleStatusChange(status)}
-                  className={cn(
-                    project.status === status && config.color,
-                    "transition-all"
-                  )}
-                >
-                  <Icon className="h-3 w-3 mr-1" />
-                  {config.label}
-                </Button>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Status Actions - hidden for trashed projects */}
+      {project.status !== "trashed" && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">Change Status:</span>
+              {(["planning", "active", "paused", "completed", "archived"] as ProjectStatus[]).map((status) => {
+                const config = statusConfig[status]
+                const Icon = config.icon
+                return (
+                  <Button
+                    key={status}
+                    variant={project.status === status ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleStatusChange(status)}
+                    className={cn(
+                      project.status === status && config.color,
+                      "transition-all"
+                    )}
+                  >
+                    <Icon className="h-3 w-3 mr-1" />
+                    {config.label}
+                  </Button>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="overview" className="space-y-4">

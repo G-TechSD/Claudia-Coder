@@ -1,8 +1,9 @@
 /**
  * Packets API Route
  *
- * Fetches packets from N8N data tables (ClaudiaCodeIssuePackets)
- * and provides CRUD operations for packet management.
+ * Fetches packets from multiple sources:
+ * - N8N data tables (ClaudiaCodeIssuePackets)
+ * - .local-storage directory (build plan JSON files)
  *
  * GET /api/packets - List all packets (with optional filtering)
  * POST /api/packets/:id/start - Start a packet
@@ -12,6 +13,8 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import * as https from "https"
+import * as fs from "fs"
+import * as path from "path"
 
 const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
 const N8N_API_KEY = process.env.N8N_API_KEY || ""
@@ -181,9 +184,84 @@ function transformPacket(raw: N8NPacket): Packet {
 }
 
 /**
+ * Load packets from .local-storage build plan files
+ * These files contain build plans with packet definitions
+ */
+function loadPacketsFromLocalStorage(): Packet[] {
+  const packets: Packet[] = []
+
+  try {
+    // Path to .local-storage directory relative to project root
+    const localStorageDir = path.join(process.cwd(), ".local-storage")
+
+    if (!fs.existsSync(localStorageDir)) {
+      return packets
+    }
+
+    // Find all build plan JSON files
+    const files = fs.readdirSync(localStorageDir)
+    const buildPlanFiles = files.filter(f => f.endsWith("-build-plan.json") || f.includes("build-plan"))
+
+    for (const file of buildPlanFiles) {
+      try {
+        const filePath = path.join(localStorageDir, file)
+        const content = fs.readFileSync(filePath, "utf-8")
+        const buildPlan = JSON.parse(content)
+
+        // Extract project info from the build plan
+        const projectName = buildPlan.projectName || file.replace("-build-plan.json", "")
+        const projectId = buildPlan.projectId || projectName.toLowerCase().replace(/\s+/g, "-")
+
+        // Extract packets from build plan
+        if (buildPlan.packets && Array.isArray(buildPlan.packets)) {
+          for (const wp of buildPlan.packets) {
+            // Map status from WorkPacket to Packet status
+            let packetStatus: PacketStatus = "queued"
+            if (wp.status === "completed") packetStatus = "completed"
+            else if (wp.status === "in_progress" || wp.status === "assigned") packetStatus = "running"
+            else if (wp.status === "blocked") packetStatus = "paused"
+            else if (wp.status === "review") packetStatus = "running"
+            else if (wp.status === "ready") packetStatus = "queued"
+
+            packets.push({
+              id: wp.id,
+              planRunID: wp.phaseId || "",
+              projectID: projectId,
+              packetID: wp.id,
+              title: wp.title || `Packet ${wp.id}`,
+              summary: wp.description || "",
+              issueIDs: [],
+              assignedWorker: wp.assignedModel || "",
+              status: packetStatus,
+              issues: [],
+              acceptanceCriteria: wp.acceptanceCriteria || [],
+              risks: [],
+              dependencies: wp.dependencies || [],
+              feedback: null,
+              feedbackComment: null,
+              startedAt: null,
+              completedAt: null,
+              createdAt: buildPlan.createdAt || null,
+              updatedAt: null,
+              workerOutput: null
+            })
+          }
+        }
+      } catch (fileError) {
+        console.warn(`Failed to parse build plan file ${file}:`, fileError)
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to load packets from .local-storage:", error)
+  }
+
+  return packets
+}
+
+/**
  * GET /api/packets
  *
- * Fetch all packets from N8N data table
+ * Fetch all packets from N8N data table and .local-storage files
  *
  * Query params:
  *   - projectID: Filter by project
@@ -246,27 +324,53 @@ export async function GET(request: NextRequest) {
     }
 
     // Apply filters (in case API doesn't support filtering)
-    let filteredPackets = rawPackets
+    let filteredN8NPackets = rawPackets
 
     if (projectID) {
-      filteredPackets = filteredPackets.filter(p => p.projectID === projectID)
+      filteredN8NPackets = filteredN8NPackets.filter(p => p.projectID === projectID)
     }
     if (planRunID) {
-      filteredPackets = filteredPackets.filter(p => p.planRunID === planRunID)
+      filteredN8NPackets = filteredN8NPackets.filter(p => p.planRunID === planRunID)
     }
     if (status) {
-      filteredPackets = filteredPackets.filter(p => p.status === status)
+      filteredN8NPackets = filteredN8NPackets.filter(p => p.status === status)
     }
 
-    // Transform and limit
-    const packets = filteredPackets
-      .slice(0, limit)
-      .map(transformPacket)
+    // Transform N8N packets
+    const n8nPackets = filteredN8NPackets.map(transformPacket)
+
+    // Also load packets from .local-storage files
+    let localStoragePackets = loadPacketsFromLocalStorage()
+
+    // Apply same filters to local storage packets
+    if (projectID) {
+      localStoragePackets = localStoragePackets.filter(p => p.projectID === projectID)
+    }
+    if (planRunID) {
+      localStoragePackets = localStoragePackets.filter(p => p.planRunID === planRunID)
+    }
+    if (status) {
+      localStoragePackets = localStoragePackets.filter(p => p.status === status)
+    }
+
+    // Merge packets, avoiding duplicates by ID
+    const seenIds = new Set(n8nPackets.map(p => p.id))
+    const allPackets = [
+      ...n8nPackets,
+      ...localStoragePackets.filter(p => !seenIds.has(p.id))
+    ]
+
+    // Limit results
+    const packets = allPackets.slice(0, limit)
 
     return NextResponse.json({
       success: true,
       count: packets.length,
-      packets
+      packets,
+      sources: {
+        n8n: n8nPackets.length,
+        localStorage: localStoragePackets.filter(p => !seenIds.has(p.id)).length
+      }
     })
 
   } catch (error) {

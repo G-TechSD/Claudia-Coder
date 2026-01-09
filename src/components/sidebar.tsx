@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
 import { useApprovals } from "@/hooks/useApprovals"
+import { getTrashedProjects } from "@/lib/data/projects"
 import {
   LayoutDashboard,
   Activity,
@@ -24,6 +25,7 @@ import {
   Star,
   Workflow,
   Terminal,
+  Trash2,
 } from "lucide-react"
 
 interface NavItem {
@@ -47,6 +49,7 @@ const navItems: NavItem[] = [
 ]
 
 const bottomNavItems: NavItem[] = [
+  { title: "Trash", href: "/projects/trash", icon: Trash2, badgeKey: "trashedProjects" },
   { title: "Settings", href: "/settings", icon: Settings },
   { title: "Voice", href: "/voice", icon: Mic },
 ]
@@ -56,10 +59,34 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = React.useState(false)
   const { starredProjects } = useStarredProjects()
   const { pendingCount: pendingApprovals } = useApprovals()
+  const [trashedCount, setTrashedCount] = React.useState(0)
+
+  // Refresh trashed count periodically and on path changes
+  React.useEffect(() => {
+    const updateTrashedCount = () => {
+      setTrashedCount(getTrashedProjects().length)
+    }
+    updateTrashedCount()
+
+    // Listen for storage changes to update trash count
+    const handleStorageChange = () => {
+      updateTrashedCount()
+    }
+    window.addEventListener("storage", handleStorageChange)
+
+    // Also poll every few seconds to catch in-app changes
+    const interval = setInterval(updateTrashedCount, 2000)
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      clearInterval(interval)
+    }
+  }, [pathname])
 
   // Dynamic badge counts lookup
   const badgeCounts: Record<string, number> = {
     pendingApprovals,
+    trashedProjects: trashedCount,
   }
 
   return (
@@ -188,7 +215,16 @@ export function Sidebar() {
               )}
             >
               <item.icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span>{item.title}</span>}
+              {!collapsed && (
+                <>
+                  <span className="flex-1">{item.title}</span>
+                  {item.badgeKey && badgeCounts[item.badgeKey] > 0 && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs text-white">
+                      {badgeCounts[item.badgeKey]}
+                    </span>
+                  )}
+                </>
+              )}
             </Link>
           )
         })}

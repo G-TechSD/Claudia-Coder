@@ -5,7 +5,7 @@
 
 // ============ Projects ============
 
-export type ProjectStatus = "planning" | "active" | "paused" | "completed" | "archived"
+export type ProjectStatus = "planning" | "active" | "paused" | "completed" | "archived" | "trashed"
 export type ProjectPriority = "low" | "medium" | "high" | "critical"
 export type LinearSyncMode = "none" | "imported" | "two_way"
 
@@ -70,6 +70,10 @@ export interface Project {
 
   // User preferences
   starred?: boolean
+
+  // Trash metadata - tracks when project was trashed and what status it had before
+  trashedAt?: string
+  previousStatus?: ProjectStatus
 }
 
 // ============ Interviews ============

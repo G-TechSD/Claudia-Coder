@@ -29,9 +29,13 @@ import { generateWithLocalLLM, getAvailableServer } from "@/lib/llm/local-llm"
 
 // Path to store activity events for API access (curl calls don't have localStorage)
 const ACTIVITY_EVENTS_FILE = "/home/bill/projects/claudia-admin/.local-storage/activity-events.json"
+const ACTIVITY_EVENTS_BACKUP_FILE = "/home/bill/projects/claudia-admin/.local-storage/activity-events.backup.json"
 
-// Maximum number of events to keep in the file
-const MAX_STORED_EVENTS = 100
+// Maximum number of events to keep in the file (increased to prevent data loss)
+const MAX_STORED_EVENTS = 1000
+
+// Minimum events threshold - refuse to write if we're losing more than this percentage of events
+const MIN_EVENTS_SAFETY_THRESHOLD = 0.5 // Don't write if new data is less than 50% of existing
 
 // Create an HTTPS agent that accepts self-signed certificates (for N8N)
 const httpsAgent = new https.Agent({
@@ -122,6 +126,12 @@ interface StoredActivityEvent {
 /**
  * Save execution events to file for API access
  * This allows activity to show up even when executions happen via curl/API calls
+ *
+ * SAFETY FEATURES:
+ * 1. Creates backup before writing
+ * 2. Validates JSON before writing
+ * 3. Refuses to write if it would lose more than 50% of existing events
+ * 4. Atomic write (write to temp file, then rename)
  */
 async function persistActivityEvents(
   events: ExecutionEvent[],
@@ -133,21 +143,51 @@ async function persistActivityEvents(
   success: boolean
 ): Promise<void> {
   try {
-    // Read existing events
+    // Ensure directory exists
+    await fs.mkdir(path.dirname(ACTIVITY_EVENTS_FILE), { recursive: true })
+
+    // Read existing events with robust error handling
     let existingEvents: StoredActivityEvent[] = []
+    let existingEventCount = 0
+
     try {
       const data = await fs.readFile(ACTIVITY_EVENTS_FILE, "utf-8")
-      existingEvents = JSON.parse(data)
-    } catch {
-      // File doesn't exist or is invalid, start fresh
-    }
+      const parsed = JSON.parse(data)
 
-    // Map execution events to activity type
-    const mapEventType = (event: ExecutionEvent, isSuccess: boolean): StoredActivityEvent["type"] => {
-      if (event.type === "error") return "error"
-      if (event.type === "complete") return isSuccess ? "success" : "error"
-      if (event.type === "start" || event.type === "thinking") return "running"
-      return "pending"
+      // Validate that parsed data is an array
+      if (Array.isArray(parsed)) {
+        existingEvents = parsed
+        existingEventCount = existingEvents.length
+        console.log(`[persistActivityEvents] Loaded ${existingEventCount} existing events`)
+      } else {
+        console.warn("[persistActivityEvents] File contained non-array data, starting fresh but creating backup")
+        // Create a backup of the corrupted file
+        await fs.copyFile(ACTIVITY_EVENTS_FILE, ACTIVITY_EVENTS_BACKUP_FILE + ".corrupted." + Date.now()).catch(() => {})
+      }
+    } catch (readError) {
+      const err = readError as NodeJS.ErrnoException
+      if (err.code === "ENOENT") {
+        // File doesn't exist - this is OK for first run
+        console.log("[persistActivityEvents] No existing events file, starting fresh")
+      } else if (err instanceof SyntaxError) {
+        // JSON parse error - try to recover from backup
+        console.error("[persistActivityEvents] JSON parse error, attempting recovery from backup")
+        try {
+          const backupData = await fs.readFile(ACTIVITY_EVENTS_BACKUP_FILE, "utf-8")
+          const backupParsed = JSON.parse(backupData)
+          if (Array.isArray(backupParsed)) {
+            existingEvents = backupParsed
+            existingEventCount = existingEvents.length
+            console.log(`[persistActivityEvents] Recovered ${existingEventCount} events from backup`)
+          }
+        } catch (backupError) {
+          console.error("[persistActivityEvents] Could not recover from backup:", backupError)
+        }
+      } else {
+        console.error("[persistActivityEvents] Unexpected read error:", readError)
+        // Don't lose data - if we can't read, don't write
+        return
+      }
     }
 
     // Create a summary event for this execution
@@ -166,19 +206,63 @@ async function persistActivityEvents(
       detail: events.length > 0 ? events[events.length - 1].message : undefined
     }
 
-    // Add the summary event
-    existingEvents.push(summaryEvent)
+    // Check for duplicate events (same packet ID within last minute)
+    const oneMinuteAgo = Date.now() - 60000
+    const isDuplicate = existingEvents.some(e =>
+      e.packetId === packetId &&
+      new Date(e.timestamp).getTime() > oneMinuteAgo
+    )
 
-    // Keep only the most recent events
-    if (existingEvents.length > MAX_STORED_EVENTS) {
-      existingEvents = existingEvents.slice(-MAX_STORED_EVENTS)
+    if (!isDuplicate) {
+      // Add the summary event
+      existingEvents.push(summaryEvent)
+    } else {
+      console.log(`[persistActivityEvents] Skipping duplicate event for packet ${packetId}`)
     }
 
-    // Ensure directory exists
-    await fs.mkdir(path.dirname(ACTIVITY_EVENTS_FILE), { recursive: true })
+    // Keep only the most recent events (but never delete more than necessary)
+    let eventsToWrite = existingEvents
+    if (existingEvents.length > MAX_STORED_EVENTS) {
+      eventsToWrite = existingEvents.slice(-MAX_STORED_EVENTS)
+      console.log(`[persistActivityEvents] Trimming from ${existingEvents.length} to ${MAX_STORED_EVENTS} events`)
+    }
 
-    // Write to file
-    await fs.writeFile(ACTIVITY_EVENTS_FILE, JSON.stringify(existingEvents, null, 2), "utf-8")
+    // SAFETY CHECK: Don't write if we would lose more than 50% of existing events
+    // This protects against bugs that might accidentally clear the data
+    if (existingEventCount > 10 && eventsToWrite.length < existingEventCount * MIN_EVENTS_SAFETY_THRESHOLD) {
+      console.error(`[persistActivityEvents] SAFETY ABORT: Would lose too many events (${existingEventCount} -> ${eventsToWrite.length})`)
+      return
+    }
+
+    // Create backup before writing (if we have existing data)
+    if (existingEventCount > 0) {
+      try {
+        await fs.copyFile(ACTIVITY_EVENTS_FILE, ACTIVITY_EVENTS_BACKUP_FILE)
+        console.log(`[persistActivityEvents] Created backup with ${existingEventCount} events`)
+      } catch (backupError) {
+        // Backup failed - log but continue (the main file might not exist yet)
+        console.warn("[persistActivityEvents] Could not create backup:", backupError)
+      }
+    }
+
+    // Write to temp file first (atomic write pattern)
+    const tempFile = ACTIVITY_EVENTS_FILE + ".tmp"
+    const jsonContent = JSON.stringify(eventsToWrite, null, 2)
+
+    // Validate JSON before writing
+    try {
+      JSON.parse(jsonContent) // Verify it's valid JSON
+    } catch (validateError) {
+      console.error("[persistActivityEvents] Generated invalid JSON, aborting write")
+      return
+    }
+
+    await fs.writeFile(tempFile, jsonContent, "utf-8")
+
+    // Rename temp file to actual file (atomic on most filesystems)
+    await fs.rename(tempFile, ACTIVITY_EVENTS_FILE)
+
+    console.log(`[persistActivityEvents] Successfully wrote ${eventsToWrite.length} events`)
   } catch (error) {
     console.error("[persistActivityEvents] Failed to save events:", error)
     // Don't throw - this is a non-critical operation
