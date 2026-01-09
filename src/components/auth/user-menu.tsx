@@ -99,7 +99,12 @@ export function UserMenu({ collapsed }: UserMenuProps) {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        sideOffset={8}
+        className="w-56 bg-[hsl(var(--bg-overlay))] border border-[hsl(var(--border-default))] shadow-lg z-[100]"
+      >
         <DropdownMenuLabel>
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium">{user.name || "User"}</p>

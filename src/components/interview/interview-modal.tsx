@@ -158,7 +158,7 @@ export function InterviewModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl h-[80vh] flex flex-col p-0">
+      <DialogContent className="max-w-2xl h-[90vh] max-h-[900px] flex flex-col p-0">
         {/* Header */}
         <DialogHeader className="p-4 border-b">
           <div className="flex items-center justify-between">
@@ -194,7 +194,7 @@ export function InterviewModal({
         </DialogHeader>
 
         {/* Messages */}
-        <div className="flex-1 overflow-auto p-4 space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
           {messages.map((message) => (
             <div
               key={message.id}

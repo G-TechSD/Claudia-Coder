@@ -36,6 +36,32 @@ export function createInterviewSession(
 ): InterviewSession {
   const { systemPrompt, opener } = buildInterviewContext(type, targetType, targetContext)
 
+  // Check if there's an initial description to include as a "user message"
+  const initialDescription = targetContext?.initialDescription as string | undefined
+  const hasInitialDescription = initialDescription && initialDescription.trim()
+
+  // Build messages array
+  const messages: InterviewMessage[] = []
+
+  if (hasInitialDescription) {
+    // Add the user's initial description as the first user message
+    messages.push({
+      id: generateUUID(),
+      role: "user",
+      content: initialDescription.trim(),
+      timestamp: new Date().toISOString(),
+      transcribedFrom: "text"
+    })
+  }
+
+  // Add the assistant's opener
+  messages.push({
+    id: generateUUID(),
+    role: "assistant",
+    content: opener,
+    timestamp: new Date().toISOString()
+  })
+
   return {
     id: generateUUID(),
     type,
@@ -44,14 +70,7 @@ export function createInterviewSession(
     targetId,
     targetTitle,
     targetContext,
-    messages: [
-      {
-        id: generateUUID(),
-        role: "assistant",
-        content: opener,
-        timestamp: new Date().toISOString()
-      }
-    ],
+    messages,
     createdAt: new Date().toISOString()
   }
 }

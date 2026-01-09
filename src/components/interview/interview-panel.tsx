@@ -32,6 +32,7 @@ interface InterviewPanelProps {
   targetId?: string
   targetTitle?: string
   targetContext?: Record<string, unknown>
+  initialDescription?: string  // Pre-filled description from user input
   onComplete: (session: InterviewSession) => void
   onCancel: () => void
 }
@@ -42,6 +43,7 @@ export function InterviewPanel({
   targetId,
   targetTitle,
   targetContext,
+  initialDescription,
   onComplete,
   onCancel
 }: InterviewPanelProps) {
@@ -49,13 +51,15 @@ export function InterviewPanel({
   const [autoSpeak, setAutoSpeak] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Interview hook
+  // Interview hook - merge initialDescription into targetContext
   const interview = useInterview({
     type,
     targetType,
     targetId,
     targetTitle,
-    targetContext,
+    targetContext: initialDescription
+      ? { ...targetContext, initialDescription }
+      : targetContext,
     onComplete,
     onCancel
   })
@@ -83,7 +87,9 @@ export function InterviewPanel({
           clearTimeout(voiceSubmitTimeoutRef.current)
         }
 
-        // Wait for a pause in speech before submitting (1.5 seconds)
+        // Wait for a pause in speech before submitting (3.5 seconds)
+        // Increased from 1.5s to give users time to think and pause naturally
+        // without cutting them off mid-thought
         voiceSubmitTimeoutRef.current = setTimeout(() => {
           setPendingVoiceInput(current => {
             if (current.trim()) {
@@ -92,7 +98,7 @@ export function InterviewPanel({
             return ""
           })
           speech.resetTranscript()
-        }, 1500)
+        }, 3500)
       }
     }
   })
@@ -261,7 +267,7 @@ export function InterviewPanel({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-auto p-4 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => (
           <div
             key={message.id}
@@ -327,7 +333,7 @@ export function InterviewPanel({
               </p>
               <div className="flex items-center gap-1 mt-1 opacity-60">
                 <Mic className="h-3 w-3 animate-pulse" />
-                <span className="text-xs">listening... (pause to send)</span>
+                <span className="text-xs">listening... (pause 3.5s to send)</span>
               </div>
             </div>
           </div>
@@ -456,7 +462,7 @@ export function InterviewPanel({
 
           {speech.isListening && (
             <p className="text-xs text-center text-muted-foreground">
-              Pause for 1.5s to auto-send, or click mic to stop
+              Pause for 3.5s to auto-send, or click mic to stop
             </p>
           )}
 

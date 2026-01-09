@@ -47,6 +47,16 @@ Each response should be a single, conversational question or brief comment follo
 
 export const PROJECT_CREATION_OPENER = "In one paragraph, describe what you want to build."
 
+// Contextual opener when user has already provided a description
+export function getProjectCreationContextualOpener(description: string): string {
+  // Truncate description if too long for the opener
+  const shortDesc = description.length > 100
+    ? description.slice(0, 100).trim() + "..."
+    : description
+
+  return `I see you want to build ${shortDesc}\n\nThat sounds interesting! Let me ask a few clarifying questions to make sure I understand your vision. Who is the primary audience for this?`
+}
+
 export const PROJECT_CREATION_FOLLOW_UPS = [
   "Who's the main audience for this?",
   "What's the most important feature?",
@@ -218,9 +228,14 @@ export function buildInterviewContext(
   context?: Record<string, unknown>
 ): { systemPrompt: string; opener: string } {
   if (type === "project_creation") {
+    // Check if there's an initial description provided
+    const initialDescription = context?.initialDescription as string | undefined
+
     return {
       systemPrompt: PROJECT_CREATION_SYSTEM_PROMPT,
-      opener: PROJECT_CREATION_OPENER
+      opener: initialDescription && initialDescription.trim()
+        ? getProjectCreationContextualOpener(initialDescription.trim())
+        : PROJECT_CREATION_OPENER
     }
   }
 

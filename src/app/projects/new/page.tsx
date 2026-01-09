@@ -1516,6 +1516,7 @@ function NewProjectContent() {
       <div className="h-[calc(100vh-4rem)]">
         <InterviewPanel
           type="project_creation"
+          initialDescription={quickDescription.trim() || undefined}
           onComplete={handleInterviewComplete}
           onCancel={handleInterviewCancel}
         />
