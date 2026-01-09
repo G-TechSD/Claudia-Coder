@@ -421,8 +421,10 @@ export function ClaudeCodeTerminal({
           projectId,
           workingDirectory,
           bypassPermissions,
-          continueSession: useContinue,
-          resumeSessionId: useResume ? resumeSessionId : undefined
+          continueSession: useContinue && !useResume, // Only use continue if not resuming
+          resume: useResume,
+          resumeSessionId: useResume ? resumeSessionId : undefined,
+          isBackground: neverLoseSession // Track as background if never lose is enabled
         })
       })
 
@@ -648,8 +650,31 @@ export function ClaudeCodeTerminal({
             {status === "closed" && <span className="w-2 h-2 rounded-full bg-gray-400" />}
             <span className="capitalize">{status}</span>
           </div>
+
+          {/* Background session indicator */}
+          {hasBackgroundSession && status !== "connected" && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-purple-500/20 text-purple-400">
+              <Radio className="h-3 w-3 animate-pulse" />
+              <span>Background session active</span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Session Options Toggle */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowSessionOptions(!showSessionOptions)}
+            className={cn(
+              "text-gray-400 hover:text-gray-300 hover:bg-gray-500/10 h-7",
+              showSessionOptions && "bg-gray-500/20 text-gray-300"
+            )}
+            title="Session options"
+          >
+            <History className="h-3 w-3 mr-1" />
+            Options
+          </Button>
+
           {/* Refresh Kickoff button */}
           {status === "connected" && (
             <Button
@@ -692,6 +717,67 @@ export function ClaudeCodeTerminal({
           )}
         </div>
       </div>
+
+      {/* Session Options Panel */}
+      {showSessionOptions && (
+        <div className="flex flex-wrap items-center gap-4 px-4 py-2 bg-[#161b22] border-b border-[#30363d]">
+          {/* Continue Session Toggle */}
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={continueSession}
+              onCheckedChange={setContinueSession}
+              disabled={neverLoseSession}
+              className="data-[state=checked]:bg-blue-600"
+            />
+            <label className="text-xs text-[#8b949e] cursor-pointer" onClick={() => !neverLoseSession && setContinueSession(!continueSession)}>
+              Continue Session
+              <span className="ml-1 text-[#6e7681]">(--continue)</span>
+            </label>
+          </div>
+
+          {/* Resume Session Dropdown */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-[#8b949e]">Resume:</label>
+            <Select value={resumeSessionId} onValueChange={setResumeSessionId}>
+              <SelectTrigger className="h-7 w-48 text-xs bg-[#0d1117] border-[#30363d] text-[#c9d1d9]">
+                <SelectValue placeholder="Select session..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">
+                  <span className="text-[#8b949e]">None (start fresh)</span>
+                </SelectItem>
+                {recentSessions.map((session) => (
+                  <SelectItem key={session.id} value={session.id}>
+                    <div className="flex flex-col">
+                      <span className="text-xs">{session.id.slice(0, 20)}...</span>
+                      <span className="text-[10px] text-[#6e7681]">
+                        {new Date(session.startedAt).toLocaleString()}
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Never Lose Session Toggle */}
+          <div className="flex items-center gap-2 ml-auto">
+            <Shield className={cn("h-3.5 w-3.5", neverLoseSession ? "text-green-400" : "text-[#6e7681]")} />
+            <Switch
+              checked={neverLoseSession}
+              onCheckedChange={setNeverLoseSession}
+              className="data-[state=checked]:bg-green-600"
+            />
+            <label
+              className="text-xs text-[#8b949e] cursor-pointer"
+              onClick={() => setNeverLoseSession(!neverLoseSession)}
+              title="Automatically use --continue on every session start. Session state persists even if browser is closed."
+            >
+              Never Lose Session
+            </label>
+          </div>
+        </div>
+      )}
 
       {/* Terminal container */}
       <div

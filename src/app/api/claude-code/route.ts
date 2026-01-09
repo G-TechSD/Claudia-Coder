@@ -190,7 +190,8 @@ export async function POST(request: NextRequest) {
       sessionId,
       isBackground = false,
       resume = false,
-      resumeSessionId // Claude's internal session ID to resume
+      resumeSessionId, // Claude's internal session ID to resume
+      continueSession = false // Use --continue flag to continue last session
     } = body
 
     console.log("[claude-code] POST request received:", {
@@ -200,7 +201,8 @@ export async function POST(request: NextRequest) {
       sessionId,
       isBackground,
       resume,
-      resumeSessionId
+      resumeSessionId,
+      continueSession
     })
 
     if (!projectId || !workingDirectory) {
@@ -249,6 +251,7 @@ export async function POST(request: NextRequest) {
     console.log(`[claude-code] Working directory: ${workingDirectory}`)
     console.log(`[claude-code] Background mode: ${isBackground}`)
     console.log(`[claude-code] Resume mode: ${resume}, resumeSessionId: ${resumeSessionId}`)
+    console.log(`[claude-code] Continue mode: ${continueSession}`)
 
     // Build command arguments
     const args: string[] = []
@@ -257,10 +260,15 @@ export async function POST(request: NextRequest) {
       args.push("--dangerously-skip-permissions")
     }
 
-    // Add resume flag if resuming a session
+    // Add resume flag if resuming a specific session
     if (resume && resumeSessionId) {
       args.push("--resume", resumeSessionId)
       console.log(`[claude-code] Resuming session with --resume ${resumeSessionId}`)
+    }
+    // Add continue flag to continue the most recent session
+    else if (continueSession) {
+      args.push("--continue")
+      console.log(`[claude-code] Continuing last session with --continue`)
     }
 
     // Create event emitter for this session
@@ -364,11 +372,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       sessionId: id,
-      message: resume ? "Claude Code session resumed" : "Claude Code session started",
+      message: resume ? "Claude Code session resumed" : (continueSession ? "Claude Code session continued" : "Claude Code session started"),
       claudePath,
       pid: pty.pid,
       isBackground,
-      resumed: resume && !!resumeSessionId
+      resumed: resume && !!resumeSessionId,
+      continued: continueSession
     })
 
   } catch (error) {
