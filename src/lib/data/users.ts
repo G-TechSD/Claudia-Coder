@@ -15,6 +15,9 @@ export interface AdminUser {
   ndaSigned: number
   ndaSignedAt: string | null
   disabled: number
+  accessRevoked: number
+  revokedAt: string | null
+  revokedReason: string | null
   createdAt: string
   updatedAt: string
 }
@@ -31,6 +34,9 @@ export function getAllUsers(): AdminUser[] {
       COALESCE(ndaSigned, 0) as ndaSigned,
       ndaSignedAt,
       COALESCE(disabled, 0) as disabled,
+      COALESCE(accessRevoked, 0) as accessRevoked,
+      revokedAt,
+      revokedReason,
       createdAt, updatedAt
     FROM user
     ORDER BY createdAt DESC
@@ -49,6 +55,9 @@ export function getUserById(id: string): AdminUser | null {
       COALESCE(ndaSigned, 0) as ndaSigned,
       ndaSignedAt,
       COALESCE(disabled, 0) as disabled,
+      COALESCE(accessRevoked, 0) as accessRevoked,
+      revokedAt,
+      revokedReason,
       createdAt, updatedAt
     FROM user
     WHERE id = ?
@@ -108,6 +117,60 @@ export function setUserNdaSigned(id: string, signed: boolean): boolean {
 }
 
 /**
+ * Immediately revoke a user's access
+ * This is a critical security function for beta testers who violate NDA
+ */
+export function revokeUserAccess(id: string, reason: string): boolean {
+  const now = new Date().toISOString()
+
+  const result = db.prepare(`
+    UPDATE user
+    SET accessRevoked = 1, revokedAt = ?, revokedReason = ?, disabled = 1, updatedAt = ?
+    WHERE id = ?
+  `).run(now, reason, now, id)
+
+  // Also invalidate all sessions for this user
+  db.prepare(`DELETE FROM session WHERE userId = ?`).run(id)
+
+  return result.changes > 0
+}
+
+/**
+ * Restore a user's access (un-revoke)
+ */
+export function restoreUserAccess(id: string): boolean {
+  const now = new Date().toISOString()
+
+  const result = db.prepare(`
+    UPDATE user
+    SET accessRevoked = 0, revokedAt = NULL, revokedReason = NULL, disabled = 0, updatedAt = ?
+    WHERE id = ?
+  `).run(now, id)
+
+  return result.changes > 0
+}
+
+/**
+ * Check if a user's access is revoked
+ */
+export function isUserAccessRevoked(userId: string): { revoked: boolean; reason: string | null; revokedAt: string | null } {
+  const user = db.prepare(`
+    SELECT COALESCE(accessRevoked, 0) as accessRevoked, revokedReason, revokedAt
+    FROM user WHERE id = ?
+  `).get(userId) as { accessRevoked: number; revokedReason: string | null; revokedAt: string | null } | undefined
+
+  if (!user) {
+    return { revoked: false, reason: null, revokedAt: null }
+  }
+
+  return {
+    revoked: !!user.accessRevoked,
+    reason: user.revokedReason,
+    revokedAt: user.revokedAt,
+  }
+}
+
+/**
  * Get user statistics
  */
 export function getUserStats(): {
@@ -117,6 +180,7 @@ export function getUserStats(): {
   users: number
   ndaSigned: number
   disabled: number
+  accessRevoked: number
 } {
   const users = getAllUsers()
 
@@ -127,6 +191,7 @@ export function getUserStats(): {
     users: 0,
     ndaSigned: 0,
     disabled: 0,
+    accessRevoked: 0,
   }
 
   for (const user of users) {
@@ -136,6 +201,7 @@ export function getUserStats(): {
 
     if (user.ndaSigned) stats.ndaSigned++
     if (user.disabled) stats.disabled++
+    if (user.accessRevoked) stats.accessRevoked++
   }
 
   return stats

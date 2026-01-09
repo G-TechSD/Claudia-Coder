@@ -208,7 +208,8 @@ function generateFallbackQuestion(session: InterviewSession, userResponse: strin
     timeline: /time|deadline|when|schedule|weeks?|months?|urgent|asap|soon|priority|mvp|launch|release|phase/i.test(allContent),
     integration: /integrat|api|connect|sync|service|third.?party|external|webhook|oauth|auth|payment|stripe|email|notification/i.test(allContent),
     data: /data|store|save|persist|database|storage|backup|import|export|migrate|sync/i.test(allContent),
-    security: /secure|security|auth|login|password|permission|role|access|encrypt|private|protect/i.test(allContent)
+    security: /secure|security|auth|login|password|permission|role|access|encrypt|private|protect/i.test(allContent),
+    monetization: /monetiz|money|revenue|income|paid|free|premium|subscription|pricing|charge|ads?|advertis|business model|profit|earn|sell/i.test(allContent)
   }
 
   // Count how many topics have been discussed
@@ -283,6 +284,15 @@ function generateFallbackQuestion(session: InterviewSession, userResponse: strin
         "What's your timeline looking like?",
         "Any key milestones or deadlines to be aware of?",
         "When would you ideally like to see this live?"
+      ]
+    },
+    {
+      check: !discussed.monetization,
+      questions: [
+        "Do you plan to monetize this app? If so, how?",
+        "Is this a passion project or are you thinking about revenue?",
+        "Any business model in mind - free, freemium, subscription?",
+        "Will users pay for this, or is it free?"
       ]
     }
   ]

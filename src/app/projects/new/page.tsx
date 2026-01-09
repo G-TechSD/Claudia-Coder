@@ -12,7 +12,8 @@ import { Switch } from "@/components/ui/switch"
 import { InterviewPanel } from "@/components/interview/interview-panel"
 import { VoiceInput } from "@/components/voice/voice-input"
 import { createProject, updateProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
-import { savePackets, saveBuildPlan } from "@/lib/ai/build-plan"
+import { savePackets, saveBuildPlan, type BuildPlan, type WorkPacket, type PacketSummary } from "@/lib/ai/build-plan"
+import { BuildPlanReview } from "@/components/project/build-plan-review"
 import { createGitLabRepo, hasGitLabToken, setGitLabToken, validateGitLabToken, listGitLabProjects } from "@/lib/gitlab/api"
 import { useSettings } from "@/hooks/useSettings"
 import { useAuth } from "@/components/auth/auth-provider"
@@ -43,7 +44,9 @@ import {
   Plus,
   ChevronDown,
   ChevronUp,
-  ShieldAlert
+  ShieldAlert,
+  Rocket,
+  DollarSign
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -56,7 +59,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
-type Mode = "choose" | "quick" | "interview" | "linear" | "setup" | "complete"
+type Mode = "choose" | "quick" | "interview" | "linear" | "setup" | "complete" | "build_review"
 
 interface GeneratedPlan {
   name: string
@@ -179,6 +182,19 @@ export default function NewProjectPage() {
   const [linearImportData, setLinearImportData] = useState<LinearImportData | null>(null)
   const [isImporting, setIsImporting] = useState(false)
 
+  // Auto-generate build plan state
+  const [autoGenerateBuildPlan, setAutoGenerateBuildPlan] = useState(() => {
+    if (typeof window === "undefined") return true
+    const stored = localStorage.getItem("claudia_auto_build_plan")
+    return stored !== null ? stored === "true" : true
+  })
+  const [monetizationIntent, setMonetizationIntent] = useState(false)
+  const [generatedBuildPlan, setGeneratedBuildPlan] = useState<BuildPlan | null>(null)
+  const [buildPlanPacketSummary, setBuildPlanPacketSummary] = useState<PacketSummary | undefined>(undefined)
+  const [buildPlanSource, setBuildPlanSource] = useState<{ server?: string; model?: string } | null>(null)
+  const [isGeneratingBuildPlan, setIsGeneratingBuildPlan] = useState(false)
+  const [buildPlanError, setBuildPlanError] = useState("")
+
   // Repo linking state (for Linear import flow)
   const [showRepoLinkDialog, setShowRepoLinkDialog] = useState(false)
   const [availableRepos, setAvailableRepos] = useState<Array<{
@@ -195,6 +211,13 @@ export default function NewProjectPage() {
   useEffect(() => {
     setHasToken(hasGitLabToken())
   }, [])
+
+  // Persist auto-generate build plan preference
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("claudia_auto_build_plan", String(autoGenerateBuildPlan))
+    }
+  }, [autoGenerateBuildPlan])
 
   // Load Linear projects when entering Linear mode
   useEffect(() => {
@@ -392,19 +415,159 @@ export default function NewProjectPage() {
     await handleFeelingLucky()
   }
 
-  const handleInterviewComplete = (session: InterviewSession) => {
+  const handleInterviewComplete = async (session: InterviewSession) => {
     setInterviewSession(session)
 
     const extractedData = session.extractedData || {}
     const name = (extractedData.name as string) || generateProjectName(session)
     const description = (extractedData.description as string) || session.summary || ""
 
+    // Check for monetization intent from interview
+    const hasMonetizationIntent = Boolean(extractedData.monetization || extractedData.monetizationIntent)
+    setMonetizationIntent(hasMonetizationIntent)
+
     setProjectName(name)
     setProjectDescription(description)
     setRepoName(toRepoName(name))
     setPriority((extractedData.priority as "low" | "medium" | "high" | "critical") || "medium")
 
-    setMode("setup")
+    // If auto-generate is enabled, generate build plan and show review
+    if (autoGenerateBuildPlan) {
+      await generateBuildPlanForProject(name, description, hasMonetizationIntent)
+    } else {
+      setMode("setup")
+    }
+  }
+
+  // Generate build plan for a project
+  const generateBuildPlanForProject = async (
+    name: string,
+    description: string,
+    includeBusinessDev: boolean = false,
+    preferredModel?: string
+  ) => {
+    setIsGeneratingBuildPlan(true)
+    setBuildPlanError("")
+
+    try {
+      // Add business context to description if monetization is intended
+      let enhancedDescription = description
+      if (includeBusinessDev) {
+        enhancedDescription += "\n\nBusiness Requirements: This app will be monetized. Include business development tasks such as revenue model research, payment integration planning, analytics setup, and legal documentation (terms of service, privacy policy)."
+      }
+
+      const response = await fetch("/api/build-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: `temp-${Date.now()}`,
+          projectName: name,
+          projectDescription: enhancedDescription,
+          preferredProvider: preferredModel || "Beast",
+          allowPaidFallback: settings.allowPaidLLM,
+          constraints: {
+            requireLocalFirst: true,
+            requireHumanApproval: ["planning", "deployment"]
+          }
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.error) {
+        setBuildPlanError(data.error)
+        setMode("setup") // Fall back to setup mode
+      } else if (data.plan) {
+        setGeneratedBuildPlan(data.plan)
+        setBuildPlanPacketSummary(data.packetSummary)
+        setBuildPlanSource({
+          server: data.server,
+          model: data.model
+        })
+        setMode("build_review")
+      }
+    } catch (err) {
+      setBuildPlanError(err instanceof Error ? err.message : "Failed to generate build plan")
+      setMode("setup") // Fall back to setup mode
+    } finally {
+      setIsGeneratingBuildPlan(false)
+    }
+  }
+
+  // Handle regenerating build plan with different model
+  const handleRegenerateBuildPlan = async (model?: string) => {
+    await generateBuildPlanForProject(projectName, projectDescription, monetizationIntent, model)
+  }
+
+  // Handle approving build plan and starting project
+  const handleApproveBuildPlanAndStart = async (approvedPlan: BuildPlan, packets: WorkPacket[]) => {
+    setIsSubmitting(true)
+    setSubmitError("")
+
+    try {
+      // Create the project
+      const tags = approvedPlan.spec.techStack || []
+      const initialRepos = localRepoPath.trim() ? [{
+        provider: "local" as const,
+        id: Date.now(),
+        name: projectName,
+        path: localRepoPath.trim(),
+        url: "",
+        localPath: localRepoPath.trim()
+      }] : []
+
+      const project = createProject({
+        name: projectName,
+        description: projectDescription,
+        status: "active", // Start as active since we have a plan
+        priority,
+        repos: initialRepos,
+        packetIds: packets.map(p => p.id),
+        tags,
+        creationInterview: interviewSession || undefined
+      })
+
+      // Update plan with correct project ID and save
+      const finalPlan: BuildPlan = {
+        ...approvedPlan,
+        projectId: project.id
+      }
+      saveBuildPlan(project.id, finalPlan)
+
+      // Save packets with correct project association
+      const finalPackets = packets.map(p => ({ ...p }))
+      savePackets(project.id, finalPackets)
+
+      // Create GitLab repo if enabled
+      if (createRepo && hasToken) {
+        try {
+          const repo = await createGitLabRepo({
+            name: repoName,
+            description: projectDescription,
+            visibility: repoVisibility,
+            initializeWithReadme: initWithReadme
+          })
+
+          linkRepoToProject(project.id, {
+            provider: "gitlab",
+            id: repo.id,
+            name: repo.name,
+            path: repo.path,
+            url: repo.web_url
+          })
+        } catch (repoError) {
+          console.error("Failed to create repo:", repoError)
+          setSubmitError(`Project created, but repo creation failed: ${repoError instanceof Error ? repoError.message : "Unknown error"}`)
+        }
+      }
+
+      setCreatedProject(project)
+      setMode("complete")
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to create project")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleInterviewCancel = () => {
@@ -730,6 +893,28 @@ export default function NewProjectPage() {
             <p className="text-xs text-center text-muted-foreground">
               <strong>Feeling Lucky</strong> generates a plan instantly • <strong>Full Interview</strong> asks 10-20 questions for detail
             </p>
+
+            {/* Auto-generate Build Plan Toggle */}
+            <div className="pt-4 mt-4 border-t">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Rocket className="h-4 w-4 text-green-500" />
+                  <div>
+                    <Label htmlFor="auto-build-plan" className="text-sm font-medium">
+                      Auto-generate Build Plan
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Automatically create a build plan with work packets after interview
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  id="auto-build-plan"
+                  checked={autoGenerateBuildPlan}
+                  onCheckedChange={setAutoGenerateBuildPlan}
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -1247,12 +1432,57 @@ export default function NewProjectPage() {
 
   // Mode: Interview
   if (mode === "interview") {
+    // Show generating overlay if building plan
+    if (isGeneratingBuildPlan) {
+      return (
+        <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-6">
+          <Card className="max-w-md w-full">
+            <CardContent className="pt-6 text-center">
+              <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Loader2 className="h-8 w-8 text-primary animate-spin" />
+              </div>
+              <h2 className="text-xl font-semibold mb-2">Generating Build Plan</h2>
+              <p className="text-muted-foreground mb-4">
+                Creating a comprehensive development plan based on your interview...
+              </p>
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <Sparkles className="h-4 w-4" />
+                <span>This may take 30-60 seconds</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+
     return (
       <div className="h-[calc(100vh-4rem)]">
         <InterviewPanel
           type="project_creation"
           onComplete={handleInterviewComplete}
           onCancel={handleInterviewCancel}
+        />
+      </div>
+    )
+  }
+
+  // Mode: Build Plan Review
+  if (mode === "build_review" && generatedBuildPlan) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto">
+        <BuildPlanReview
+          projectId={`temp-${Date.now()}`}
+          projectName={projectName}
+          projectDescription={projectDescription}
+          buildPlan={generatedBuildPlan}
+          packetSummary={buildPlanPacketSummary}
+          planSource={buildPlanSource || undefined}
+          monetizationIntent={monetizationIntent}
+          onApproveAndStart={handleApproveBuildPlanAndStart}
+          onEditBuildPlan={() => setMode("setup")}
+          onRegenerate={handleRegenerateBuildPlan}
+          onCancel={() => setMode("choose")}
+          isRegenerating={isGeneratingBuildPlan}
         />
       </div>
     )

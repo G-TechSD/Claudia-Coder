@@ -8,6 +8,166 @@ import {
   type ExistingPacketInfo,
   type PacketSummary
 } from "@/lib/ai/build-plan"
+import {
+  BUSINESS_DEV_SYSTEM_PROMPT,
+  generateBusinessDevPrompt,
+  parseBusinessDevResponse
+} from "@/lib/ai/business-dev"
+import type { BusinessDev } from "@/lib/data/types"
+
+/**
+ * Helper function to generate business dev analysis
+ */
+async function generateBusinessDevAnalysis(
+  projectId: string,
+  projectName: string,
+  projectDescription: string,
+  buildPlanSpec: { name?: string; description?: string; objectives?: string[]; techStack?: string[] } | undefined,
+  preferredProvider: string | null,
+  preferredModel: string | null,
+  allowPaidFallback: boolean
+): Promise<BusinessDev | null> {
+  const businessDevPrompt = generateBusinessDevPrompt(
+    projectName,
+    projectDescription,
+    buildPlanSpec
+  )
+
+  // Try OpenAI
+  if (preferredProvider === "chatgpt" && process.env.OPENAI_API_KEY) {
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: BUSINESS_DEV_SYSTEM_PROMPT },
+            { role: "user", content: businessDevPrompt }
+          ],
+          max_tokens: 4096,
+          temperature: 0.7
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const content = data.choices?.[0]?.message?.content || ""
+        return parseBusinessDevResponse(content, projectId)
+      }
+    } catch (error) {
+      console.error("OpenAI business dev generation failed:", error)
+    }
+  }
+
+  // Try Gemini
+  if (preferredProvider === "gemini" && process.env.GOOGLE_AI_API_KEY) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `${BUSINESS_DEV_SYSTEM_PROMPT}\n\n${businessDevPrompt}`
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 4096
+            }
+          })
+        }
+      )
+
+      if (response.ok) {
+        const data = await response.json()
+        const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
+        return parseBusinessDevResponse(content, projectId)
+      }
+    } catch (error) {
+      console.error("Gemini business dev generation failed:", error)
+    }
+  }
+
+  // Try Anthropic
+  if ((preferredProvider === "anthropic" || preferredProvider === "paid_claudecode") && process.env.ANTHROPIC_API_KEY) {
+    try {
+      const Anthropic = (await import("@anthropic-ai/sdk")).default
+      const anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY
+      })
+
+      const response = await anthropic.messages.create({
+        model: preferredProvider === "paid_claudecode" ? "claude-opus-4-20250514" : "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: BUSINESS_DEV_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: businessDevPrompt }]
+      })
+
+      const content = response.content[0].type === "text"
+        ? response.content[0].text
+        : ""
+
+      return parseBusinessDevResponse(content, projectId)
+    } catch (error) {
+      console.error("Anthropic business dev generation failed:", error)
+    }
+  }
+
+  // Try local LLM
+  const localPreferredServer = preferredProvider &&
+    !["anthropic", "chatgpt", "gemini", "paid_claudecode"].includes(preferredProvider)
+      ? preferredProvider
+      : undefined
+
+  const localResponse = await generateWithLocalLLM(
+    BUSINESS_DEV_SYSTEM_PROMPT,
+    businessDevPrompt,
+    {
+      temperature: 0.7,
+      max_tokens: 4096,
+      preferredServer: localPreferredServer,
+      preferredModel: preferredModel || undefined
+    }
+  )
+
+  if (!localResponse.error) {
+    return parseBusinessDevResponse(localResponse.content, projectId)
+  }
+
+  // Fallback to Anthropic if allowed
+  if (allowPaidFallback && process.env.ANTHROPIC_API_KEY) {
+    try {
+      const Anthropic = (await import("@anthropic-ai/sdk")).default
+      const anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY
+      })
+
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: BUSINESS_DEV_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: businessDevPrompt }]
+      })
+
+      const content = response.content[0].type === "text"
+        ? response.content[0].text
+        : ""
+
+      return parseBusinessDevResponse(content, projectId)
+    } catch (error) {
+      console.error("Anthropic fallback business dev generation failed:", error)
+    }
+  }
+
+  return null
+}
 
 /**
  * Build Plan Generation API
@@ -28,7 +188,8 @@ export async function POST(request: NextRequest) {
       allowPaidFallback = false,
       preferredProvider = null,  // e.g., "Beast", "Bedroom", "anthropic", "chatgpt", "gemini", "paid_claudecode"
       preferredModel = null,     // Specific model ID to use (e.g., "gpt-oss-20b") - fixes random model selection bug
-      existingPackets = [] as ExistingPacketInfo[]  // Existing packets to integrate with (avoid duplicates)
+      existingPackets = [] as ExistingPacketInfo[],  // Existing packets to integrate with (avoid duplicates)
+      monetization = false  // When true, also generate business dev analysis
     } = await request.json()
 
     if (!projectName || !projectDescription) {
@@ -74,13 +235,29 @@ export async function POST(request: NextRequest) {
 
           if (result) {
             const validation = validateBuildPlan(result.plan)
+
+            // Generate business dev if monetization is enabled
+            let businessDev: BusinessDev | null = null
+            if (monetization) {
+              businessDev = await generateBusinessDevAnalysis(
+                projectId,
+                projectName,
+                projectDescription,
+                result.plan.spec,
+                preferredProvider,
+                preferredModel,
+                allowPaidFallback
+              )
+            }
+
             return NextResponse.json({
               plan: result.plan,
               validation,
               source: "openai",
               server: "OpenAI",
               model: "gpt-4o",
-              packetSummary: result.packetSummary
+              packetSummary: result.packetSummary,
+              ...(businessDev && { businessDev })
             })
           }
         }
@@ -123,13 +300,29 @@ export async function POST(request: NextRequest) {
 
           if (result) {
             const validation = validateBuildPlan(result.plan)
+
+            // Generate business dev if monetization is enabled
+            let businessDev: BusinessDev | null = null
+            if (monetization) {
+              businessDev = await generateBusinessDevAnalysis(
+                projectId,
+                projectName,
+                projectDescription,
+                result.plan.spec,
+                preferredProvider,
+                preferredModel,
+                allowPaidFallback
+              )
+            }
+
             return NextResponse.json({
               plan: result.plan,
               validation,
               source: "google",
               server: "Google Gemini",
               model: "gemini-1.5-pro",
-              packetSummary: result.packetSummary
+              packetSummary: result.packetSummary,
+              ...(businessDev && { businessDev })
             })
           }
         }
@@ -165,13 +358,29 @@ export async function POST(request: NextRequest) {
 
         if (result) {
           const validation = validateBuildPlan(result.plan)
+
+          // Generate business dev if monetization is enabled
+          let businessDev: BusinessDev | null = null
+          if (monetization) {
+            businessDev = await generateBusinessDevAnalysis(
+              projectId,
+              projectName,
+              projectDescription,
+              result.plan.spec,
+              preferredProvider,
+              preferredModel,
+              allowPaidFallback
+            )
+          }
+
           return NextResponse.json({
             plan: result.plan,
             validation,
             source: "anthropic",
             server: "Claude Code",
             model: "claude-opus-4",
-            packetSummary: result.packetSummary
+            packetSummary: result.packetSummary,
+            ...(businessDev && { businessDev })
           })
         }
       } catch (error) {
@@ -210,13 +419,29 @@ export async function POST(request: NextRequest) {
 
         if (result) {
           const validation = validateBuildPlan(result.plan)
+
+          // Generate business dev if monetization is enabled
+          let businessDev: BusinessDev | null = null
+          if (monetization) {
+            businessDev = await generateBusinessDevAnalysis(
+              projectId,
+              projectName,
+              projectDescription,
+              result.plan.spec,
+              preferredProvider,
+              preferredModel,
+              allowPaidFallback
+            )
+          }
+
           return NextResponse.json({
             plan: result.plan,
             validation,
             source: "anthropic",
             server: "Anthropic",
             model: "claude-sonnet-4",
-            packetSummary: result.packetSummary
+            packetSummary: result.packetSummary,
+            ...(businessDev && { businessDev })
           })
         }
       } catch (error) {
@@ -272,13 +497,29 @@ export async function POST(request: NextRequest) {
 
       if (result) {
         const validation = validateBuildPlan(result.plan)
+
+        // Generate business dev if monetization is enabled
+        let businessDev: BusinessDev | null = null
+        if (monetization) {
+          businessDev = await generateBusinessDevAnalysis(
+            projectId,
+            projectName,
+            projectDescription,
+            result.plan.spec,
+            preferredProvider,
+            preferredModel,
+            allowPaidFallback
+          )
+        }
+
         return NextResponse.json({
           plan: result.plan,
           validation,
           source: "local",
           server: localResponse.server,
           model: localResponse.model,
-          packetSummary: result.packetSummary
+          packetSummary: result.packetSummary,
+          ...(businessDev && { businessDev })
         })
       }
     }
@@ -310,13 +551,29 @@ export async function POST(request: NextRequest) {
 
         if (result) {
           const validation = validateBuildPlan(result.plan)
+
+          // Generate business dev if monetization is enabled
+          let businessDev: BusinessDev | null = null
+          if (monetization) {
+            businessDev = await generateBusinessDevAnalysis(
+              projectId,
+              projectName,
+              projectDescription,
+              result.plan.spec,
+              preferredProvider,
+              preferredModel,
+              allowPaidFallback
+            )
+          }
+
           return NextResponse.json({
             plan: result.plan,
             validation,
             source: "anthropic",
             model: "claude-sonnet-4",
             warning: "Using paid API - local LLM unavailable",
-            packetSummary: result.packetSummary
+            packetSummary: result.packetSummary,
+            ...(businessDev && { businessDev })
           })
         }
       } catch (error) {

@@ -46,7 +46,8 @@ import {
   Terminal,
   Play,
   AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  DollarSign
 } from "lucide-react"
 import { getProject, updateProject, trashProject, restoreProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar, getEffectiveWorkingDirectory } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
@@ -71,6 +72,7 @@ import { AudioRecorder } from "@/components/brain-dump/audio-recorder"
 import { ExecutionPanel, LaunchTestPanel } from "@/components/execution"
 import { ClaudeCodeTerminal } from "@/components/claude-code/terminal"
 import { ClaudiaSyncStatus } from "@/components/project/claudia-sync-status"
+import { BusinessDevSection } from "@/components/project/business-dev-section"
 import {
   Select,
   SelectContent,
@@ -846,6 +848,10 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="claude-code">
             Claude Code
             <Terminal className="h-3 w-3 ml-1 text-purple-500" />
+          </TabsTrigger>
+          <TabsTrigger value="business-dev">
+            Business Dev
+            <DollarSign className="h-3 w-3 ml-1 text-green-500" />
           </TabsTrigger>
         </TabsList>
 
@@ -1635,6 +1641,15 @@ export default function ProjectDetailPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Business Dev Tab */}
+        <TabsContent value="business-dev" className="space-y-4">
+          <BusinessDevSection
+            projectId={project.id}
+            projectName={project.name}
+            projectDescription={project.description}
+          />
         </TabsContent>
       </Tabs>
 

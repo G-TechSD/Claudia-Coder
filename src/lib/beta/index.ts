@@ -19,3 +19,21 @@ export {
   updateProjectCountServer,
   getRestrictionMessage,
 } from "./restrictions"
+
+export {
+  // Lockdown constants
+  LOCKDOWN_ENABLED,
+
+  // Lockdown functions
+  isLockdownMode,
+  getLockdownState,
+  enableLockdown,
+  disableLockdown,
+  addAllowedAdmin,
+  isAdminAllowedDuringLockdown,
+
+  // Security event logging
+  getSecurityEvents,
+  logSecurityEvent,
+  clearSecurityEvents,
+} from "./lockdown"

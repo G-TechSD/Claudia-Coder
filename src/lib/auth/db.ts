@@ -37,10 +37,30 @@ export function initializeAuthDatabase() {
       image TEXT,
       role TEXT DEFAULT 'user',
       avatarUrl TEXT,
+      accessRevoked INTEGER DEFAULT 0,
+      revokedAt TEXT,
+      revokedReason TEXT,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `)
+
+  // Add security columns if they don't exist (for migration)
+  try {
+    db.exec(`ALTER TABLE user ADD COLUMN accessRevoked INTEGER DEFAULT 0`)
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE user ADD COLUMN revokedAt TEXT`)
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE user ADD COLUMN revokedReason TEXT`)
+  } catch {
+    // Column already exists
+  }
 
   // Sessions table
   db.exec(`

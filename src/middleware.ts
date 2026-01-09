@@ -15,6 +15,8 @@ const publicPaths = [
   "/auth/forgot-password",
   "/auth/reset-password",
   "/auth/invite", // Invite code redemption
+  "/auth/access-revoked", // Access revoked page
+  "/maintenance", // System maintenance page
   "/api/auth", // Better Auth API routes
   "/landing",
   "/legal",
@@ -77,6 +79,24 @@ function hasSignedNda(request: NextRequest): boolean {
 }
 
 /**
+ * Check if user's access has been revoked
+ * The cookie is set by the revoke API when access is revoked
+ */
+function isAccessRevoked(request: NextRequest): boolean {
+  const revokedCookie = request.cookies.get("claudia-access-revoked")
+  return revokedCookie?.value === "true"
+}
+
+/**
+ * Check if system lockdown is active
+ * The cookie is set by the lockdown API when lockdown is enabled
+ */
+function isSystemLockdown(request: NextRequest): boolean {
+  const lockdownCookie = request.cookies.get("claudia-lockdown-active")
+  return lockdownCookie?.value === "true"
+}
+
+/**
  * Check if a path is exempt from NDA requirement
  */
 function isNdaExemptPath(pathname: string): boolean {
@@ -136,6 +156,44 @@ export function middleware(request: NextRequest) {
     const loginUrl = new URL("/auth/login", request.url)
     loginUrl.searchParams.set("callbackUrl", pathname)
     return NextResponse.redirect(loginUrl)
+  }
+
+  // Check if user's access has been revoked
+  if (isAccessRevoked(request)) {
+    // For API routes, return JSON error
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        {
+          error: "Access Revoked",
+          message: "Your access has been revoked. Please contact support.",
+          code: "ACCESS_REVOKED",
+        },
+        { status: 403 }
+      )
+    }
+
+    // For page routes, redirect to access revoked page
+    const revokedUrl = new URL("/auth/access-revoked", request.url)
+    return NextResponse.redirect(revokedUrl)
+  }
+
+  // Check if system is in lockdown mode (only admins can access)
+  if (isSystemLockdown(request) && !isAdmin(request)) {
+    // For API routes, return JSON error
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        {
+          error: "System Maintenance",
+          message: "The system is currently in maintenance mode. Please try again later.",
+          code: "LOCKDOWN_ACTIVE",
+        },
+        { status: 503 }
+      )
+    }
+
+    // For page routes, redirect to maintenance page
+    const maintenanceUrl = new URL("/maintenance", request.url)
+    return NextResponse.redirect(maintenanceUrl)
   }
 
   // Check NDA requirement for beta testers (admins bypass this check)

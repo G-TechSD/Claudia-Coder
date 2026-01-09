@@ -4,6 +4,31 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { EventEmitter } from "events"
 import path from "path"
 
+// Import sandbox security module
+import {
+  validateProjectPath,
+  isPathProtected,
+  logSecurityEvent,
+  getUserSandboxDir,
+  ensureUserSandbox,
+} from "@/lib/security/sandbox"
+
+// Import prompt injection filter
+import {
+  filterPromptInjection,
+  isInputSafe,
+} from "@/lib/security/prompt-filter"
+
+// Import security activity logging
+import {
+  logSecurityEvent as logSecurityActivityEvent,
+} from "@/lib/security/activity-log"
+
+// Mark unused imports for future use
+void filterPromptInjection
+void isInputSafe
+void logSecurityActivityEvent
+
 // Session storage file path
 const SESSIONS_FILE = "/home/bill/projects/claudia-admin/.local-storage/claude-sessions.json"
 
@@ -18,6 +43,8 @@ interface StoredSession {
   isBackground: boolean
   claudeSessionId?: string // Claude's internal session ID for --resume
   lastActivity?: string // ISO date string
+  userId?: string // User ID for sandbox isolation
+  isSandboxed?: boolean // Whether session is running in sandbox mode
 }
 
 // Active session with PTY (in-memory only)
@@ -33,6 +60,8 @@ interface ClaudeSession {
   outputBuffer: string[]
   isBackground: boolean
   claudeSessionId?: string // Claude's internal session ID for --resume
+  userId?: string // User ID for sandbox isolation
+  isSandboxed?: boolean // Whether session is running in sandbox mode
 }
 
 const sessions = new Map<string, ClaudeSession>()
@@ -93,7 +122,9 @@ function updateStoredSession(session: ClaudeSession): void {
     status: session.status,
     isBackground: session.isBackground,
     claudeSessionId: session.claudeSessionId,
-    lastActivity: new Date().toISOString()
+    lastActivity: new Date().toISOString(),
+    userId: session.userId,
+    isSandboxed: session.isSandboxed,
   }
 
   if (index >= 0) {
@@ -191,7 +222,9 @@ export async function POST(request: NextRequest) {
       isBackground = false,
       resume = false,
       resumeSessionId, // Claude's internal session ID to resume
-      continueSession = false // Use --continue flag to continue last session
+      continueSession = false, // Use --continue flag to continue last session
+      userId, // User ID for sandbox isolation
+      userRole, // User role (admin, beta, etc.)
     } = body
 
     console.log("[claude-code] POST request received:", {
@@ -202,13 +235,73 @@ export async function POST(request: NextRequest) {
       isBackground,
       resume,
       resumeSessionId,
-      continueSession
+      continueSession,
+      userId,
+      userRole,
     })
 
     if (!projectId || !workingDirectory) {
       return NextResponse.json(
         { error: "projectId and workingDirectory are required" },
         { status: 400 }
+      )
+    }
+
+    // ============================================
+    // SANDBOX SECURITY VALIDATION
+    // ============================================
+    const isAdmin = userRole === "admin" || userRole === "owner"
+    const isBetaTester = userRole === "beta" || userRole === "beta_tester"
+    const isSandboxed = isBetaTester || (userId && !isAdmin)
+
+    // For sandboxed users (beta testers), enforce strict path validation
+    if (isSandboxed && userId) {
+      console.log(`[claude-code] Sandbox mode enabled for user ${userId} (role: ${userRole})`)
+
+      // Validate the working directory is within user's sandbox
+      const pathValidation = validateProjectPath(workingDirectory, userId, {
+        requireInSandbox: true,
+        allowProtectedPaths: false,
+      })
+
+      if (!pathValidation.valid) {
+        logSecurityEvent({
+          userId,
+          eventType: "sandbox_violation",
+          details: `Attempted to start session in protected path: ${workingDirectory}`,
+          inputPath: workingDirectory,
+        })
+
+        return NextResponse.json(
+          {
+            error: "Access denied: Working directory is outside your sandbox",
+            details: pathValidation.error,
+            suggestion: pathValidation.suggestion,
+            sandboxDir: getUserSandboxDir(userId),
+          },
+          { status: 403 }
+        )
+      }
+
+      // Ensure user sandbox directory exists
+      ensureUserSandbox(userId)
+    }
+
+    // Even for non-sandboxed users, block access to absolutely protected paths
+    if (isPathProtected(workingDirectory)) {
+      logSecurityEvent({
+        userId: userId || "unknown",
+        eventType: "path_blocked",
+        details: `Attempted to start session in protected path: ${workingDirectory}`,
+        inputPath: workingDirectory,
+      })
+
+      return NextResponse.json(
+        {
+          error: "Access denied: This path is protected and cannot be accessed",
+          hint: "Claudia platform source code and system files are protected",
+        },
+        { status: 403 }
       )
     }
 
@@ -315,7 +408,9 @@ export async function POST(request: NextRequest) {
       emitter,
       outputBuffer: [],
       isBackground,
-      claudeSessionId: resumeSessionId
+      claudeSessionId: resumeSessionId,
+      userId,
+      isSandboxed,
     }
 
     sessions.set(id, session)
@@ -377,7 +472,9 @@ export async function POST(request: NextRequest) {
       pid: pty.pid,
       isBackground,
       resumed: resume && !!resumeSessionId,
-      continued: continueSession
+      continued: continueSession,
+      isSandboxed,
+      sandboxDir: isSandboxed && userId ? getUserSandboxDir(userId) : undefined,
     })
 
   } catch (error) {
@@ -606,6 +703,53 @@ export async function PUT(request: NextRequest) {
           { error: `Session is not running (status: ${session.status})` },
           { status: 400 }
         )
+      }
+
+      // ============================================
+      // PROMPT INJECTION PROTECTION (for sandboxed/beta users)
+      // ============================================
+      if (session.isSandboxed && typeof input === "string" && input.length > 5) {
+        // Quick check first for performance
+        if (!isInputSafe(input)) {
+          // Full analysis if quick check fails
+          const filterResult = filterPromptInjection(input, {
+            userId: session.userId,
+            sessionId: sessionId,
+            projectId: session.projectId,
+            strict: true // Beta users get strict filtering
+          })
+
+          if (filterResult.blocked) {
+            console.warn(`[claude-code][${sessionId}] PROMPT INJECTION BLOCKED for user ${session.userId}`)
+            console.warn(`[claude-code][${sessionId}] Detected patterns:`, filterResult.detectedPatterns)
+
+            // Log to security activity log
+            logSecurityActivityEvent({
+              userId: session.userId || "unknown",
+              type: "injection_attempt",
+              severity: "critical",
+              details: {
+                sessionId,
+                projectId: session.projectId,
+                patterns: filterResult.detectedPatterns,
+                inputPreview: input.substring(0, 200),
+                blocked: true
+              }
+            })
+
+            return NextResponse.json({
+              error: "Input blocked: Potential prompt injection detected",
+              details: "Your input contains patterns that could be used to manipulate the AI system.",
+              patterns: filterResult.detectedPatterns.map(p => p.pattern),
+              hint: "Please rephrase your request using normal instructions."
+            }, { status: 403 })
+          }
+
+          // Log suspicious but not blocked
+          if (filterResult.detectedPatterns.length > 0) {
+            console.log(`[claude-code][${sessionId}] Suspicious patterns detected but allowed:`, filterResult.detectedPatterns)
+          }
+        }
       }
 
       // Safely write to PTY

@@ -2,12 +2,118 @@
  * MCP Tool Call API
  *
  * POST /api/mcp/call - Call a tool on an MCP server
+ *
+ * Security: User boundary validation for beta testers
  */
 
 import { NextRequest, NextResponse } from "next/server"
 import { getMCPManager } from "@/lib/mcp"
 import { ToolTranslator } from "@/lib/mcp/client"
 import { ProviderType, MCPToolCall } from "@/lib/mcp/types"
+import {
+  validateProjectPath,
+  isPathProtected,
+  canExecuteCommand,
+  logSecurityEvent,
+  getUserSandboxDir,
+} from "@/lib/security/sandbox"
+
+/**
+ * Validate tool arguments for path-based tools
+ * Ensures sandboxed users cannot access paths outside their sandbox
+ */
+function validateToolArguments(
+  toolName: string,
+  args: Record<string, unknown>,
+  userId?: string,
+  userRole?: string
+): { valid: boolean; error?: string } {
+  // Skip validation for admins
+  const isAdmin = userRole === "admin" || userRole === "owner"
+  if (isAdmin || !userId) {
+    return { valid: true }
+  }
+
+  // List of tools that take path arguments
+  const pathTools = [
+    "read_file", "write_file", "edit_file", "create_file",
+    "delete_file", "move_file", "copy_file",
+    "list_directory", "create_directory", "delete_directory",
+    "search_files", "grep", "find",
+    "execute_command", "run_command", "bash", "shell",
+  ]
+
+  // Check if this is a path-based tool
+  const toolLower = toolName.toLowerCase()
+  const isPathTool = pathTools.some(pt => toolLower.includes(pt))
+
+  if (!isPathTool) {
+    return { valid: true }
+  }
+
+  // Check common path argument names
+  const pathArgNames = ["path", "file", "directory", "dir", "target", "source", "dest", "destination", "cwd"]
+
+  for (const argName of pathArgNames) {
+    const value = args[argName]
+    if (typeof value === "string" && value) {
+      // Validate the path
+      if (isPathProtected(value)) {
+        logSecurityEvent({
+          userId,
+          eventType: "path_blocked",
+          details: `MCP tool ${toolName} attempted to access protected path: ${value}`,
+          inputPath: value,
+        })
+        return {
+          valid: false,
+          error: `Access denied: Path "${value}" is protected`,
+        }
+      }
+
+      // For sandboxed users, ensure path is within sandbox
+      const isBetaTester = userRole === "beta" || userRole === "beta_tester"
+      if (isBetaTester) {
+        const validation = validateProjectPath(value, userId, { requireInSandbox: true })
+        if (!validation.valid) {
+          logSecurityEvent({
+            userId,
+            eventType: "sandbox_violation",
+            details: `MCP tool ${toolName} attempted sandbox escape: ${value}`,
+            inputPath: value,
+          })
+          return {
+            valid: false,
+            error: validation.error || "Path outside sandbox",
+          }
+        }
+      }
+    }
+  }
+
+  // For command execution tools, validate the command
+  const commandArgNames = ["command", "cmd", "script"]
+  for (const argName of commandArgNames) {
+    const value = args[argName]
+    if (typeof value === "string" && value) {
+      const cmdCheck = canExecuteCommand(value, userId)
+      if (!cmdCheck.allowed) {
+        logSecurityEvent({
+          userId,
+          eventType: "command_blocked",
+          details: `MCP tool ${toolName} attempted blocked command: ${value}`,
+          inputCommand: value,
+        })
+        return {
+          valid: false,
+          error: cmdCheck.reason || "Command blocked",
+        }
+      }
+    }
+  }
+
+  return { valid: true }
+}
 
 /**
  * POST /api/mcp/call
@@ -19,6 +125,8 @@ import { ProviderType, MCPToolCall } from "@/lib/mcp/types"
  *   - serverId?: string - Target server (optional, will auto-find if not specified)
  *   - provider?: "claude" | "openai" | "gemini" | "lmstudio" - Provider format for result
  *   - providerCall?: object - Provider-specific call format (alternative to name/arguments)
+ *   - userId?: string - User ID for sandbox isolation
+ *   - userRole?: string - User role for permission checks
  */
 export async function POST(request: NextRequest) {
   try {
@@ -27,6 +135,8 @@ export async function POST(request: NextRequest) {
 
     const provider = body.provider as ProviderType | undefined
     const serverId = body.serverId as string | undefined
+    const userId = body.userId as string | undefined
+    const userRole = body.userRole as string | undefined
 
     // Parse tool call - either from provider format or direct MCP format
     let toolCall: MCPToolCall
@@ -44,6 +154,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Missing required field: name (or providerCall with provider)" },
         { status: 400 }
+      )
+    }
+
+    // ============================================
+    // SECURITY: Validate tool arguments for sandboxed users
+    // ============================================
+    const validation = validateToolArguments(
+      toolCall.name,
+      toolCall.arguments,
+      userId,
+      userRole
+    )
+
+    if (!validation.valid) {
+      return NextResponse.json(
+        {
+          error: validation.error || "Access denied",
+          code: "SANDBOX_VIOLATION",
+          sandboxDir: userId ? getUserSandboxDir(userId) : undefined,
+        },
+        { status: 403 }
       )
     }
 
@@ -101,10 +232,14 @@ export async function POST(request: NextRequest) {
 /**
  * Batch call multiple tools
  * POST /api/mcp/call with { batch: true, calls: [...] }
+ *
+ * Security: Validates each tool call for sandboxed users
  */
 async function handleBatchCall(
   calls: Array<{ name: string; arguments?: Record<string, unknown>; serverId?: string }>,
-  provider?: ProviderType
+  provider?: ProviderType,
+  userId?: string,
+  userRole?: string
 ) {
   const manager = getMCPManager()
   const results: Array<{
@@ -112,6 +247,7 @@ async function handleBatchCall(
     success: boolean
     result?: unknown
     error?: string
+    blocked?: boolean
   }> = []
 
   for (const call of calls) {
@@ -119,6 +255,24 @@ async function handleBatchCall(
       const toolCall: MCPToolCall = {
         name: call.name,
         arguments: call.arguments || {},
+      }
+
+      // Validate tool arguments for sandboxed users
+      const validation = validateToolArguments(
+        toolCall.name,
+        toolCall.arguments,
+        userId,
+        userRole
+      )
+
+      if (!validation.valid) {
+        results.push({
+          toolName: call.name,
+          success: false,
+          error: validation.error || "Access denied",
+          blocked: true,
+        })
+        continue
       }
 
       let result

@@ -11,6 +11,7 @@ import {
   Users,
   Settings,
   Shield,
+  ShieldAlert,
   ArrowLeft,
   Loader2,
 } from "lucide-react"
@@ -25,6 +26,7 @@ const adminNavItems: NavItem[] = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { title: "Invites", href: "/admin/invites", icon: Mail },
   { title: "Users", href: "/admin/users", icon: Users },
+  { title: "Security", href: "/admin/security", icon: ShieldAlert },
   { title: "Settings", href: "/admin/settings", icon: Settings },
 ]
 

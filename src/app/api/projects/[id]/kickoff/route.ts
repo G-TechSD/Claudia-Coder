@@ -17,6 +17,14 @@ import { promises as fs } from "fs"
 import { stat } from "fs/promises"
 import path from "path"
 
+// Import prompt injection filter for KICKOFF.md security
+import {
+  filterKickoffContent,
+} from "@/lib/security/prompt-filter"
+import {
+  logSecurityEvent as logSecurityActivityEvent,
+} from "@/lib/security/activity-log"
+
 interface RouteParams {
   params: Promise<{ id: string }>
 }
@@ -254,6 +262,49 @@ export async function GET(
     const content = await fs.readFile(kickoffPath, "utf-8")
     const stats = await stat(kickoffPath)
 
+    // ============================================
+    // SECURITY: Filter KICKOFF.md for injection attempts
+    // ============================================
+    const filterResult = filterKickoffContent(content, {
+      projectId,
+      filePath: kickoffPath
+    })
+
+    // If injection patterns detected, log and optionally block
+    if (filterResult.detectedPatterns.length > 0) {
+      console.warn(`[kickoff] Security patterns detected in KICKOFF.md: ${kickoffPath}`)
+      console.warn(`[kickoff] Patterns found:`, filterResult.detectedPatterns)
+
+      // Log to security activity log
+      logSecurityActivityEvent({
+        userId: "system",
+        type: "injection_attempt",
+        severity: filterResult.blocked ? "critical" : "medium",
+        details: {
+          source: "kickoff_file",
+          filePath: kickoffPath,
+          projectId,
+          patterns: filterResult.detectedPatterns,
+          blocked: filterResult.blocked
+        }
+      })
+
+      // If blocked (critical patterns), return error
+      if (filterResult.blocked) {
+        return NextResponse.json({
+          success: false,
+          exists: true,
+          projectId,
+          workingDirectory,
+          kickoffPath,
+          error: "KICKOFF.md contains potentially malicious content",
+          securityWarning: "This file contains patterns that could be used for prompt injection",
+          detectedPatterns: filterResult.detectedPatterns.map(p => p.pattern),
+          blocked: true
+        }, { status: 403 })
+      }
+    }
+
     return NextResponse.json({
       success: true,
       exists: true,
@@ -261,7 +312,12 @@ export async function GET(
       workingDirectory,
       kickoffPath,
       content,
-      modifiedAt: stats.mtime.toISOString()
+      modifiedAt: stats.mtime.toISOString(),
+      // Include security info if patterns were detected but not blocked
+      securityInfo: filterResult.detectedPatterns.length > 0 ? {
+        warning: "Some suspicious patterns were detected but not blocked",
+        patterns: filterResult.detectedPatterns.map(p => p.pattern)
+      } : undefined
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to check KICKOFF.md"

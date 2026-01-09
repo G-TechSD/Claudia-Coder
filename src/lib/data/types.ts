@@ -112,6 +112,9 @@ export interface Project {
   // Collaboration (future feature)
   collaboratorIds?: string[]
   isPublic?: boolean
+
+  // Business Development
+  businessDev?: BusinessDev
 }
 
 // ============ Interviews ============
@@ -507,4 +510,121 @@ export interface WorkPacketWithHistory {
   acceptanceCriteria: string[]
   runs: PacketRun[]
   currentRunId?: string
+}
+
+// ============ Business Development ============
+
+export type BusinessDevStatus = "draft" | "review" | "approved" | "archived"
+
+export type BusinessDevSectionType =
+  | "executiveSummary"
+  | "features"
+  | "marketAnalysis"
+  | "monetization"
+  | "proForma"
+  | "goToMarket"
+  | "risks"
+
+export interface BusinessDevExecutiveSummary {
+  overview: string
+  problem: string
+  solution: string
+  targetMarket: string
+  uniqueValue: string
+}
+
+export interface BusinessDevFeature {
+  id: string
+  name: string
+  description: string
+  userBenefit: string
+  priority: "must-have" | "should-have" | "nice-to-have"
+}
+
+export interface BusinessDevMarketAnalysis {
+  marketSize: string
+  targetAudience: string
+  competitors: Array<{
+    name: string
+    description: string
+    strengths: string[]
+    weaknesses: string[]
+  }>
+  differentiators: string[]
+  marketTrends: string[]
+}
+
+export interface BusinessDevMonetization {
+  model: string  // freemium, subscription, one-time, ads, etc.
+  pricing: string
+  pricingTiers?: Array<{
+    name: string
+    price: string
+    features: string[]
+  }>
+  revenueStreams: string[]
+}
+
+export interface BusinessDevProForma {
+  yearOneRevenue: string
+  yearTwoRevenue: string
+  yearThreeRevenue: string
+  expenses: Array<{
+    category: string
+    amount: string
+    frequency: "one-time" | "monthly" | "annually"
+  }>
+  profitMargin: string
+  breakEvenPoint: string
+  assumptions: string[]
+}
+
+export interface BusinessDevGoToMarket {
+  launchStrategy: string
+  marketingChannels: string[]
+  partnerships: string[]
+  milestones: Array<{
+    name: string
+    date: string
+    description: string
+  }>
+}
+
+export interface BusinessDevRisks {
+  risks: Array<{
+    id: string
+    category: "market" | "technical" | "financial" | "operational" | "regulatory"
+    description: string
+    likelihood: "low" | "medium" | "high"
+    impact: "low" | "medium" | "high"
+    mitigation: string
+  }>
+}
+
+export interface BusinessDev {
+  id: string
+  projectId: string
+  status: BusinessDevStatus
+
+  // Core sections
+  executiveSummary: BusinessDevExecutiveSummary
+  features: BusinessDevFeature[]
+  marketAnalysis: BusinessDevMarketAnalysis
+  monetization: BusinessDevMonetization
+  proForma: BusinessDevProForma
+  goToMarket?: BusinessDevGoToMarket
+  risks?: BusinessDevRisks
+
+  // Generation metadata
+  generatedBy: {
+    server: string
+    model: string
+  }
+  generatedFromBuildPlanId?: string
+
+  // Timestamps
+  createdAt: string
+  updatedAt: string
+  approvedAt?: string
+  approvedBy?: string
 }
