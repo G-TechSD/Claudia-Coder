@@ -126,7 +126,7 @@ export async function GET() {
         })
 
         if (workflowsResponse.ok) {
-          const data = await workflowsResponse.json()
+          const data = await workflowsResponse.json() as { data?: { active: boolean }[] }
           const workflowList = data.data || []
           workflows = {
             total: workflowList.length,
