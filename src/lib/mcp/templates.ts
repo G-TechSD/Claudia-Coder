@@ -24,7 +24,7 @@ export const mcpServerTemplates: MCPServerTemplate[] = [
     name: "Filesystem (Read-only)",
     description: "Read-only access to the local filesystem for safer operations",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "--read-only", "/home"],
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/home", "--read-only"],
     category: "Filesystem",
     icon: "FileText",
     documentation: "https://github.com/anthropics/mcp-servers/tree/main/packages/mcp-server-filesystem"
