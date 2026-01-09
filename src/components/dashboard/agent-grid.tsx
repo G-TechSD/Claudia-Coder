@@ -63,6 +63,7 @@ export function AgentGrid() {
         }
 
         // Also add cloud providers from settings if enabled
+        // Use actual configured models, not hardcoded ones
         const settings = getGlobalSettings()
         for (const provider of settings.cloudProviders.filter(p => p.enabled)) {
           const names: Record<string, string> = {
@@ -70,15 +71,25 @@ export function AgentGrid() {
             openai: "GPT",
             google: "Gemini"
           }
-          const models: Record<string, string> = {
-            anthropic: "Sonnet",
-            openai: "4o",
-            google: "Pro"
+          // Use the first enabled model for this provider, or a sensible default
+          const defaultModels: Record<string, string> = {
+            anthropic: "claude-opus-4-5-20251101",
+            openai: "gpt-4o",
+            google: "gemini-2.5-pro"
           }
+          const configuredModel = provider.enabledModels?.[0] || defaultModels[provider.provider] || "default"
+          // Extract a short display name from the model ID
+          const modelDisplayName = configuredModel
+            .replace("claude-", "")
+            .replace("gpt-", "")
+            .replace("gemini-", "")
+            .split("-")[0]
+            .charAt(0).toUpperCase() + configuredModel.split("-")[0].slice(1)
+
           newAgents.push({
             id: provider.provider,
             name: names[provider.provider],
-            model: models[provider.provider],
+            model: modelDisplayName,
             status: "idle",
             type: "cloud"
           })

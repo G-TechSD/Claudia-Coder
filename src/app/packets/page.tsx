@@ -213,32 +213,119 @@ export default function PacketsPage() {
   const [selectedServer, setSelectedServer] = useState<string | null>(null)
   const [executionMode, setExecutionMode] = useState<"standard" | "long-horizon">("standard")
 
-  // Fetch packets from API
+  // Fetch packets from multiple sources: localStorage (primary), N8N API (secondary)
   const loadPackets = useCallback(async () => {
     setIsLoading(true)
     setError(null)
 
+    const allPackets: Packet[] = []
+    const seenIds = new Set<string>()
+
+    // 1. First, load from localStorage (where build plan packets are stored)
+    try {
+      const storedPackets = localStorage.getItem("claudia_packets")
+      if (storedPackets) {
+        const packetsByProject = JSON.parse(storedPackets) as Record<string, Array<{
+          id: string
+          title: string
+          description: string
+          type: string
+          priority: string
+          status: string
+          tasks?: Array<{ id: string; description: string; completed: boolean }>
+          acceptanceCriteria?: string[]
+          phaseId?: string
+          assignedModel?: string
+        }>>
+
+        // Flatten all project packets
+        for (const [projectId, projectPackets] of Object.entries(packetsByProject)) {
+          for (const wp of projectPackets) {
+            if (!seenIds.has(wp.id)) {
+              seenIds.add(wp.id)
+              // Map status from WorkPacket to Packet status
+              let status: Packet["status"] = "queued"
+              if (wp.status === "completed") status = "completed"
+              else if (wp.status === "in_progress" || wp.status === "assigned") status = "running"
+              else if (wp.status === "blocked") status = "blocked"
+              else if (wp.status === "review") status = "running"
+
+              // Map priority to PacketPriority type (high | normal | low)
+              let priority: PacketPriority = "normal"
+              if (wp.priority === "critical" || wp.priority === "high") priority = "high"
+              else if (wp.priority === "low") priority = "low"
+
+              allPackets.push({
+                id: wp.id,
+                packetID: wp.id,
+                projectID: projectId,
+                planRunID: wp.phaseId || "",
+                title: wp.title,
+                summary: wp.description || "",
+                status,
+                priority,
+                assignedWorker: wp.assignedModel || null,
+                issueIDs: [],
+                issues: [],
+                acceptanceCriteria: wp.acceptanceCriteria || [],
+                risks: [],
+                dependencies: [],
+                feedback: null,
+                feedbackComment: null,
+                startedAt: null,
+                completedAt: null,
+                createdAt: new Date(),
+                updatedAt: new Date()
+              })
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load packets from localStorage:", err)
+    }
+
+    // 2. Then try N8N API (for any N8N-managed packets)
     try {
       const response = await fetch("/api/packets")
       const data = await response.json()
 
       if (data.success && data.packets) {
         const transformedPackets = data.packets.map(transformApiPacket)
-        setPackets(transformedPackets)
-
-        // Auto-select first packet if none selected
-        if (transformedPackets.length > 0 && !selectedPacket) {
-          setSelectedPacket(transformedPackets[0])
+        for (const packet of transformedPackets) {
+          if (!seenIds.has(packet.id)) {
+            seenIds.add(packet.id)
+            allPackets.push(packet)
+          }
         }
-      } else {
-        setError(data.error || "Failed to load packets")
       }
     } catch (err) {
-      console.error("Failed to fetch packets:", err)
-      setError("Failed to connect to packets API")
-    } finally {
-      setIsLoading(false)
+      console.error("Failed to fetch packets from N8N:", err)
+      // Don't set error if we have localStorage packets
     }
+
+    // Sort by priority and creation date
+    allPackets.sort((a, b) => {
+      const priorityOrder: Record<string, number> = { high: 0, normal: 1, low: 2 }
+      const aPriority = priorityOrder[a.priority] ?? 1
+      const bPriority = priorityOrder[b.priority] ?? 1
+      if (aPriority !== bPriority) return aPriority - bPriority
+      const aTime = a.createdAt?.getTime() ?? 0
+      const bTime = b.createdAt?.getTime() ?? 0
+      return bTime - aTime
+    })
+
+    if (allPackets.length > 0) {
+      setPackets(allPackets)
+      // Auto-select first packet if none selected
+      if (!selectedPacket) {
+        setSelectedPacket(allPackets[0])
+      }
+    } else {
+      setError("No packets found. Create a build plan for a project to generate packets.")
+    }
+
+    setIsLoading(false)
   }, [selectedPacket])
 
   useEffect(() => {
@@ -511,7 +598,7 @@ export default function PacketsPage() {
                 <p className="text-sm">No packets found</p>
                 <p className="text-xs">
                   {packets.length === 0
-                    ? "Packets will appear here when loaded from N8N"
+                    ? "Create a build plan for a project to generate work packets"
                     : "Try adjusting your filters"}
                 </p>
               </div>

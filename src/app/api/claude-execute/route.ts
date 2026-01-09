@@ -27,6 +27,12 @@ import * as path from "path"
 import https from "https"
 import { generateWithLocalLLM, getAvailableServer } from "@/lib/llm/local-llm"
 
+// Path to store activity events for API access (curl calls don't have localStorage)
+const ACTIVITY_EVENTS_FILE = "/home/bill/projects/claudia-admin/.local-storage/activity-events.json"
+
+// Maximum number of events to keep in the file
+const MAX_STORED_EVENTS = 100
+
 // Create an HTTPS agent that accepts self-signed certificates (for N8N)
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false
@@ -97,6 +103,88 @@ interface ExecutionEvent {
   files?: string[]
 }
 
+/**
+ * Activity event format for persistence (includes additional fields for activity page)
+ */
+interface StoredActivityEvent {
+  id: string
+  type: "success" | "error" | "pending" | "running"
+  message: string
+  timestamp: string
+  projectId?: string
+  projectName?: string
+  packetId?: string
+  packetTitle?: string
+  mode?: string
+  detail?: string
+}
+
+/**
+ * Save execution events to file for API access
+ * This allows activity to show up even when executions happen via curl/API calls
+ */
+async function persistActivityEvents(
+  events: ExecutionEvent[],
+  projectId: string,
+  projectName: string,
+  packetId: string,
+  packetTitle: string,
+  mode: string,
+  success: boolean
+): Promise<void> {
+  try {
+    // Read existing events
+    let existingEvents: StoredActivityEvent[] = []
+    try {
+      const data = await fs.readFile(ACTIVITY_EVENTS_FILE, "utf-8")
+      existingEvents = JSON.parse(data)
+    } catch {
+      // File doesn't exist or is invalid, start fresh
+    }
+
+    // Map execution events to activity type
+    const mapEventType = (event: ExecutionEvent, isSuccess: boolean): StoredActivityEvent["type"] => {
+      if (event.type === "error") return "error"
+      if (event.type === "complete") return isSuccess ? "success" : "error"
+      if (event.type === "start" || event.type === "thinking") return "running"
+      return "pending"
+    }
+
+    // Create a summary event for this execution
+    const summaryEvent: StoredActivityEvent = {
+      id: `exec-${packetId}-${Date.now()}`,
+      type: success ? "success" : "error",
+      message: success
+        ? `Completed: ${packetTitle}`
+        : `Failed: ${packetTitle}`,
+      timestamp: new Date().toISOString(),
+      projectId,
+      projectName,
+      packetId,
+      packetTitle,
+      mode,
+      detail: events.length > 0 ? events[events.length - 1].message : undefined
+    }
+
+    // Add the summary event
+    existingEvents.push(summaryEvent)
+
+    // Keep only the most recent events
+    if (existingEvents.length > MAX_STORED_EVENTS) {
+      existingEvents = existingEvents.slice(-MAX_STORED_EVENTS)
+    }
+
+    // Ensure directory exists
+    await fs.mkdir(path.dirname(ACTIVITY_EVENTS_FILE), { recursive: true })
+
+    // Write to file
+    await fs.writeFile(ACTIVITY_EVENTS_FILE, JSON.stringify(existingEvents, null, 2), "utf-8")
+  } catch (error) {
+    console.error("[persistActivityEvents] Failed to save events:", error)
+    // Don't throw - this is a non-critical operation
+  }
+}
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   const events: ExecutionEvent[] = []
@@ -132,6 +220,8 @@ export async function POST(request: NextRequest) {
       if (n8nResult.async) {
         // N8N returns immediately, results come via callback
         emit("complete", "N8N workflow triggered", `Execution ID: ${n8nResult.executionId}`, { progress: 100 })
+        // Persist events for API access (async N8N - mark as pending since it's still running)
+        await persistActivityEvents(events, body.projectId, projectName, packet.id, packet.title, "n8n", true)
         return NextResponse.json({
           success: true,
           packetId: packet.id,
@@ -169,6 +259,8 @@ export async function POST(request: NextRequest) {
           const claudeResult = await executeWithClaudeCode(prompt, repoPath, options, emit)
           result = { ...claudeResult, mode: "turbo" }
         } else {
+          // Persist failure event - no backend available
+          await persistActivityEvents(events, body.projectId, projectName, packet.id, packet.title, "none", false)
           return NextResponse.json({
             success: false,
             events,
@@ -181,6 +273,8 @@ export async function POST(request: NextRequest) {
 
     if (!result.success) {
       emit("error", "Execution failed", result.output)
+      // Persist failure event
+      await persistActivityEvents(events, body.projectId, projectName, packet.id, packet.title, result.mode, false)
       return NextResponse.json({
         success: false,
         events,
@@ -191,6 +285,9 @@ export async function POST(request: NextRequest) {
     }
 
     emit("complete", `Completed: ${packet.title}`, `${result.filesChanged.length} files modified (${result.mode} mode)`, { progress: 100 })
+
+    // Persist success event
+    await persistActivityEvents(events, body.projectId, projectName, packet.id, packet.title, result.mode, true)
 
     return NextResponse.json({
       success: true,
@@ -205,6 +302,22 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error"
     emit("error", "Execution failed", message)
+
+    // Persist error event (we may not have full context here)
+    try {
+      const body = await request.clone().json().catch(() => ({})) as Partial<ExecutionRequest>
+      await persistActivityEvents(
+        events,
+        body.projectId || "unknown",
+        body.projectName || "Unknown Project",
+        body.packet?.id || "unknown",
+        body.packet?.title || "Unknown Task",
+        "unknown",
+        false
+      )
+    } catch {
+      // Ignore persistence errors in catch block
+    }
 
     return NextResponse.json({
       success: false,

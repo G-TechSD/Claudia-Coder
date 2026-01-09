@@ -175,52 +175,87 @@ export default function ActivityPage() {
   const [localActivities, setLocalActivities] = useState<ActivityItem[]>([])
   const [loadingCommits, setLoadingCommits] = useState(false)
 
-  // Load activities from localStorage (execution events)
+  // Load activities from both localStorage AND server API
   useEffect(() => {
-    function loadLocalActivities() {
+    async function loadAllActivities() {
       if (typeof window === "undefined") return
 
+      const allEvents: ActivityItem[] = []
+      const seenIds = new Set<string>()
+
+      // 1. Load from server API (catches curl/API call events)
+      try {
+        const response = await fetch("/api/activity-events?limit=100")
+        if (response.ok) {
+          const data = await response.json()
+          if (data.events && Array.isArray(data.events)) {
+            for (const event of data.events) {
+              const id = event.id || `server-${Math.random().toString(36).slice(2)}`
+              if (!seenIds.has(id)) {
+                seenIds.add(id)
+                allEvents.push({
+                  id,
+                  type: (event.type === "success" || event.type === "error" || event.type === "pending" || event.type === "running" || event.type === "info")
+                    ? event.type as ActivityType
+                    : "info",
+                  category: "general" as ActivityCategory,
+                  source: event.projectName || "Execution",
+                  message: event.message || "Activity",
+                  details: event.detail,
+                  timestamp: new Date(event.timestamp || Date.now()),
+                  isReal: false
+                })
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load server activities:", error)
+      }
+
+      // 2. Load from localStorage (catches browser-based events)
       try {
         const eventsData = localStorage.getItem("claudia_activity_events")
         if (eventsData) {
           const events = JSON.parse(eventsData)
-          const activities: ActivityItem[] = events.map((event: {
-            id?: string
-            type?: string
-            message?: string
-            timestamp?: string
-            projectId?: string
-          }) => ({
-            id: event.id || Math.random().toString(36).slice(2),
-            type: (event.type === "success" || event.type === "error" || event.type === "pending" || event.type === "running" || event.type === "info")
-              ? event.type as ActivityType
-              : "info",
-            category: "general" as ActivityCategory,
-            source: "Execution",
-            message: event.message || "Activity",
-            timestamp: new Date(event.timestamp || Date.now()),
-            isReal: false
-          }))
-          setLocalActivities(activities)
+          for (const event of events) {
+            const id = event.id || `local-${Math.random().toString(36).slice(2)}`
+            if (!seenIds.has(id)) {
+              seenIds.add(id)
+              allEvents.push({
+                id,
+                type: (event.type === "success" || event.type === "error" || event.type === "pending" || event.type === "running" || event.type === "info")
+                  ? event.type as ActivityType
+                  : "info",
+                category: "general" as ActivityCategory,
+                source: "Execution",
+                message: event.message || "Activity",
+                timestamp: new Date(event.timestamp || Date.now()),
+                isReal: false
+              })
+            }
+          }
         }
       } catch (error) {
         console.error("Failed to load local activities:", error)
       }
+
+      setLocalActivities(allEvents)
     }
 
-    loadLocalActivities()
+    loadAllActivities()
 
     // Listen for storage changes
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === "claudia_activity_events") {
-        loadLocalActivities()
+        loadAllActivities()
       }
     }
 
     window.addEventListener("storage", handleStorageChange)
 
-    // Also poll periodically to catch same-tab updates
-    const interval = setInterval(loadLocalActivities, 3000)
+    // Poll periodically to catch updates from both sources
+    const interval = setInterval(loadAllActivities, 3000)
 
     return () => {
       window.removeEventListener("storage", handleStorageChange)

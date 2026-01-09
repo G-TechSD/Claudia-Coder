@@ -76,6 +76,85 @@ async function checkLocalServer(url: string, type: "lmstudio" | "ollama"): Promi
   }
 }
 
+/**
+ * Test cloud provider connectivity by making a minimal API call
+ */
+async function testCloudProvider(provider: "anthropic" | "openai" | "google"): Promise<{
+  online: boolean
+  models?: string[]
+  error?: string
+}> {
+  try {
+    switch (provider) {
+      case "anthropic": {
+        const key = process.env.ANTHROPIC_API_KEY
+        if (!key) return { online: false, error: "No API key" }
+
+        // Test with models endpoint
+        const response = await fetch("https://api.anthropic.com/v1/models", {
+          headers: {
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01"
+          },
+          signal: AbortSignal.timeout(10000)
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          const models = data.data?.map((m: { id: string }) => m.id) || []
+          return { online: true, models }
+        }
+        return { online: false, error: `API returned ${response.status}` }
+      }
+
+      case "openai": {
+        const key = process.env.OPENAI_API_KEY
+        if (!key) return { online: false, error: "No API key" }
+
+        const response = await fetch("https://api.openai.com/v1/models", {
+          headers: { "Authorization": `Bearer ${key}` },
+          signal: AbortSignal.timeout(10000)
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          // Filter to just chat models
+          const models = data.data
+            ?.filter((m: { id: string }) =>
+              m.id.includes("gpt") || m.id.includes("o1") || m.id.includes("o3"))
+            .map((m: { id: string }) => m.id) || []
+          return { online: true, models }
+        }
+        return { online: false, error: `API returned ${response.status}` }
+      }
+
+      case "google": {
+        const key = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY
+        if (!key) return { online: false, error: "No API key" }
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`,
+          { signal: AbortSignal.timeout(10000) }
+        )
+
+        if (response.ok) {
+          const data = await response.json()
+          const models = data.models
+            ?.filter((m: { name: string }) => m.name.includes("gemini"))
+            .map((m: { name: string }) => m.name.replace("models/", "")) || []
+          return { online: true, models }
+        }
+        return { online: false, error: `API returned ${response.status}` }
+      }
+
+      default:
+        return { online: false, error: "Unknown provider" }
+    }
+  } catch (error) {
+    return { online: false, error: error instanceof Error ? error.message : "Connection failed" }
+  }
+}
+
 // Detect which model is currently loaded in LM Studio
 async function detectLoadedLMStudioModel(url: string): Promise<string | undefined> {
   try {
@@ -153,65 +232,59 @@ export async function GET() {
     })
   }
 
-  // Cloud Providers - check if API keys are configured
+  // Cloud Providers - actually test connectivity, don't just check for API keys
 
-  // Anthropic (Claude)
+  // Test all cloud providers in parallel for faster response
+  const notConfigured = { online: false, models: undefined, error: "No API key" }
+  const [anthropicStatus, openaiStatus, googleStatus] = await Promise.all([
+    process.env.ANTHROPIC_API_KEY ? testCloudProvider("anthropic") : Promise.resolve(notConfigured),
+    process.env.OPENAI_API_KEY ? testCloudProvider("openai") : Promise.resolve(notConfigured),
+    (process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY) ? testCloudProvider("google") : Promise.resolve(notConfigured)
+  ])
+
+  // Anthropic (Claude) - only show if API key configured
   if (process.env.ANTHROPIC_API_KEY) {
+    // Use dynamically fetched models if available, otherwise use sensible defaults
+    const defaultModels = ["claude-opus-4-5-20251101", "claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
+    const models = anthropicStatus.models?.length ? anthropicStatus.models : defaultModels
+
     providers.push({
-      name: "anthropic-opus",
-      displayName: "Claude Opus 4",
+      name: "anthropic",
+      displayName: "Anthropic (Claude)",
       type: "cloud",
-      status: "online",
-      model: "claude-opus-4-20250514",
-      models: ["claude-opus-4-20250514"]
-    })
-    providers.push({
-      name: "anthropic-sonnet",
-      displayName: "Claude Sonnet 4",
-      type: "cloud",
-      status: "online",
-      model: "claude-sonnet-4-20250514",
-      models: ["claude-sonnet-4-20250514"]
-    })
-    providers.push({
-      name: "anthropic-haiku",
-      displayName: "Claude Haiku 3.5",
-      type: "cloud",
-      status: "online",
-      model: "claude-3-5-haiku-20241022",
-      models: ["claude-3-5-haiku-20241022"]
+      status: anthropicStatus.online ? "online" : "offline",
+      model: models[0],
+      models
     })
   }
 
-  // OpenAI (ChatGPT / Codex)
+  // OpenAI - only show if API key configured
   if (process.env.OPENAI_API_KEY) {
+    const defaultModels = ["gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o3", "o3-mini", "o1", "o1-mini"]
+    const models = openaiStatus.models?.length ? openaiStatus.models : defaultModels
+
     providers.push({
-      name: "openai-gpt4",
-      displayName: "GPT-4o",
+      name: "openai",
+      displayName: "OpenAI",
       type: "cloud",
-      status: "online",
-      model: "gpt-4o",
-      models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
-    })
-    providers.push({
-      name: "openai-o1",
-      displayName: "o1",
-      type: "cloud",
-      status: "online",
-      model: "o1",
-      models: ["o1", "o1-mini"]
+      status: openaiStatus.online ? "online" : "offline",
+      model: models[0],
+      models
     })
   }
 
-  // Google (Gemini)
+  // Google (Gemini) - only show if API key configured
   if (process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY) {
+    const defaultModels = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-thinking"]
+    const models = googleStatus.models?.length ? googleStatus.models : defaultModels
+
     providers.push({
-      name: "gemini-pro",
-      displayName: "Gemini 2.0 Flash",
+      name: "google",
+      displayName: "Google (Gemini)",
       type: "cloud",
-      status: "online",
-      model: "gemini-2.0-flash-exp",
-      models: ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"]
+      status: googleStatus.online ? "online" : "offline",
+      model: models[0],
+      models
     })
   }
 

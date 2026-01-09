@@ -33,25 +33,30 @@ import {
   CheckCircle
 } from "lucide-react"
 
-// Constants for cloud provider models
-const CLOUD_PROVIDER_MODELS: Record<string, { id: string; name: string }[]> = {
+// Fallback models if dynamic fetch fails - these should be kept up to date
+// The UI should prefer dynamically fetched models from /api/models endpoint
+const FALLBACK_PROVIDER_MODELS: Record<string, { id: string; name: string }[]> = {
   anthropic: [
+    { id: "claude-opus-4-5-20251101", name: "Claude Opus 4.5" },
     { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
     { id: "claude-opus-4-20250514", name: "Claude Opus 4" },
     { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet" },
     { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku" },
   ],
   openai: [
+    { id: "gpt-4.5-preview", name: "GPT-4.5 Preview" },
     { id: "gpt-4o", name: "GPT-4o" },
     { id: "gpt-4o-mini", name: "GPT-4o Mini" },
-    { id: "gpt-4-turbo", name: "GPT-4 Turbo" },
+    { id: "o3", name: "o3" },
+    { id: "o3-mini", name: "o3-mini" },
     { id: "o1", name: "o1" },
     { id: "o1-mini", name: "o1-mini" },
   ],
   google: [
+    { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
     { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
-    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro" },
-    { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash" },
+    { id: "gemini-2.0-flash-thinking", name: "Gemini 2.0 Flash Thinking" },
   ],
 }
 
@@ -353,9 +358,9 @@ export function ConnectionsTab({
     const isCloudProvider = ["anthropic", "openai", "google"].includes(providerId || "")
     const isDefault = defaultAiProvider === providerId
 
-    // Get available models
+    // Get available models - prefer dynamically fetched, fall back to hardcoded
     const models = isCloudProvider
-      ? CLOUD_PROVIDER_MODELS[providerId || ""] || []
+      ? FALLBACK_PROVIDER_MODELS[providerId || ""] || []
       : lmStudioModels[providerId || ""] || []
 
     const currentModel = providerDefaultModels[providerId || ""] || ""

@@ -73,13 +73,13 @@ class N8NApiService {
     })
 
     if (!response.ok) {
-      throw new Error(`n8n API proxy error: ${response.status} ${response.statusText}`)
+      throw new Error("n8n API proxy error: " + response.status + " " + response.statusText)
     }
 
     const result = await response.json()
 
     if (!result.ok) {
-      throw new Error(`n8n API error: ${result.status} ${result.error || "Unknown error"}`)
+      throw new Error("n8n API error: " + result.status + " " + (result.error || "Unknown error"))
     }
 
     return result.data as T
@@ -87,7 +87,7 @@ class N8NApiService {
 
   // Webhook endpoints for triggering workflows
   async triggerWebhook(webhookPath: string, payload: N8NWebhookPayload): Promise<unknown> {
-    return this.request(`/webhook/${webhookPath}`, {
+    return this.request("/webhook/" + webhookPath, {
       method: "POST",
       body: JSON.stringify(payload)
     })
@@ -146,31 +146,62 @@ class N8NApiService {
 
   // Workflow management
   async getWorkflows(): Promise<N8NWorkflow[]> {
-    const response = await this.request<{ data: N8NWorkflow[] }>("/api/v1/workflows")
-    return response.data
+    const response = await this.request<{ data: N8NWorkflow[] } | N8NWorkflow[]>("/api/v1/workflows")
+    // Handle double-nested response structure from proxy
+    // The proxy wraps the N8N response in result.data, and N8N may also wrap workflows in data
+    if (Array.isArray(response)) {
+      return response
+    }
+    if (response && typeof response === 'object' && 'data' in response) {
+      const inner = response.data
+      // Check for triple nesting (proxy.data.data.data)
+      if (inner && typeof inner === 'object' && 'data' in inner && Array.isArray((inner as { data: N8NWorkflow[] }).data)) {
+        return (inner as { data: N8NWorkflow[] }).data
+      }
+      if (Array.isArray(inner)) {
+        return inner
+      }
+    }
+    // Fallback: return empty array if structure is unexpected
+    console.warn('Unexpected workflow response structure:', response)
+    return []
   }
 
   async getWorkflow(id: string): Promise<N8NWorkflow> {
-    return this.request(`/api/v1/workflows/${id}`)
+    return this.request("/api/v1/workflows/" + id)
   }
 
   async activateWorkflow(id: string): Promise<void> {
-    await this.request(`/api/v1/workflows/${id}/activate`, { method: "POST" })
+    await this.request("/api/v1/workflows/" + id + "/activate", { method: "POST" })
   }
 
   async deactivateWorkflow(id: string): Promise<void> {
-    await this.request(`/api/v1/workflows/${id}/deactivate`, { method: "POST" })
+    await this.request("/api/v1/workflows/" + id + "/deactivate", { method: "POST" })
   }
 
   // Execution management
   async getExecutions(workflowId?: string): Promise<N8NExecution[]> {
-    const params = workflowId ? `?workflowId=${workflowId}` : ""
-    const response = await this.request<{ data: N8NExecution[] }>(`/api/v1/executions${params}`)
-    return response.data
+    const params = workflowId ? "?workflowId=" + workflowId : ""
+    const response = await this.request<{ data: N8NExecution[] } | N8NExecution[]>("/api/v1/executions" + params)
+    // Handle double-nested response structure from proxy (same pattern as getWorkflows)
+    if (Array.isArray(response)) {
+      return response
+    }
+    if (response && typeof response === 'object' && 'data' in response) {
+      const inner = response.data
+      if (inner && typeof inner === 'object' && 'data' in inner && Array.isArray((inner as { data: N8NExecution[] }).data)) {
+        return (inner as { data: N8NExecution[] }).data
+      }
+      if (Array.isArray(inner)) {
+        return inner
+      }
+    }
+    console.warn('Unexpected executions response structure:', response)
+    return []
   }
 
   async getExecution(id: string): Promise<N8NExecution> {
-    return this.request(`/api/v1/executions/${id}`)
+    return this.request("/api/v1/executions/" + id)
   }
 
   // Packet management - triggers packet-related workflows
@@ -237,7 +268,7 @@ class N8NApiService {
 
   // Activity stream - for WebSocket connection
   getActivityStreamUrl(): string {
-    return `${this.baseUrl.replace("http", "ws")}/webhook/activity-stream`
+    return this.baseUrl.replace("http", "ws") + "/webhook/activity-stream"
   }
 
   // Health check - uses server-side API to handle self-signed certs
@@ -278,7 +309,7 @@ class N8NApiService {
         return {
           healthy: false,
           url: this.baseUrl,
-          message: `Status check returned ${response.status}`,
+          message: "Status check returned " + response.status,
         }
       }
 
@@ -288,7 +319,7 @@ class N8NApiService {
       return {
         healthy: false,
         url: this.baseUrl,
-        message: `Status check failed: ${message}`,
+        message: "Status check failed: " + message,
       }
     }
   }
