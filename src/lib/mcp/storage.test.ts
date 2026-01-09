@@ -77,9 +77,30 @@ describe('MCP Storage', () => {
 
   describe('saveMCPServers', () => {
     it('persists data to localStorage', () => {
+      const now = new Date().toISOString();
       const servers = [
-        { id: '1', name: 'Server 1', command: 'node', args: [] },
-        { id: '2', name: 'Server 2', command: 'python', args: [] },
+        {
+          id: '1',
+          name: 'Server 1',
+          command: 'node',
+          args: [],
+          enabled: true,
+          scope: 'global' as const,
+          status: 'stopped' as const,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: '2',
+          name: 'Server 2',
+          command: 'python',
+          args: [],
+          enabled: true,
+          scope: 'global' as const,
+          status: 'stopped' as const,
+          createdAt: now,
+          updatedAt: now,
+        },
       ];
 
       saveMCPServers(servers);

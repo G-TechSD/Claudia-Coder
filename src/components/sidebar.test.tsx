@@ -30,7 +30,7 @@ vi.mock("@/hooks/useStarredProjects", () => ({
   useStarredProjects: () => ({ starredProjects: [] }),
 }))
 
-jest.mock("@/hooks/useApprovals", () => ({
+vi.mock("@/hooks/useApprovals", () => ({
   useApprovals: () => ({ pendingCount: 0 }),
 }))
 
