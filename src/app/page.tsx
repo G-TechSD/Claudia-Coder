@@ -7,6 +7,7 @@ import { AgentGrid } from "@/components/dashboard/agent-grid"
 import { AgentControl } from "@/components/dashboard/agent-control"
 import { SetupGuide } from "@/components/setup/setup-guide"
 import { Package, CheckCircle, AlertTriangle, DollarSign, Layers } from "lucide-react"
+import { seedSampleProjects } from "@/lib/data/projects"
 
 interface DashboardMetrics {
   activeProjects: number
@@ -28,6 +29,9 @@ function loadMetrics(): DashboardMetrics {
       budgetPercent: 100
     }
   }
+
+  // Ensure sample projects are seeded (if no projects exist yet)
+  seedSampleProjects()
 
   try {
     // Load projects
