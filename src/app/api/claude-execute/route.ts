@@ -26,6 +26,13 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import https from "https"
 import { generateWithLocalLLM, getAvailableServer } from "@/lib/llm/local-llm"
+import { db } from "@/lib/auth/db"
+import {
+  isBetaTester,
+  checkBetaLimitsServer,
+  incrementExecutionCountServer,
+  BETA_MAX_DAILY_EXECUTIONS,
+} from "@/lib/beta/restrictions"
 
 // Path to store activity events for API access (curl calls don't have localStorage)
 const ACTIVITY_EVENTS_FILE = "/home/bill/projects/claudia-admin/.local-storage/activity-events.json"
@@ -284,6 +291,40 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Check beta tester limits before execution
+    const sessionToken = request.cookies.get("better-auth.session_token")?.value
+    if (sessionToken) {
+      const userResult = db.prepare(`
+        SELECT u.id, u.role
+        FROM session s
+        JOIN user u ON s.userId = u.id
+        WHERE s.token = ?
+      `).get(sessionToken) as { id: string; role: string } | undefined
+
+      if (userResult && isBetaTester(userResult.role)) {
+        const betaLimits = await checkBetaLimitsServer(userResult.id)
+
+        if (!betaLimits.canExecute) {
+          emit("error", "Beta execution limit reached", `You have reached your daily limit of ${BETA_MAX_DAILY_EXECUTIONS} executions.`)
+          return NextResponse.json({
+            success: false,
+            events,
+            error: `Beta execution limit reached. You have used ${betaLimits.current.executions}/${BETA_MAX_DAILY_EXECUTIONS} executions today. Limit resets at midnight.`,
+            code: "BETA_EXECUTION_LIMIT",
+            betaLimits: {
+              current: betaLimits.current.executions,
+              limit: BETA_MAX_DAILY_EXECUTIONS,
+              remaining: betaLimits.remaining.executions,
+            },
+            duration: Date.now() - startTime
+          }, { status: 429 })
+        }
+
+        // Increment execution count for beta user
+        await incrementExecutionCountServer(userResult.id)
+      }
+    }
+
     const body: ExecutionRequest = await request.json()
     const { projectName, repoPath, packet, options = {} } = body
     const mode = options.mode || "auto"

@@ -1,0 +1,405 @@
+"use client"
+
+import * as React from "react"
+import Link from "next/link"
+import { useRouter, useParams } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { signUp, signIn, useSession } from "@/lib/auth/client"
+import {
+  Loader2,
+  Github,
+  UserPlus,
+  Gift,
+  AlertCircle,
+  CheckCircle2,
+  User,
+} from "lucide-react"
+
+interface InviteData {
+  valid: boolean
+  inviter?: {
+    name: string
+  }
+  invitedEmail?: string
+  error?: string
+}
+
+export default function InviteRedemptionPage() {
+  const router = useRouter()
+  const params = useParams()
+  const code = params.code as string
+  const { data: session, isPending: isSessionLoading } = useSession()
+
+  const [inviteData, setInviteData] = React.useState<InviteData | null>(null)
+  const [isValidating, setIsValidating] = React.useState(true)
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  // Signup form state
+  const [name, setName] = React.useState("")
+  const [email, setEmail] = React.useState("")
+  const [password, setPassword] = React.useState("")
+  const [confirmPassword, setConfirmPassword] = React.useState("")
+
+  // Validate invite code on mount
+  React.useEffect(() => {
+    async function validateInvite() {
+      try {
+        const response = await fetch(`/api/invite?code=${encodeURIComponent(code)}`)
+        const data = await response.json()
+
+        if (!response.ok) {
+          setInviteData({ valid: false, error: data.error })
+        } else {
+          setInviteData(data)
+          // Pre-fill email if specified in invite
+          if (data.invitedEmail) {
+            setEmail(data.invitedEmail)
+          }
+        }
+      } catch (err) {
+        setInviteData({ valid: false, error: "Failed to validate invite code" })
+      } finally {
+        setIsValidating(false)
+      }
+    }
+
+    if (code) {
+      validateInvite()
+    }
+  }, [code])
+
+  // Check if logged-in user needs to sign NDA or can proceed
+  React.useEffect(() => {
+    async function checkUserStatus() {
+      if (!session?.user || isValidating || !inviteData?.valid) return
+
+      setIsLoading(true)
+      try {
+        // First, redeem the invite code
+        const redeemResponse = await fetch("/api/invite", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        })
+
+        if (!redeemResponse.ok) {
+          const data = await redeemResponse.json()
+          setError(data.error || "Failed to redeem invite")
+          setIsLoading(false)
+          return
+        }
+
+        // Check if user has signed NDA
+        const ndaResponse = await fetch("/api/nda")
+        const ndaData = await ndaResponse.json()
+
+        if (!ndaData.hasSigned) {
+          // Redirect to NDA page
+          router.push("/auth/nda")
+        } else {
+          // All complete, go to dashboard
+          router.push("/")
+        }
+      } catch (err) {
+        setError("An error occurred while processing your invite")
+        setIsLoading(false)
+      }
+    }
+
+    checkUserStatus()
+  }, [session, isValidating, inviteData, code, router])
+
+  // Handle email signup
+  const handleEmailSignUp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setError(null)
+
+    // Validate passwords match
+    if (password !== confirmPassword) {
+      setError("Passwords do not match")
+      setIsLoading(false)
+      return
+    }
+
+    // Validate password length
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters")
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      const result = await signUp.email({
+        name,
+        email,
+        password,
+      })
+
+      if (result.error) {
+        setError(result.error.message || "Failed to create account")
+        setIsLoading(false)
+        return
+      }
+
+      // Account created, the useEffect will handle the rest
+      // by redeeming the invite and checking NDA
+      router.refresh()
+    } catch (err) {
+      setError("An unexpected error occurred")
+      setIsLoading(false)
+    }
+  }
+
+  // Handle OAuth signup
+  const handleOAuthSignUp = async (provider: "google" | "github") => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      // Store the invite code in localStorage to use after OAuth callback
+      localStorage.setItem("pendingInviteCode", code)
+
+      await signIn.social({
+        provider,
+        callbackURL: `/auth/invite/${code}`,
+      })
+    } catch (err) {
+      setError("Failed to initiate OAuth signup")
+      setIsLoading(false)
+    }
+  }
+
+  // Loading state
+  if (isValidating || isSessionLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[300px] space-y-4">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="text-muted-foreground">Validating invite code...</p>
+      </div>
+    )
+  }
+
+  // Invalid invite code
+  if (!inviteData?.valid) {
+    return (
+      <div className="space-y-6 text-center">
+        <div className="flex justify-center">
+          <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center">
+            <AlertCircle className="h-8 w-8 text-destructive" />
+          </div>
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Invalid Invite</h1>
+          <p className="text-muted-foreground mt-2">
+            {inviteData?.error || "This invite code is invalid or has expired."}
+          </p>
+        </div>
+        <Button asChild variant="outline">
+          <Link href="/auth/login">Go to Login</Link>
+        </Button>
+      </div>
+    )
+  }
+
+  // User is logged in - processing invite
+  if (session?.user) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[300px] space-y-4">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="text-muted-foreground">Processing your invite...</p>
+        {error && (
+          <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+            {error}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Show signup form for new users
+  return (
+    <div className="space-y-6">
+      {/* Invite Header */}
+      <div className="text-center">
+        <div className="flex justify-center mb-4">
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <Gift className="h-6 w-6 text-primary" />
+          </div>
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight">
+          You&apos;re Invited!
+        </h1>
+        <p className="text-muted-foreground mt-2">
+          Join the Claudia Coder beta program
+        </p>
+      </div>
+
+      {/* Inviter Info */}
+      {inviteData.inviter && (
+        <div className="flex items-center justify-center gap-2 p-3 rounded-lg bg-muted/50 border">
+          <User className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm">
+            Invited by <strong>{inviteData.inviter.name}</strong>
+          </span>
+        </div>
+      )}
+
+      {/* OAuth Buttons */}
+      <div className="space-y-3">
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => handleOAuthSignUp("google")}
+          disabled={isLoading}
+        >
+          <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24">
+            <path
+              fill="currentColor"
+              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+            />
+            <path
+              fill="currentColor"
+              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+            />
+            <path
+              fill="currentColor"
+              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+            />
+            <path
+              fill="currentColor"
+              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+            />
+          </svg>
+          Continue with Google
+        </Button>
+
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => handleOAuthSignUp("github")}
+          disabled={isLoading}
+        >
+          <Github className="h-4 w-4 mr-2" />
+          Continue with GitHub
+        </Button>
+      </div>
+
+      {/* Divider */}
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-card px-2 text-muted-foreground">
+            Or sign up with email
+          </span>
+        </div>
+      </div>
+
+      {/* Email/Password Form */}
+      <form onSubmit={handleEmailSignUp} className="space-y-4">
+        {error && (
+          <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="name">Name</Label>
+          <Input
+            id="name"
+            type="text"
+            placeholder="Your name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            disabled={isLoading}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            disabled={isLoading || !!inviteData.invitedEmail}
+          />
+          {inviteData.invitedEmail && (
+            <p className="text-xs text-muted-foreground">
+              This invite was sent to this email address
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            type="password"
+            placeholder="Create a password (min 8 characters)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+            disabled={isLoading}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="confirmPassword">Confirm Password</Label>
+          <Input
+            id="confirmPassword"
+            type="password"
+            placeholder="Confirm your password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            disabled={isLoading}
+          />
+        </div>
+
+        <Button type="submit" className="w-full" disabled={isLoading}>
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Creating account...
+            </>
+          ) : (
+            <>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Create Account
+            </>
+          )}
+        </Button>
+      </form>
+
+      {/* Sign In Link */}
+      <p className="text-center text-sm text-muted-foreground">
+        Already have an account?{" "}
+        <Link
+          href={`/auth/login?callbackUrl=/auth/invite/${code}`}
+          className="text-primary hover:underline font-medium"
+        >
+          Sign in
+        </Link>
+      </p>
+
+      {/* Invite Code Badge */}
+      <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+        <CheckCircle2 className="h-3 w-3 text-green-500" />
+        <span>
+          Invite code: <code className="font-mono">{code}</code>
+        </span>
+      </div>
+    </div>
+  )
+}

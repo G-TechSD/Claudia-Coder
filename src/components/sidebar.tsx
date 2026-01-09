@@ -6,10 +6,13 @@ import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
 import { useApprovals } from "@/hooks/useApprovals"
+import { useAuth } from "@/components/auth/auth-provider"
 import { getTrashedProjects } from "@/lib/data/projects"
 import { UserMenu } from "@/components/auth/user-menu"
+import { BetaUsageSummary } from "@/components/beta/usage-banner"
 import {
   LayoutDashboard,
   Activity,
@@ -27,6 +30,8 @@ import {
   Workflow,
   Terminal,
   Trash2,
+  FlaskConical,
+  ShieldCheck,
 } from "lucide-react"
 
 interface NavItem {
@@ -60,6 +65,8 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = React.useState(false)
   const { starredProjects } = useStarredProjects()
   const { pendingCount: pendingApprovals } = useApprovals()
+  const { user, isBetaTester, betaLimits } = useAuth()
+  const isAdmin = user?.role === "admin"
   const [trashedCount, setTrashedCount] = React.useState(0)
 
   // Refresh trashed count periodically and on path changes
@@ -110,9 +117,20 @@ export function Sidebar() {
             />
           </div>
           {!collapsed && (
-            <span className="font-semibold tracking-tight bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
-              Claudia Coder
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold tracking-tight bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
+                Claudia Coder
+              </span>
+              {isBetaTester && (
+                <Badge
+                  variant="outline"
+                  className="h-5 text-[10px] bg-amber-500/10 text-amber-600 border-amber-500/20 px-1.5"
+                >
+                  <FlaskConical className="h-3 w-3 mr-0.5" />
+                  Beta
+                </Badge>
+              )}
+            </div>
           )}
         </Link>
         <Button
@@ -194,6 +212,24 @@ export function Sidebar() {
             </Link>
           )
         })}
+
+        {/* Admin Link - Only visible to admins */}
+        {isAdmin && (
+          <Link
+            href="/admin"
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              pathname.startsWith("/admin")
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              collapsed && "justify-center px-2"
+            )}
+            title={collapsed ? "Admin" : undefined}
+          >
+            <ShieldCheck className="h-4 w-4 shrink-0" />
+            {!collapsed && <span className="flex-1">Admin</span>}
+          </Link>
+        )}
       </nav>
 
       {/* Divider */}
@@ -230,6 +266,18 @@ export function Sidebar() {
           )
         })}
       </nav>
+
+      {/* Beta Usage Summary */}
+      {isBetaTester && betaLimits && !collapsed && (
+        <div className="border-t p-3">
+          <BetaUsageSummary
+            projectsCurrent={betaLimits.current.projects}
+            projectsLimit={betaLimits.limits.projects}
+            executionsCurrent={betaLimits.current.executions}
+            executionsLimit={betaLimits.limits.executions}
+          />
+        </div>
+      )}
 
       {/* Command Palette Hint */}
       <div className="border-t p-2">

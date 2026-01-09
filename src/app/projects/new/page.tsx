@@ -15,7 +15,9 @@ import { createProject, updateProject, linkRepoToProject, configureLinearSync } 
 import { savePackets, saveBuildPlan } from "@/lib/ai/build-plan"
 import { createGitLabRepo, hasGitLabToken, setGitLabToken, validateGitLabToken, listGitLabProjects } from "@/lib/gitlab/api"
 import { useSettings } from "@/hooks/useSettings"
+import { useAuth } from "@/components/auth/auth-provider"
 import { LLMStatusBadge } from "@/components/llm/llm-status"
+import { BetaUsageBanner } from "@/components/beta/usage-banner"
 import type { InterviewSession, Project } from "@/lib/data/types"
 import {
   ArrowLeft,
@@ -40,7 +42,8 @@ import {
   ExternalLink,
   Plus,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  ShieldAlert
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -124,6 +127,7 @@ interface LinearImportData {
 
 export default function NewProjectPage() {
   const router = useRouter()
+  const { isBetaTester, betaLimits, refreshBetaLimits } = useAuth()
   const [mode, setMode] = useState<Mode>("choose")
   const [interviewSession, setInterviewSession] = useState<InterviewSession | null>(null)
 
@@ -136,6 +140,9 @@ export default function NewProjectPage() {
 
   // Settings for paid API access
   const { settings } = useSettings()
+
+  // Beta tester project limit check
+  const canCreateProject = !isBetaTester || (betaLimits?.canCreateProject ?? true)
 
   // Project setup state
   const [projectName, setProjectName] = useState("")
@@ -572,17 +579,77 @@ export default function NewProjectPage() {
 
   // Mode: Choose - initial screen with description input
   if (mode === "choose") {
+    // If beta tester has reached project limit, show limit reached screen
+    if (isBetaTester && !canCreateProject) {
+      return (
+        <div className="p-6 max-w-2xl mx-auto space-y-8">
+          <div className="text-center space-y-2">
+            <div className="flex items-center justify-center gap-2">
+              <h1 className="text-3xl font-bold">New Project</h1>
+              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20">
+                Beta
+              </Badge>
+            </div>
+          </div>
+
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardHeader className="text-center">
+              <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-amber-500/10 flex items-center justify-center">
+                <ShieldAlert className="h-8 w-8 text-amber-500" />
+              </div>
+              <CardTitle className="text-xl">Project Limit Reached</CardTitle>
+              <CardDescription className="text-base">
+                You have reached your beta tester limit of {betaLimits?.limits.projects || 3} projects.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-center text-sm text-muted-foreground">
+                <p>Current usage: {betaLimits?.current.projects || 0} / {betaLimits?.limits.projects || 3} projects</p>
+              </div>
+
+              <div className="p-4 rounded-lg bg-muted/50 border border-dashed">
+                <p className="text-sm text-muted-foreground text-center">
+                  To create more projects, you can delete existing projects or upgrade to a full account when available.
+                </p>
+              </div>
+
+              <div className="flex gap-3 justify-center">
+                <Button variant="outline" onClick={() => router.push("/projects")}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back to Projects
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+
     return (
       <div className="p-6 max-w-2xl mx-auto space-y-8">
         <div className="text-center space-y-2">
           <div className="flex items-center justify-center gap-2">
             <h1 className="text-3xl font-bold">New Project</h1>
             <LLMStatusBadge />
+            {isBetaTester && (
+              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20">
+                Beta
+              </Badge>
+            )}
           </div>
           <p className="text-muted-foreground">
             Describe what you want to build, then choose your path
           </p>
         </div>
+
+        {/* Beta usage banner */}
+        {isBetaTester && betaLimits && (
+          <BetaUsageBanner
+            type="projects"
+            current={betaLimits.current.projects}
+            limit={betaLimits.limits.projects}
+          />
+        )}
 
         <Card>
           <CardContent className="pt-6 space-y-4">

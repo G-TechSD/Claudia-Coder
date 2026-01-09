@@ -5,9 +5,11 @@ import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GoButton, HeroGoButton } from "./go-button"
 import { ActivityStream, ActivityEvent, ActivityIndicator } from "./activity-stream"
-import { AlertCircle, Settings2, Sparkles, RefreshCw, Zap, Wifi, WifiOff, GitBranch, RotateCcw, CheckCircle2, Loader2, Shield, XCircle } from "lucide-react"
+import { AlertCircle, Settings2, Sparkles, RefreshCw, Zap, Wifi, WifiOff, GitBranch, RotateCcw, CheckCircle2, Loader2, Shield, XCircle, FlaskConical } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { updateQualityGatesFromResult, type QualityGateResult } from "@/lib/quality-gates/store"
+import { useAuth } from "@/components/auth/auth-provider"
+import { BetaUsageBanner } from "@/components/beta/usage-banner"
 
 type ExecutionMode = "local" | "turbo" | "auto" | "n8n"
 
@@ -65,6 +67,7 @@ type ExecutionStatus = "idle" | "ready" | "running" | "complete" | "error"
  * - Error handling with recovery options
  */
 export function ExecutionPanel({ project, packets, className }: ExecutionPanelProps) {
+  const { isBetaTester, betaLimits, refreshBetaLimits } = useAuth()
   const [status, setStatus] = React.useState<ExecutionStatus>("ready")
   const [progress, setProgress] = React.useState(0)
   const [events, setEvents] = React.useState<ActivityEvent[]>([])
@@ -73,6 +76,7 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
   const [isRefining, setIsRefining] = React.useState(false)
   const [executionMode, setExecutionMode] = React.useState<ExecutionMode>("auto")
   const [lastUsedMode, setLastUsedMode] = React.useState<string | null>(null)
+  const [betaLimitReached, setBetaLimitReached] = React.useState(false)
   const [n8nStatus, setN8NStatus] = React.useState<N8NStatus>({
     stage: "idle",
     iteration: 0,
@@ -132,6 +136,14 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
   const handleGo = async () => {
     if (readyPackets.length === 0) return
 
+    // Check beta limits before starting
+    if (isBetaTester && betaLimits && !betaLimits.canExecute) {
+      setBetaLimitReached(true)
+      setError(`Beta execution limit reached. You have used ${betaLimits.current.executions}/${betaLimits.limits.executions} executions today.`)
+      return
+    }
+
+    setBetaLimitReached(false)
     setStatus("running")
     setProgress(0)
     setError(null)
@@ -190,6 +202,23 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
         })
 
         const result = await response.json()
+
+        // Check for beta limit error
+        if (result.code === "BETA_EXECUTION_LIMIT") {
+          setBetaLimitReached(true)
+          setError(result.error)
+          setStatus("error")
+          // Refresh beta limits to get updated count
+          if (refreshBetaLimits) {
+            await refreshBetaLimits()
+          }
+          return
+        }
+
+        // Refresh beta limits after execution (to update count)
+        if (isBetaTester && refreshBetaLimits) {
+          refreshBetaLimits()
+        }
 
         // Track which mode was actually used
         if (result.mode) {
@@ -361,6 +390,17 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
             status={status === "error" ? "idle" : status}
             progress={progress}
           />
+
+          {/* Beta Usage Banner */}
+          {isBetaTester && betaLimits && (
+            <div className="mt-4">
+              <BetaUsageBanner
+                type="executions"
+                current={betaLimits.current.executions}
+                limit={betaLimits.limits.executions}
+              />
+            </div>
+          )}
 
           {/* Execution Mode Selector */}
           <div className="mt-4 p-4 rounded-xl bg-gray-800/50 border border-gray-700/50">

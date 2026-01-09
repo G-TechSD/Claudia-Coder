@@ -9,6 +9,7 @@ interface SelectContextValue {
   onValueChange: (value: string) => void
   open: boolean
   setOpen: (open: boolean) => void
+  disabled: boolean
 }
 
 const SelectContext = React.createContext<SelectContextValue | undefined>(undefined)
@@ -25,15 +26,17 @@ interface SelectProps {
   value?: string
   defaultValue?: string
   onValueChange?: (value: string) => void
+  disabled?: boolean
   children: React.ReactNode
 }
 
-function Select({ value, defaultValue, onValueChange, children }: SelectProps) {
+function Select({ value, defaultValue, onValueChange, disabled = false, children }: SelectProps) {
   const [internalValue, setInternalValue] = React.useState(defaultValue ?? "")
   const [open, setOpen] = React.useState(false)
 
   const currentValue = value ?? internalValue
   const handleValueChange = (newValue: string) => {
+    if (disabled) return
     if (value === undefined) {
       setInternalValue(newValue)
     }
@@ -43,7 +46,7 @@ function Select({ value, defaultValue, onValueChange, children }: SelectProps) {
 
   return (
     <SelectContext.Provider
-      value={{ value: currentValue, onValueChange: handleValueChange, open, setOpen }}
+      value={{ value: currentValue, onValueChange: handleValueChange, open, setOpen, disabled }}
     >
       <div className="relative">{children}</div>
     </SelectContext.Provider>
@@ -56,7 +59,7 @@ interface SelectTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const SelectTrigger = React.forwardRef<HTMLButtonElement, SelectTriggerProps>(
   ({ className, children, ...props }, ref) => {
-    const { open, setOpen } = useSelectContext()
+    const { open, setOpen, disabled } = useSelectContext()
 
     return (
       <button
@@ -64,7 +67,8 @@ const SelectTrigger = React.forwardRef<HTMLButtonElement, SelectTriggerProps>(
         type="button"
         role="combobox"
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        disabled={disabled}
+        onClick={() => !disabled && setOpen(!open)}
         className={cn(
           "flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
           className

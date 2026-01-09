@@ -3,6 +3,36 @@
  * Core types for projects, interviews, and related entities
  */
 
+// ============ User Roles ============
+
+export type UserRole = "admin" | "beta_tester" | "user"
+
+// ============ Beta Invites ============
+
+export interface BetaInvite {
+  id: string
+  email: string
+  inviteCode: string
+  invitedBy: string
+  createdAt: string
+  expiresAt: string
+  usedAt?: string
+  maxUses: number
+  currentUses: number
+}
+
+// ============ NDA Signatures ============
+
+export interface NDASignature {
+  id: string
+  userId: string
+  version: string
+  signedAt: string
+  ipAddress?: string
+  userAgent?: string
+  signatureData: string
+}
+
 // ============ Projects ============
 
 export type ProjectStatus = "planning" | "active" | "paused" | "completed" | "archived" | "trashed"

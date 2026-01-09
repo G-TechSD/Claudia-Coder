@@ -29,11 +29,31 @@ export interface Session {
   session: SessionData
 }
 
+interface BetaLimits {
+  canCreateProject: boolean
+  canExecute: boolean
+  remaining: {
+    projects: number
+    executions: number
+  }
+  current: {
+    projects: number
+    executions: number
+  }
+  limits: {
+    projects: number
+    executions: number
+  }
+}
+
 interface AuthContextType {
   user: User | null
   session: Session | null
   isLoading: boolean
   isAuthenticated: boolean
+  isBetaTester: boolean
+  betaLimits: BetaLimits | null
+  refreshBetaLimits: () => Promise<void>
 }
 
 const AuthContext = React.createContext<AuthContextType>({
@@ -41,10 +61,72 @@ const AuthContext = React.createContext<AuthContextType>({
   session: null,
   isLoading: true,
   isAuthenticated: false,
+  isBetaTester: false,
+  betaLimits: null,
+  refreshBetaLimits: async () => {},
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { data: session, isPending } = useSession()
+  const [userRole, setUserRole] = React.useState<string | null>(null)
+  const [betaLimits, setBetaLimits] = React.useState<BetaLimits | null>(null)
+  const [roleSynced, setRoleSynced] = React.useState(false)
+
+  // Sync role cookie when session changes
+  React.useEffect(() => {
+    const syncRole = async () => {
+      if (session?.user && !roleSynced) {
+        try {
+          const response = await fetch("/api/beta/sync-role", {
+            method: "POST",
+          })
+          if (response.ok) {
+            const data = await response.json()
+            setUserRole(data.role)
+            setRoleSynced(true)
+
+            // If beta tester, fetch limits
+            if (data.role === "beta" || data.role === "beta_tester") {
+              fetchBetaLimits()
+            }
+          }
+        } catch (error) {
+          console.error("Failed to sync role:", error)
+        }
+      } else if (!session?.user) {
+        // Clear role when logged out
+        setUserRole(null)
+        setBetaLimits(null)
+        setRoleSynced(false)
+        // Clear the role cookie
+        fetch("/api/beta/sync-role", { method: "DELETE" }).catch(() => {})
+      }
+    }
+
+    syncRole()
+  }, [session?.user, roleSynced])
+
+  const fetchBetaLimits = React.useCallback(async () => {
+    try {
+      const response = await fetch("/api/beta/limits")
+      if (response.ok) {
+        const data = await response.json()
+        if (data.isBetaTester && data.limits) {
+          setBetaLimits(data.limits)
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch beta limits:", error)
+    }
+  }, [])
+
+  const refreshBetaLimits = React.useCallback(async () => {
+    if (userRole === "beta" || userRole === "beta_tester") {
+      await fetchBetaLimits()
+    }
+  }, [userRole, fetchBetaLimits])
+
+  const isBetaTester = userRole === "beta" || userRole === "beta_tester"
 
   const value = React.useMemo<AuthContextType>(() => ({
     user: session?.user ? {
@@ -52,6 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name: session.user.name,
       email: session.user.email,
       image: session.user.image,
+      role: userRole || undefined,
       emailVerified: session.user.emailVerified,
       createdAt: session.user.createdAt,
       updatedAt: session.user.updatedAt,
@@ -62,6 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: session.user.name,
         email: session.user.email,
         image: session.user.image,
+        role: userRole || undefined,
         emailVerified: session.user.emailVerified,
         createdAt: session.user.createdAt,
         updatedAt: session.user.updatedAt,
@@ -76,7 +160,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } : null,
     isLoading: isPending,
     isAuthenticated: !!session?.user,
-  }), [session, isPending])
+    isBetaTester,
+    betaLimits,
+    refreshBetaLimits,
+  }), [session, isPending, userRole, isBetaTester, betaLimits, refreshBetaLimits])
 
   return (
     <AuthContext.Provider value={value}>

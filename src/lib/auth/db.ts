@@ -88,13 +88,32 @@ export function initializeAuthDatabase() {
     )
   `)
 
+  // Note: Beta invites table (beta_invite) is now managed by src/lib/data/invites.ts
+  // The old beta_invites table schema has been removed to avoid conflicts
+
+  // NDA signatures table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS nda_signatures (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+      version TEXT NOT NULL,
+      signed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      ip_address TEXT,
+      user_agent TEXT,
+      signature_data TEXT NOT NULL
+    )
+  `)
+
   // Create indexes for performance
+  // Note: beta_invite indexes are created in src/lib/data/invites.ts
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_user_email ON user(email);
     CREATE INDEX IF NOT EXISTS idx_session_token ON session(token);
     CREATE INDEX IF NOT EXISTS idx_session_userId ON session(userId);
     CREATE INDEX IF NOT EXISTS idx_account_userId ON account(userId);
     CREATE INDEX IF NOT EXISTS idx_account_provider ON account(providerId, accountId);
+    CREATE INDEX IF NOT EXISTS idx_nda_signatures_user_id ON nda_signatures(user_id);
+    CREATE INDEX IF NOT EXISTS idx_nda_signatures_version ON nda_signatures(version);
   `)
 
   console.log("[Auth] Database initialized at:", DB_PATH)

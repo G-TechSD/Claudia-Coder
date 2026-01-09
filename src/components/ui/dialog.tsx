@@ -114,3 +114,25 @@ export function DialogFooter({
     />
   )
 }
+
+// DialogTrigger - a simple wrapper that renders children and calls onClick
+interface DialogTriggerProps {
+  asChild?: boolean
+  children: React.ReactNode
+  onClick?: () => void
+}
+
+export function DialogTrigger({ asChild, children, onClick }: DialogTriggerProps) {
+  if (asChild && React.isValidElement(children)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return React.cloneElement(children as React.ReactElement<any>, {
+      onClick: (e: React.MouseEvent) => {
+        onClick?.()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const childProps = children.props as any
+        childProps.onClick?.(e)
+      },
+    })
+  }
+  return <button onClick={onClick}>{children}</button>
+}
