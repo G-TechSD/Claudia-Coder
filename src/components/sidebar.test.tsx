@@ -9,7 +9,7 @@ vi.mock("next/navigation", () => ({
 }))
 
 // Mock Next.js Link component
-jest.mock("next/link", () => ({
+vi.mock("next/link", () => ({
   __esModule: true,
   default: ({ children, href }: { children: React.ReactNode; href: string }) => (
     <a href={href}>{children}</a>
@@ -17,7 +17,7 @@ jest.mock("next/link", () => ({
 }))
 
 // Mock Next.js Image component
-jest.mock("next/image", () => ({
+vi.mock("next/image", () => ({
   __esModule: true,
   default: ({ alt, ...props }: { alt: string; [key: string]: unknown }) => (
     // eslint-disable-next-line @next/next/no-img-element
@@ -26,7 +26,7 @@ jest.mock("next/image", () => ({
 }))
 
 // Mock custom hooks
-jest.mock("@/hooks/useStarredProjects", () => ({
+vi.mock("@/hooks/useStarredProjects", () => ({
   useStarredProjects: () => ({ starredProjects: [] }),
 }))
 

@@ -46,6 +46,8 @@ describe('MCP Storage', () => {
         name: 'Test Server',
         command: 'node',
         args: ['server.js'],
+        enabled: true,
+        scope: 'global' as const,
       };
 
       const server = addMCPServer(serverData);
@@ -61,6 +63,8 @@ describe('MCP Storage', () => {
         name: 'Test Server',
         command: 'node',
         args: ['server.js'],
+        enabled: true,
+        scope: 'global' as const,
       };
 
       addMCPServer(serverData);
