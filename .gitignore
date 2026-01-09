@@ -48,3 +48,8 @@ localhost.key
 
 # Generated projects (can be regenerated)
 generated/
+
+# Auth database
+.local-storage/auth.db
+.local-storage/auth.db-shm
+.local-storage/auth.db-wal

@@ -165,9 +165,24 @@ function saveInterviews(interviews: InterviewSession[]): void {
 /**
  * Get all projects, optionally including trashed projects
  * By default, trashed projects are excluded
+ * If userId is provided, only returns projects owned by that user or public projects
  */
-export function getAllProjects(options?: { includeTrashed?: boolean }): Project[] {
-  const projects = getStoredProjects()
+export function getAllProjects(options?: {
+  includeTrashed?: boolean
+  userId?: string
+}): Project[] {
+  let projects = getStoredProjects()
+
+  // Filter by user if userId is provided
+  if (options?.userId) {
+    projects = projects.filter(p =>
+      p.userId === options.userId ||
+      p.isPublic === true ||
+      p.collaboratorIds?.includes(options.userId!) ||
+      !p.userId // Legacy projects without userId - show to all users for now
+    )
+  }
+
   if (options?.includeTrashed) {
     return projects
   }

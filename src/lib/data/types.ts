@@ -44,6 +44,10 @@ export interface Project {
   createdAt: string
   updatedAt: string
 
+  // User ownership - required for multi-user support
+  // Projects are scoped to the user who created them
+  userId?: string
+
   // Working directory - always available for Claude Code
   // Created at /home/bill/claudia-projects/{project-slug}/
   workingDirectory?: string
@@ -74,6 +78,10 @@ export interface Project {
   // Trash metadata - tracks when project was trashed and what status it had before
   trashedAt?: string
   previousStatus?: ProjectStatus
+
+  // Collaboration (future feature)
+  collaboratorIds?: string[]
+  isPublic?: boolean
 }
 
 // ============ Interviews ============

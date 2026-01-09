@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
 import { useApprovals } from "@/hooks/useApprovals"
 import { getTrashedProjects } from "@/lib/data/projects"
+import { UserMenu } from "@/components/auth/user-menu"
 import {
   LayoutDashboard,
   Activity,
@@ -249,6 +250,11 @@ export function Sidebar() {
             </>
           )}
         </Button>
+      </div>
+
+      {/* User Menu */}
+      <div className="border-t p-2">
+        <UserMenu collapsed={collapsed} />
       </div>
 
       {/* Collapse Toggle (when collapsed) */}

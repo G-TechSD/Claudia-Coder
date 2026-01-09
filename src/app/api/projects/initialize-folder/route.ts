@@ -31,6 +31,7 @@ import {
   getPacketFilename,
   generateSlug
 } from "@/lib/project-files/generators"
+import { verifyApiAuth, unauthorizedResponse } from "@/lib/auth/api-helpers"
 
 const execAsync = promisify(exec)
 
@@ -255,6 +256,12 @@ function convertToBuildPlanFormat(stored: StoredBuildPlan): {
  * POST - Initialize project folder structure
  */
 export async function POST(request: NextRequest) {
+  // Verify authentication
+  const auth = await verifyApiAuth()
+  if (!auth) {
+    return unauthorizedResponse()
+  }
+
   try {
     const body = await request.json() as InitializeRequest
 
@@ -566,6 +573,12 @@ export async function POST(request: NextRequest) {
  * GET - Preview initialization (dry run)
  */
 export async function GET(request: NextRequest) {
+  // Verify authentication
+  const auth = await verifyApiAuth()
+  if (!auth) {
+    return unauthorizedResponse()
+  }
+
   try {
     const searchParams = request.nextUrl.searchParams
     const projectId = searchParams.get("projectId")
