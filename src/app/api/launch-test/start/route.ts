@@ -11,7 +11,7 @@ const execAsync = promisify(exec)
 
 // Store running processes globally
 declare global {
-  // eslint-disable-next-line no-var
+   
   var launchTestProcesses: Map<string, {
     process: ChildProcess
     projectId: string

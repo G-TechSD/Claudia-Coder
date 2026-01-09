@@ -125,7 +125,7 @@ export async function executePacket(
   const logs: ExecutionLog[] = []
   const errors: string[] = []
   const taskResults: TaskExecutionResult[] = []
-  let totalTokens = 0
+  const totalTokens = 0
   let allFiles: FileChange[] = []
 
   const log = (level: ExecutionLog["level"], message: string, data?: unknown) => {

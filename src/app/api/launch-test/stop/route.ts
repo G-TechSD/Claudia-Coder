@@ -8,7 +8,7 @@ import { ChildProcess } from "child_process"
 
 // Reference the global process store from start/route.ts
 declare global {
-  // eslint-disable-next-line no-var
+   
   var launchTestProcesses: Map<string, {
     process: ChildProcess
     projectId: string

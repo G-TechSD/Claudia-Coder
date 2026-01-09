@@ -202,7 +202,7 @@ function SettingsPageContent() {
         window.history.replaceState({}, "", window.location.pathname + "?tab=ai-services")
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [searchParams])
 
   // Fetch real status on component mount
