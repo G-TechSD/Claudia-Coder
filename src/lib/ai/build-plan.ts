@@ -89,6 +89,20 @@ export interface WorkPacket {
 
   // Acceptance criteria
   acceptanceCriteria: string[]
+
+  // Existing packet tracking
+  existing?: boolean // true if this packet existed before plan generation
+}
+
+export interface PacketSummary {
+  existingCount: number
+  newCount: number
+  summary: string
+}
+
+export interface BuildPlanParseResult {
+  plan: BuildPlan
+  packetSummary: PacketSummary
 }
 
 export type PacketType =
@@ -191,24 +205,39 @@ export function generateBuildPlanPrompt(
   let existingPacketsSection = ""
   if (existingPackets && existingPackets.length > 0) {
     const packetList = existingPackets
-      .map(p => {
+      .map((p, i) => {
         const status = p.status ? ` [${p.status}]` : ""
         const source = p.source ? ` (from: ${p.source})` : ""
         const desc = p.description ? `\n     ${p.description}` : ""
-        return `  - "${p.title}"${status}${source}${desc}`
+        return `  ${i + 1}. "${p.title}"${status}${source} (id: ${p.id})${desc}`
       })
       .join("\n")
 
     existingPacketsSection = `
 
-EXISTING PACKETS (DO NOT DUPLICATE):
-The following work packets already exist for this project. Your build plan should:
-1. NOT create packets that duplicate this existing work
-2. Reference existing packets where appropriate (e.g., "depends on existing packet X")
-3. Fill in gaps - identify work that is NOT covered by existing packets
-4. Complement existing work - create packets that build upon what's already planned
+EXISTING PACKETS - CRITICAL INSTRUCTIONS:
+There are ${existingPackets.length} existing work packets for this project. You MUST:
 
-Existing packets:
+1. INCLUDE ALL ${existingPackets.length} EXISTING PACKETS in your output packets array
+   - Mark each with "existing": true
+   - Preserve their original id, title, and description
+   - You may update their status, priority, or add dependencies if logical
+
+2. ADD NEW PACKETS ONLY WHERE GAPS EXIST
+   - Mark new packets with "existing": false
+   - Give new packets unique IDs (use "new-pkt-1", "new-pkt-2", etc.)
+   - Only create new packets for work NOT already covered
+
+3. NEVER DUPLICATE existing work - if similar work exists, reference it instead
+
+4. INCLUDE A PACKET SUMMARY in your JSON output:
+   "packetSummary": {
+     "existingCount": ${existingPackets.length},
+     "newCount": <number of new packets you're proposing>,
+     "summary": "${existingPackets.length} existing packets accounted for, X new packets proposed"
+   }
+
+Existing packets to include (${existingPackets.length} total):
 ${packetList}
 `
   }
@@ -264,6 +293,7 @@ Generate the build plan as JSON with this structure:
       "type": "feature",
       "priority": "high",
       "status": "queued",
+      "existing": false,
       "tasks": [
         { "id": "task-1", "description": "string", "completed": false, "order": 1 }
       ],
@@ -274,6 +304,11 @@ Generate the build plan as JSON with this structure:
       "acceptanceCriteria": ["string"]
     }
   ],
+  "packetSummary": {
+    "existingCount": 0,
+    "newCount": 1,
+    "summary": "0 existing packets accounted for, 1 new packet proposed"
+  },
   "modelAssignments": [
     {
       "packetId": "pkt-1",
@@ -404,13 +439,13 @@ function tryParseJSON(content: string): Record<string, unknown> | null {
 }
 
 /**
- * Parse LLM response into BuildPlan
+ * Parse LLM response into BuildPlan with packet summary
  */
 export function parseBuildPlanResponse(
   response: string,
   projectId: string,
   generatedBy: string
-): BuildPlan | null {
+): BuildPlanParseResult | null {
   try {
     // Clean up response - remove markdown code blocks wrapper
     let content = response.trim()
@@ -468,7 +503,7 @@ export function parseBuildPlanResponse(
       }
     })
 
-    // Build packets with defaults
+    // Build packets with defaults, including existing flag
     const buildPackets: BuildPlan["packets"] = packets.map((p: unknown, i: number) => {
       const packet = p as Record<string, unknown>
       const tasks = Array.isArray(packet.tasks) ? packet.tasks : []
@@ -481,6 +516,7 @@ export function parseBuildPlanResponse(
         type: ((packet.type as string) || "feature") as PacketType,
         priority: ((packet.priority as string) || "medium") as "critical" | "high" | "medium" | "low",
         status: "queued" as const,
+        existing: Boolean(packet.existing), // Parse existing flag from LLM response
         tasks: tasks.map((t: unknown, j: number) => {
           if (typeof t === "string") {
             return { id: `task-${i}-${j}`, description: t, completed: false, order: j }
@@ -515,7 +551,19 @@ export function parseBuildPlanResponse(
       })
     }
 
-    return {
+    // Parse packet summary from LLM response or calculate from packets
+    const llmPacketSummary = parsed.packetSummary as Record<string, unknown> | undefined
+    const existingCount = buildPackets.filter(p => p.existing).length
+    const newCount = buildPackets.filter(p => !p.existing).length
+
+    const packetSummary: PacketSummary = {
+      existingCount: (llmPacketSummary?.existingCount as number) ?? existingCount,
+      newCount: (llmPacketSummary?.newCount as number) ?? newCount,
+      summary: (llmPacketSummary?.summary as string) ||
+        `${existingCount} existing packets accounted for, ${newCount} new packets proposed`
+    }
+
+    const plan: BuildPlan = {
       id: crypto.randomUUID(),
       projectId,
       createdAt: new Date().toISOString(),
@@ -532,6 +580,8 @@ export function parseBuildPlanResponse(
       generatedBy,
       version: 1
     }
+
+    return { plan, packetSummary }
   } catch (error) {
     console.error("Failed to parse build plan:", error)
     return null

@@ -68,9 +68,11 @@ interface BuildPlanEditorProps {
   projectName: string
   projectDescription: string
   projectStatus: ProjectStatus
+  workingDirectory?: string
   providers: ProviderOption[]
   selectedProvider: string | null
   onProviderChange: (provider: string) => void
+  onKickoffGenerated?: (kickoffPath: string) => void
   className?: string
 }
 
@@ -114,9 +116,11 @@ export function BuildPlanEditor({
   projectName,
   projectDescription,
   projectStatus,
+  workingDirectory,
   providers,
   selectedProvider,
   onProviderChange,
+  onKickoffGenerated,
   className
 }: BuildPlanEditorProps) {
   const [storedPlan, setStoredPlan] = useState<StoredBuildPlan | null>(null)
@@ -631,6 +635,50 @@ export function BuildPlanEditor({
 
       // Save packets to storage
       savePackets(projectId, workPackets)
+
+      // Generate KICKOFF.md if working directory is available
+      if (workingDirectory) {
+        setPacketGenerationStatus("Generating KICKOFF.md...")
+
+        try {
+          const kickoffResponse = await fetch(`/api/projects/${projectId}/generate-kickoff`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workingDirectory,
+              project: {
+                id: projectId,
+                name: projectName,
+                description: projectDescription,
+                status: projectStatus,
+                priority: "medium",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                workingDirectory,
+                repos: [],
+                packetIds: [],
+                tags: []
+              },
+              buildPlan: storedPlan,
+              generateAllDocs: true // Generate PRD, BUILD_PLAN, and packet files too
+            })
+          })
+
+          const kickoffData = await kickoffResponse.json()
+
+          if (kickoffResponse.ok && kickoffData.success) {
+            console.log(`[build-plan-editor] Generated KICKOFF.md at: ${kickoffData.kickoffPath}`)
+            if (onKickoffGenerated) {
+              onKickoffGenerated(kickoffData.kickoffPath)
+            }
+          } else {
+            console.warn("[build-plan-editor] Failed to generate KICKOFF.md:", kickoffData.error)
+          }
+        } catch (kickoffErr) {
+          console.warn("[build-plan-editor] Error generating KICKOFF.md:", kickoffErr)
+          // Don't fail the whole operation just because kickoff generation failed
+        }
+      }
 
       setPacketGenerationStatus(`Generated ${workPackets.length} packets successfully!`)
 

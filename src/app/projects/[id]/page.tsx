@@ -835,9 +835,14 @@ export default function ProjectDetailPage() {
                   projectName={project.name}
                   projectDescription={project.description}
                   projectStatus={project.status}
+                  workingDirectory={getEffectiveWorkingDirectory(project)}
                   providers={providers}
                   selectedProvider={selectedProvider}
                   onProviderChange={setSelectedProvider}
+                  onKickoffGenerated={(kickoffPath) => {
+                    console.log(`[project-page] KICKOFF.md generated at: ${kickoffPath}`)
+                    // Optionally refresh or update UI
+                  }}
                 />
               </CardContent>
             </Card>
@@ -994,9 +999,13 @@ export default function ProjectDetailPage() {
             projectName={project.name}
             projectDescription={project.description}
             projectStatus={project.status}
+            workingDirectory={getEffectiveWorkingDirectory(project)}
             providers={providers}
             selectedProvider={selectedProvider}
             onProviderChange={setSelectedProvider}
+            onKickoffGenerated={(kickoffPath) => {
+              console.log(`[project-page] KICKOFF.md generated at: ${kickoffPath}`)
+            }}
           />
         </TabsContent>
 

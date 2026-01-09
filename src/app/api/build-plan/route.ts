@@ -5,7 +5,8 @@ import {
   generateBuildPlanPrompt,
   parseBuildPlanResponse,
   validateBuildPlan,
-  type ExistingPacketInfo
+  type ExistingPacketInfo,
+  type PacketSummary
 } from "@/lib/ai/build-plan"
 
 /**
@@ -69,16 +70,17 @@ export async function POST(request: NextRequest) {
           const data = await response.json()
           const content = data.choices?.[0]?.message?.content || ""
 
-          const plan = parseBuildPlanResponse(content, projectId, "openai:gpt-4o")
+          const result = parseBuildPlanResponse(content, projectId, "openai:gpt-4o")
 
-          if (plan) {
-            const validation = validateBuildPlan(plan)
+          if (result) {
+            const validation = validateBuildPlan(result.plan)
             return NextResponse.json({
-              plan,
+              plan: result.plan,
               validation,
               source: "openai",
               server: "OpenAI",
-              model: "gpt-4o"
+              model: "gpt-4o",
+              packetSummary: result.packetSummary
             })
           }
         }
@@ -117,16 +119,17 @@ export async function POST(request: NextRequest) {
           const data = await response.json()
           const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
 
-          const plan = parseBuildPlanResponse(content, projectId, "google:gemini-1.5-pro")
+          const result = parseBuildPlanResponse(content, projectId, "google:gemini-1.5-pro")
 
-          if (plan) {
-            const validation = validateBuildPlan(plan)
+          if (result) {
+            const validation = validateBuildPlan(result.plan)
             return NextResponse.json({
-              plan,
+              plan: result.plan,
               validation,
               source: "google",
               server: "Google Gemini",
-              model: "gemini-1.5-pro"
+              model: "gemini-1.5-pro",
+              packetSummary: result.packetSummary
             })
           }
         }
@@ -158,16 +161,17 @@ export async function POST(request: NextRequest) {
           ? response.content[0].text
           : ""
 
-        const plan = parseBuildPlanResponse(content, projectId, "anthropic:claude-opus-4")
+        const result = parseBuildPlanResponse(content, projectId, "anthropic:claude-opus-4")
 
-        if (plan) {
-          const validation = validateBuildPlan(plan)
+        if (result) {
+          const validation = validateBuildPlan(result.plan)
           return NextResponse.json({
-            plan,
+            plan: result.plan,
             validation,
             source: "anthropic",
             server: "Claude Code",
-            model: "claude-opus-4"
+            model: "claude-opus-4",
+            packetSummary: result.packetSummary
           })
         }
       } catch (error) {
@@ -198,20 +202,21 @@ export async function POST(request: NextRequest) {
           ? response.content[0].text
           : ""
 
-        const plan = parseBuildPlanResponse(
+        const result = parseBuildPlanResponse(
           content,
           projectId,
           "anthropic:claude-sonnet-4"
         )
 
-        if (plan) {
-          const validation = validateBuildPlan(plan)
+        if (result) {
+          const validation = validateBuildPlan(result.plan)
           return NextResponse.json({
-            plan,
+            plan: result.plan,
             validation,
             source: "anthropic",
             server: "Anthropic",
-            model: "claude-sonnet-4"
+            model: "claude-sonnet-4",
+            packetSummary: result.packetSummary
           })
         }
       } catch (error) {
@@ -259,20 +264,21 @@ export async function POST(request: NextRequest) {
     console.log(`[build-plan] ========================================`)
 
     if (!localResponse.error) {
-      const plan = parseBuildPlanResponse(
+      const result = parseBuildPlanResponse(
         localResponse.content,
         projectId,
         `local:${localResponse.server}:${localResponse.model}`
       )
 
-      if (plan) {
-        const validation = validateBuildPlan(plan)
+      if (result) {
+        const validation = validateBuildPlan(result.plan)
         return NextResponse.json({
-          plan,
+          plan: result.plan,
           validation,
           source: "local",
           server: localResponse.server,
-          model: localResponse.model
+          model: localResponse.model,
+          packetSummary: result.packetSummary
         })
       }
     }
@@ -296,20 +302,21 @@ export async function POST(request: NextRequest) {
           ? response.content[0].text
           : ""
 
-        const plan = parseBuildPlanResponse(
+        const result = parseBuildPlanResponse(
           content,
           projectId,
           "anthropic:claude-sonnet-4"
         )
 
-        if (plan) {
-          const validation = validateBuildPlan(plan)
+        if (result) {
+          const validation = validateBuildPlan(result.plan)
           return NextResponse.json({
-            plan,
+            plan: result.plan,
             validation,
             source: "anthropic",
             model: "claude-sonnet-4",
-            warning: "Using paid API - local LLM unavailable"
+            warning: "Using paid API - local LLM unavailable",
+            packetSummary: result.packetSummary
           })
         }
       } catch (error) {
