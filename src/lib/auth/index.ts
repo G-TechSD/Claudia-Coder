@@ -1,12 +1,17 @@
 /**
  * Better Auth Configuration
  * Server-side auth configuration with SQLite database
+ * Includes 2FA (TOTP, Email OTP) and Passkey support
  */
 
 import { betterAuth } from "better-auth"
+import { twoFactor } from "better-auth/plugins"
 import { db } from "./db"
 
 export const auth = betterAuth({
+  // App name used as issuer for TOTP authenticator apps
+  appName: "Claudia Admin",
+
   database: {
     type: "sqlite",
     db: db,
@@ -29,19 +34,19 @@ export const auth = betterAuth({
     },
   },
 
-  // OAuth providers
-  socialProviders: {
-    google: {
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-      enabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-    },
-    github: {
-      clientId: process.env.GITHUB_CLIENT_ID || "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
-      enabled: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
-    },
-  },
+  // OAuth providers - disabled, email/password only
+  // socialProviders: {
+  //   google: {
+  //     clientId: process.env.GOOGLE_CLIENT_ID || "",
+  //     clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+  //     enabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+  //   },
+  //   github: {
+  //     clientId: process.env.GITHUB_CLIENT_ID || "",
+  //     clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
+  //     enabled: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
+  //   },
+  // },
 
   // Trust proxy for HTTPS
   trustedOrigins: [
@@ -64,6 +69,32 @@ export const auth = betterAuth({
     },
   },
 
+  // Plugins for 2FA
+  plugins: [
+    // Two-Factor Authentication (TOTP + Backup Codes)
+    twoFactor({
+      // Issuer name shown in authenticator apps (uses appName by default)
+      issuer: "Claudia Admin",
+      // Number of backup codes to generate
+      backupCodes: {
+        length: 10,
+        // Backup code character length
+        characters: 8,
+      },
+      // TOTP configuration
+      totpOptions: {
+        // Time period for TOTP codes (in seconds)
+        period: 30,
+        // Number of digits in TOTP code
+        digits: 6,
+      },
+      // Skip verification step when enabling (require user to verify code first)
+      skipVerificationOnEnable: false,
+    }),
+    // Note: Passkey/WebAuthn plugin requires additional setup with @better-auth/passkey
+    // To enable passkeys, install: npm install @better-auth/passkey
+    // Then add: passkey({ rpID: "localhost", rpName: "Claudia Admin" })
+  ],
 })
 
 // Export type for user

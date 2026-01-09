@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/sidebar"
 import { CommandPalette } from "@/components/command-palette"
 import { GlobalVoiceButton } from "@/components/voice/global-voice-button"
 import { useAuth } from "@/components/auth/auth-provider"
+import { SessionRecorderProvider } from "@/components/session-tracking/session-recorder"
 
 interface AppShellProps {
   children: React.ReactNode
@@ -45,18 +46,21 @@ export function AppShell({ children }: AppShellProps) {
 
   // Render the layout structure immediately to prevent black screen
   // Only conditionally render client-only components (CommandPalette, GlobalVoiceButton)
+  // SessionRecorderProvider wraps authenticated content and internally checks for beta testers
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {showSidebar && <Sidebar />}
-      <main className="flex-1 overflow-auto">
-        {children}
-      </main>
-      {mounted && showSidebar && (
-        <>
-          <CommandPalette />
-          <GlobalVoiceButton />
-        </>
-      )}
-    </div>
+    <SessionRecorderProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
+        {showSidebar && <Sidebar />}
+        <main className="flex-1 overflow-auto">
+          {children}
+        </main>
+        {mounted && showSidebar && (
+          <>
+            <CommandPalette />
+            <GlobalVoiceButton />
+          </>
+        )}
+      </div>
+    </SessionRecorderProvider>
   )
 }

@@ -27,10 +27,12 @@ import {
   DollarSign,
   Key,
   RefreshCw,
+  KeyRound,
 } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/components/auth/auth-provider"
+import { ResetPasswordDialog } from "@/components/admin/reset-password-dialog"
 
 interface AdminUser {
   id: string
@@ -115,6 +117,10 @@ export default function UsersPage() {
   const [loadingBudget, setLoadingBudget] = React.useState(false)
   const [editingBudget, setEditingBudget] = React.useState(false)
   const [newBudgetAmount, setNewBudgetAmount] = React.useState("")
+
+  // Password reset state
+  const [resetPasswordOpen, setResetPasswordOpen] = React.useState(false)
+  const [resetPasswordUser, setResetPasswordUser] = React.useState<AdminUser | null>(null)
 
   const fetchUsers = React.useCallback(async () => {
     try {
@@ -575,6 +581,34 @@ export default function UsersPage() {
                   </div>
                 </div>
 
+                {/* Reset Password - Only for beta testers (non-admin users) */}
+                {selectedUser.role === "beta_tester" && selectedUser.id !== currentUser?.id && (
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
+                    <div className="flex items-center gap-2">
+                      <KeyRound className="h-4 w-4 text-orange-400" />
+                      <div>
+                        <p className="text-sm font-medium">Password</p>
+                        <p className="text-xs text-muted-foreground">
+                          Reset user's login password
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setResetPasswordUser(selectedUser)
+                        setResetPasswordOpen(true)
+                      }}
+                      disabled={updating === selectedUser.id}
+                      className="gap-1"
+                    >
+                      <KeyRound className="h-3 w-3" />
+                      Reset Password
+                    </Button>
+                  </div>
+                )}
+
                 {/* API Budget - Only for beta testers */}
                 {(selectedUser.role === "beta_tester" || selectedUser.role === "beta") && (
                   <div className="space-y-3 p-4 rounded-lg border border-primary/20 bg-primary/5">
@@ -751,6 +785,16 @@ export default function UsersPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Reset Password Dialog */}
+      <ResetPasswordDialog
+        open={resetPasswordOpen}
+        onOpenChange={setResetPasswordOpen}
+        user={resetPasswordUser}
+        onSuccess={() => {
+          // Dialog handles its own state, just close when done
+        }}
+      />
     </div>
   )
 }

@@ -62,6 +62,13 @@ export function initializeAuthDatabase() {
     // Column already exists
   }
 
+  // Add twoFactorEnabled column if it doesn't exist (for 2FA migration)
+  try {
+    db.exec(`ALTER TABLE user ADD COLUMN twoFactorEnabled INTEGER DEFAULT 0`)
+  } catch {
+    // Column already exists
+  }
+
   // Sessions table
   db.exec(`
     CREATE TABLE IF NOT EXISTS session (
@@ -124,6 +131,36 @@ export function initializeAuthDatabase() {
     )
   `)
 
+  // Two-Factor Authentication table (for Better Auth twoFactor plugin)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS twoFactor (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+      secret TEXT NOT NULL,
+      backupCodes TEXT NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  // Passkey/WebAuthn credentials table (for Better Auth passkey plugin)
+  // Note: Passkey plugin requires @better-auth/passkey package to be installed
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS passkey (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+      name TEXT,
+      publicKey TEXT NOT NULL,
+      credentialId TEXT NOT NULL UNIQUE,
+      counter INTEGER NOT NULL DEFAULT 0,
+      deviceType TEXT,
+      backedUp INTEGER DEFAULT 0,
+      transports TEXT,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
   // Create indexes for performance
   // Note: beta_invite indexes are created in src/lib/data/invites.ts
   db.exec(`
@@ -134,6 +171,9 @@ export function initializeAuthDatabase() {
     CREATE INDEX IF NOT EXISTS idx_account_provider ON account(providerId, accountId);
     CREATE INDEX IF NOT EXISTS idx_nda_signatures_user_id ON nda_signatures(user_id);
     CREATE INDEX IF NOT EXISTS idx_nda_signatures_version ON nda_signatures(version);
+    CREATE INDEX IF NOT EXISTS idx_twoFactor_userId ON twoFactor(userId);
+    CREATE INDEX IF NOT EXISTS idx_passkey_userId ON passkey(userId);
+    CREATE INDEX IF NOT EXISTS idx_passkey_credentialId ON passkey(credentialId);
   `)
 
   console.log("[Auth] Database initialized at:", DB_PATH)

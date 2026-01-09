@@ -25,6 +25,7 @@ import {
   Trash2,
   FlaskConical,
   ShieldCheck,
+  Shield,
   Lightbulb,
   FileCheck,
   Search,
@@ -39,6 +40,7 @@ import {
   Briefcase,
   ExternalLink,
   GitBranch,
+  Video,
 } from "lucide-react"
 
 interface NavItem {
@@ -78,9 +80,11 @@ const toolsItems: NavItem[] = [
 // Admin category items
 const adminItems: NavItem[] = [
   { title: "Users", href: "/admin/users", icon: Users },
+  { title: "Sessions", href: "/admin/sessions", icon: Video },
   { title: "Invites", href: "/admin/invites", icon: UserPlus },
   { title: "Referrals", href: "/admin/referrals", icon: Gift },
   { title: "Settings", href: "/settings", icon: Settings },
+  { title: "Security", href: "/settings/security", icon: Shield },
 ]
 
 const STORAGE_KEY = "sidebar-accordion-state"

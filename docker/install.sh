@@ -103,6 +103,10 @@ if [ ! -f .env ]; then
     N8N_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
     N8N_ENCRYPTION=$(openssl rand -hex 16)
 
+    # Generate default admin credentials
+    DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-"admin@localhost"}
+    DEFAULT_ADMIN_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9!@#$%' | head -c 20)
+
     # Update .env with generated secrets
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS sed
@@ -110,12 +114,26 @@ if [ ! -f .env ]; then
         sed -i '' "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env
         sed -i '' "s|N8N_PASSWORD=.*|N8N_PASSWORD=${N8N_PASSWORD}|" .env
         sed -i '' "s|N8N_ENCRYPTION_KEY=.*|N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION}|" .env
+        # Add admin credentials to .env if not present
+        if ! grep -q "DEFAULT_ADMIN_EMAIL" .env; then
+            echo "" >> .env
+            echo "# Default Admin Credentials" >> .env
+            echo "DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL}" >> .env
+            echo "DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD}" >> .env
+        fi
     else
         # Linux sed
         sed -i "s|BETTER_AUTH_SECRET=.*|BETTER_AUTH_SECRET=${AUTH_SECRET}|" .env
         sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env
         sed -i "s|N8N_PASSWORD=.*|N8N_PASSWORD=${N8N_PASSWORD}|" .env
         sed -i "s|N8N_ENCRYPTION_KEY=.*|N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION}|" .env
+        # Add admin credentials to .env if not present
+        if ! grep -q "DEFAULT_ADMIN_EMAIL" .env; then
+            echo "" >> .env
+            echo "# Default Admin Credentials" >> .env
+            echo "DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL}" >> .env
+            echo "DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD}" >> .env
+        fi
     fi
 
     echo -e "${GREEN}  Secure secrets generated and saved to .env${NC}"
@@ -225,6 +243,27 @@ done
 echo -e " ${GREEN}Ready${NC}"
 
 # ============================================
+# Create Default Admin User
+# ============================================
+
+echo ""
+echo -e "${YELLOW}Creating default admin account...${NC}"
+
+# Read admin credentials from .env
+DEFAULT_ADMIN_EMAIL=$(grep DEFAULT_ADMIN_EMAIL .env | cut -d= -f2)
+DEFAULT_ADMIN_PASSWORD=$(grep DEFAULT_ADMIN_PASSWORD .env | cut -d= -f2)
+
+# Create admin user via API or direct DB script
+if [ -n "$DEFAULT_ADMIN_EMAIL" ] && [ -n "$DEFAULT_ADMIN_PASSWORD" ]; then
+    # Execute the create-default-admin script inside the container
+    docker exec claudia-app node /app/scripts/create-default-admin.js "$DEFAULT_ADMIN_EMAIL" "$DEFAULT_ADMIN_PASSWORD" 2>/dev/null || \
+    docker exec -e DEFAULT_ADMIN_EMAIL="$DEFAULT_ADMIN_EMAIL" -e DEFAULT_ADMIN_PASSWORD="$DEFAULT_ADMIN_PASSWORD" claudia-app node /app/scripts/create-default-admin.js 2>/dev/null || \
+    echo -e "${YELLOW}  Note: Default admin will be created on first access${NC}"
+
+    echo -e "${GREEN}  Default admin account configured${NC}"
+fi
+
+# ============================================
 # Print Access Information
 # ============================================
 
@@ -252,6 +291,16 @@ echo ""
 echo -e "${BLUE}n8n Credentials:${NC}"
 echo "  Username: $(grep N8N_USER .env | cut -d= -f2)"
 echo "  Password: $(grep N8N_PASSWORD .env | cut -d= -f2)"
+echo ""
+echo -e "${BLUE}Claudia Admin Credentials:${NC}"
+echo "  Email:    $(grep DEFAULT_ADMIN_EMAIL .env | cut -d= -f2)"
+echo "  Password: $(grep DEFAULT_ADMIN_PASSWORD .env | cut -d= -f2)"
+echo ""
+echo -e "${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${RED}║  SECURITY WARNING: Change these default credentials ASAP!     ║${NC}"
+echo -e "${RED}║  Go to Settings > Security in Claudia to update your password ║${NC}"
+echo -e "${RED}║  and enable Two-Factor Authentication (2FA) for protection.   ║${NC}"
+echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${BLUE}Useful Commands:${NC}"
 echo "  View logs:      $COMPOSE_CMD logs -f"

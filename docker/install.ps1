@@ -114,6 +114,10 @@ if (-not (Test-Path ".env")) {
     $N8nPassword = Get-RandomString -Length 16
     $N8nEncryption = Get-RandomString -Length 32
 
+    # Generate default admin credentials
+    $DefaultAdminEmail = if ($env:DEFAULT_ADMIN_EMAIL) { $env:DEFAULT_ADMIN_EMAIL } else { "admin@localhost" }
+    $DefaultAdminPassword = Get-RandomString -Length 20
+
     # Update .env file
     $envContent = Get-Content ".env" -Raw
     $envContent = $envContent -replace "BETTER_AUTH_SECRET=.*", "BETTER_AUTH_SECRET=$AuthSecret"
@@ -121,6 +125,14 @@ if (-not (Test-Path ".env")) {
     $envContent = $envContent -replace "N8N_PASSWORD=.*", "N8N_PASSWORD=$N8nPassword"
     $envContent = $envContent -replace "N8N_ENCRYPTION_KEY=.*", "N8N_ENCRYPTION_KEY=$N8nEncryption"
     $envContent | Set-Content ".env" -NoNewline
+
+    # Add admin credentials to .env if not present
+    $envContent = Get-Content ".env" -Raw
+    if ($envContent -notmatch "DEFAULT_ADMIN_EMAIL") {
+        Add-Content ".env" "`n# Default Admin Credentials"
+        Add-Content ".env" "DEFAULT_ADMIN_EMAIL=$DefaultAdminEmail"
+        Add-Content ".env" "DEFAULT_ADMIN_PASSWORD=$DefaultAdminPassword"
+    }
 
     Write-Host "  Secure secrets generated and saved to .env" -ForegroundColor Green
 } else {
@@ -226,6 +238,28 @@ Test-ServiceReady -Url "http://localhost:5678/healthz" -Name "n8n"
 Test-ServiceReady -Url "http://localhost:8000/health" -Name "Whisper"
 
 # ============================================
+# Create Default Admin User
+# ============================================
+
+Write-Host ""
+Write-Host "Creating default admin account..." -ForegroundColor Yellow
+
+# Read admin credentials from .env
+$envContent = Get-Content ".env"
+$DefaultAdminEmail = ($envContent | Where-Object { $_ -match "^DEFAULT_ADMIN_EMAIL=" }) -replace "DEFAULT_ADMIN_EMAIL=", ""
+$DefaultAdminPassword = ($envContent | Where-Object { $_ -match "^DEFAULT_ADMIN_PASSWORD=" }) -replace "DEFAULT_ADMIN_PASSWORD=", ""
+
+# Create admin user via API or direct DB script
+if ($DefaultAdminEmail -and $DefaultAdminPassword) {
+    try {
+        docker exec -e "DEFAULT_ADMIN_EMAIL=$DefaultAdminEmail" -e "DEFAULT_ADMIN_PASSWORD=$DefaultAdminPassword" claudia-app node /app/scripts/create-default-admin.js 2>&1 | Out-Null
+        Write-Host "  Default admin account configured" -ForegroundColor Green
+    } catch {
+        Write-Host "  Note: Default admin will be created on first access" -ForegroundColor Yellow
+    }
+}
+
+# ============================================
 # Print Access Information
 # ============================================
 
@@ -258,6 +292,16 @@ Write-Host ""
 Write-Host "n8n Credentials:" -ForegroundColor Cyan
 Write-Host "  Username: $n8nUser"
 Write-Host "  Password: $n8nPass"
+Write-Host ""
+Write-Host "Claudia Admin Credentials:" -ForegroundColor Cyan
+Write-Host "  Email:    $DefaultAdminEmail"
+Write-Host "  Password: $DefaultAdminPassword"
+Write-Host ""
+Write-Host "=================================================================" -ForegroundColor Red
+Write-Host "  SECURITY WARNING: Change these default credentials ASAP!" -ForegroundColor Red
+Write-Host "  Go to Settings > Security in Claudia to update your password" -ForegroundColor Red
+Write-Host "  and enable Two-Factor Authentication (2FA) for protection." -ForegroundColor Red
+Write-Host "=================================================================" -ForegroundColor Red
 Write-Host ""
 Write-Host "Useful Commands:" -ForegroundColor Cyan
 Write-Host "  View logs:      $ComposeCmd logs -f"
