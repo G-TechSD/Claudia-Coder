@@ -1,0 +1,1270 @@
+{
+  "projectName": "HyperHealth",
+  "projectDescription": "A comprehensive personal health management application with health tracking, appointment management, AI-powered symptom triage, medical bill analysis, and accessibility-first design.",
+  "version": "1.0.0",
+  "createdAt": "2026-01-09T08:48:34.158Z",
+  "phases": [
+    {
+      "id": "9dfa3df1-5605-4ac0-b032-0e95ef019660",
+      "name": "Phase 1: Core Setup",
+      "description": "Foundation setup including Next.js, Tailwind CSS, database schema, base components, and application shell.",
+      "order": 1,
+      "packetIds": [
+        "0c98768a-8e62-4b5b-afac-aadaa4dfac17",
+        "77fd3f17-f106-4e59-9a6a-0e5f88c5baa0",
+        "bb15b85c-e704-4e45-9c3c-b916a6481087",
+        "c4140a9b-df25-4ffe-9235-6727f4470c82",
+        "80b66b36-6698-4e59-945d-bcabfbd3b3d7"
+      ]
+    },
+    {
+      "id": "00525286-ac85-43c7-ad2c-44d107a98e8b",
+      "name": "Phase 2: Core Features",
+      "description": "Essential features including authentication, health tracking, data visualization, appointments, and user settings.",
+      "order": 2,
+      "packetIds": [
+        "36be0bcb-7c71-4a39-9b09-9efe3676b6ba",
+        "46c97156-7ee6-4389-9595-50fff14049ff",
+        "530cf9ed-2677-40ce-b3de-6597b46463e5",
+        "a35e3008-27a1-44fa-9ea7-9087bb1f1c86",
+        "8dace42c-df8b-42e0-8add-83ecea6f76ed",
+        "6f95e149-fe61-4506-8875-9e5803d35cb2"
+      ]
+    },
+    {
+      "id": "3dce36a8-0754-4682-9af5-0ec6c9a89d97",
+      "name": "Phase 3: Advanced Features",
+      "description": "Advanced capabilities including AI symptom triage, bill scanning, accessibility, medications, reports, and backup.",
+      "order": 3,
+      "packetIds": [
+        "754ccf9a-82a8-4511-9a2a-331b76e2bacd",
+        "7ade9821-2d22-4306-9cbc-197ad89bc7c8",
+        "8d61e635-9782-426f-9820-ed4ba10270c3",
+        "59072f9e-2522-4bbe-ad34-ee0d5b1c64da",
+        "3cee0f6d-649d-4bce-be62-1c8655481fd1",
+        "37dc2c9b-acb0-417f-b0bd-8dcdda18b3a1"
+      ]
+    }
+  ],
+  "packets": [
+    {
+      "id": "0c98768a-8e62-4b5b-afac-aadaa4dfac17",
+      "title": "Initialize Next.js 14 Project with App Router",
+      "description": "Set up the foundational Next.js 14 project with TypeScript, App Router, and proper project structure for HyperHealth.",
+      "type": "infrastructure",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "9dfa3df1-5605-4ac0-b032-0e95ef019660",
+      "phaseName": "Core Setup",
+      "tasks": [
+        {
+          "id": "ed80c7a9-6ecf-4b86-9d34-46e76616bb63",
+          "description": "Create new Next.js 14 project with TypeScript template",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "97dd4c33-d460-4561-8b0d-89585ba286c2",
+          "description": "Configure tsconfig.json with strict mode and path aliases",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "1c12f51b-a134-48cf-8364-551f549a27fe",
+          "description": "Set up src/ directory structure (app, components, lib, hooks, types)",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "3e8cd2da-f7bb-4b9e-9825-3bff505b72c2",
+          "description": "Create base layout.tsx with metadata and fonts",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "01220328-7a41-425a-a2c4-7aa8a0c65d8b",
+          "description": "Add .env.local template with required variables",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "ede5079a-f0e8-4dd0-882e-46463072b351",
+          "description": "Configure next.config.js with image domains and redirects",
+          "completed": false,
+          "order": 6
+        }
+      ],
+      "acceptanceCriteria": [
+        "Next.js 14 dev server runs without errors",
+        "TypeScript strict mode enabled with no compilation errors",
+        "App Router structure is properly set up",
+        "Path aliases (@/*) work correctly",
+        "Project follows Next.js 14 best practices"
+      ],
+      "estimatedEffort": "2h",
+      "tags": [
+        "setup",
+        "nextjs",
+        "typescript"
+      ]
+    },
+    {
+      "id": "77fd3f17-f106-4e59-9a6a-0e5f88c5baa0",
+      "title": "Configure Tailwind CSS with Custom Design System",
+      "description": "Set up Tailwind CSS with a custom color palette, typography, and component patterns for a healthcare-focused UI.",
+      "type": "config",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "9dfa3df1-5605-4ac0-b032-0e95ef019660",
+      "phaseName": "Core Setup",
+      "tasks": [
+        {
+          "id": "65fa919a-0f44-4f03-af82-a8fe4e6c8541",
+          "description": "Install Tailwind CSS and required plugins (@tailwindcss/forms, @tailwindcss/typography)",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "6f67ad21-717b-43c3-845b-f7cde10dd576",
+          "description": "Create tailwind.config.ts with custom color palette (primary green, secondary blue, accent colors)",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "3d2ec24b-e5c9-4eb7-90aa-649af616e683",
+          "description": "Define typography scale and font families (Inter for UI, system fonts fallback)",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "83a43b2b-7e77-408f-8bf2-6153f90e4b2c",
+          "description": "Set up spacing scale and border radius tokens",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "6f89c0c3-3360-46e3-b816-23f0c31d63ae",
+          "description": "Create globals.css with base styles and CSS variables",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "895e5ff3-518f-402a-b554-04c10b6280c9",
+          "description": "Add dark mode configuration (class-based)",
+          "completed": false,
+          "order": 6
+        }
+      ],
+      "acceptanceCriteria": [
+        "Tailwind CSS compiles without warnings",
+        "Custom colors are accessible (WCAG AA contrast ratios)",
+        "Dark mode toggle works correctly",
+        "Typography is readable and professional",
+        "Design system is documented in comments"
+      ],
+      "estimatedEffort": "2h",
+      "tags": [
+        "setup",
+        "tailwind",
+        "design-system"
+      ]
+    },
+    {
+      "id": "bb15b85c-e704-4e45-9c3c-b916a6481087",
+      "title": "Set Up SQLite Database with Better-SQLite3",
+      "description": "Configure SQLite database using better-sqlite3 for local data persistence with proper schema for health data.",
+      "type": "infrastructure",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "9dfa3df1-5605-4ac0-b032-0e95ef019660",
+      "phaseName": "Core Setup",
+      "tasks": [
+        {
+          "id": "d9fc784b-593f-41ca-bb8b-2c081c049f4f",
+          "description": "Install better-sqlite3 and @types/better-sqlite3",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "7373d64a-7632-4c44-a0e7-dbf5012a980a",
+          "description": "Create database initialization module (src/lib/db/index.ts)",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "fad78d3f-69f5-415e-bb27-1fca7012d5fb",
+          "description": "Define user schema (id, email, name, created_at, settings_json)",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "f4ff926e-1afc-43d2-b9ec-cbd3502cf932",
+          "description": "Define health_entries schema (id, user_id, type, value, unit, recorded_at, notes)",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "8893ad10-48f3-4d75-ac7c-0132fcc42aaa",
+          "description": "Define appointments schema (id, user_id, title, provider, datetime, location, notes, status)",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "d1936d9a-8912-4162-97f2-d0567a87f47d",
+          "description": "Create migration system for schema updates",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "de744168-5a01-48d3-a4e3-28eab0a3f40d",
+          "description": "Add seed data script for development",
+          "completed": false,
+          "order": 7
+        }
+      ],
+      "acceptanceCriteria": [
+        "Database file is created in data/ directory",
+        "All tables are created on first run",
+        "CRUD operations work for all tables",
+        "Foreign key constraints are enforced",
+        "Migrations can be run incrementally",
+        "Seed data populates sample entries"
+      ],
+      "estimatedEffort": "3h",
+      "tags": [
+        "database",
+        "sqlite",
+        "schema"
+      ]
+    },
+    {
+      "id": "c4140a9b-df25-4ffe-9235-6727f4470c82",
+      "title": "Create Base UI Component Library",
+      "description": "Build foundational UI components using Tailwind that will be reused throughout the application.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "9dfa3df1-5605-4ac0-b032-0e95ef019660",
+      "phaseName": "Core Setup",
+      "tasks": [
+        {
+          "id": "7d69ccd7-5b92-4b4a-a775-ad79a8c9e423",
+          "description": "Create Button component with variants (primary, secondary, outline, ghost, danger)",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "8822f9d5-a802-4b58-92bc-aeec00b77502",
+          "description": "Create Input component with label, error state, and helper text",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "e17b10a0-1ea7-42b8-8ec7-cb54b6b1bbb7",
+          "description": "Create Card component with header, body, and footer slots",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "1c9916bb-9f2a-4bf2-8fe6-db90fc984028",
+          "description": "Create Modal/Dialog component with accessibility",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "cf0b1193-a8d3-4f22-932c-a06b045bbfc6",
+          "description": "Create Alert component for notifications (success, warning, error, info)",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "ca6f043d-c4cb-460d-924b-cd90b88a237f",
+          "description": "Create Loading spinner and skeleton components",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "0474a7bd-a75e-4402-82ff-8a1c71c28817",
+          "description": "Create Badge and Tag components",
+          "completed": false,
+          "order": 7
+        }
+      ],
+      "acceptanceCriteria": [
+        "All components have TypeScript prop types",
+        "Components follow accessibility best practices",
+        "Components support className override for customization",
+        "Focus states are visible and meet WCAG requirements",
+        "Components work in both light and dark mode"
+      ],
+      "estimatedEffort": "4h",
+      "tags": [
+        "ui",
+        "components",
+        "tailwind"
+      ]
+    },
+    {
+      "id": "80b66b36-6698-4e59-945d-bcabfbd3b3d7",
+      "title": "Set Up Application Shell and Navigation",
+      "description": "Create the main application layout with responsive navigation, header, and sidebar for the health dashboard.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "9dfa3df1-5605-4ac0-b032-0e95ef019660",
+      "phaseName": "Core Setup",
+      "tasks": [
+        {
+          "id": "c2b487c9-12f5-4aee-b51d-6e4ff9e95dd0",
+          "description": "Create AppShell component with header, sidebar, and main content area",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "f970cd16-a4e6-45fe-ad79-cdc1fe8be884",
+          "description": "Build responsive Sidebar with navigation links and icons",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "ed9d5ebd-cab4-41de-8f67-8c39f0fbd2ea",
+          "description": "Create Header with user menu, notifications, and search",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "384bac59-21b4-4893-a0a8-d83bf02c6ec6",
+          "description": "Implement mobile navigation with hamburger menu",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "4d31b927-3a37-4086-9134-09389408c758",
+          "description": "Add breadcrumb navigation component",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "55d5e271-e9a4-4325-ab56-1d49dc4a9069",
+          "description": "Create page transition animations",
+          "completed": false,
+          "order": 6
+        }
+      ],
+      "acceptanceCriteria": [
+        "Navigation is fully responsive (mobile, tablet, desktop)",
+        "Current page is highlighted in navigation",
+        "Sidebar can be collapsed on desktop",
+        "Mobile menu has smooth open/close animation",
+        "Navigation is keyboard accessible"
+      ],
+      "estimatedEffort": "4h",
+      "tags": [
+        "layout",
+        "navigation",
+        "responsive"
+      ]
+    },
+    {
+      "id": "36be0bcb-7c71-4a39-9b09-9efe3676b6ba",
+      "title": "Implement User Authentication System",
+      "description": "Build a complete authentication system with email/password login, session management, and protected routes.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "00525286-ac85-43c7-ad2c-44d107a98e8b",
+      "phaseName": "Core Features",
+      "tasks": [
+        {
+          "id": "53ea03be-a085-4bfb-9bb8-e2254aabd4d6",
+          "description": "Create auth context and provider (src/lib/auth/)",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "3ad09439-d564-427f-bc11-0a60263a7cfe",
+          "description": "Build login page with email/password form",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "8a565f76-1904-4f94-a72a-3ecbb5cd9725",
+          "description": "Build registration page with validation",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "52cb20c2-5546-4bb8-816c-2d78de0a4b4d",
+          "description": "Implement password hashing with bcrypt",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "f0f76a71-3c6e-40cd-9564-b55bd1cd57f4",
+          "description": "Create session management with JWT or cookies",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "08554e98-e668-4b51-ac8e-08344f8814ad",
+          "description": "Add middleware for protected routes",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "7687108d-e875-438a-90ae-cacd51e70c1b",
+          "description": "Create password reset flow",
+          "completed": false,
+          "order": 7
+        },
+        {
+          "id": "7498fce3-da10-46d5-bba9-03d34b877ed9",
+          "description": "Add logout functionality",
+          "completed": false,
+          "order": 8
+        }
+      ],
+      "acceptanceCriteria": [
+        "Users can register with email and password",
+        "Users can log in and maintain session",
+        "Protected routes redirect to login when unauthenticated",
+        "Passwords are securely hashed",
+        "Session persists across browser refresh",
+        "Logout clears session completely"
+      ],
+      "estimatedEffort": "6h",
+      "tags": [
+        "auth",
+        "security",
+        "users"
+      ],
+      "dependencies": []
+    },
+    {
+      "id": "46c97156-7ee6-4389-9595-50fff14049ff",
+      "title": "Build Health Metrics Dashboard",
+      "description": "Create the main dashboard showing health metrics overview with charts, recent entries, and quick actions.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "00525286-ac85-43c7-ad2c-44d107a98e8b",
+      "phaseName": "Core Features",
+      "tasks": [
+        {
+          "id": "fdc68620-c4b9-44f8-9c35-43c2335ac6a5",
+          "description": "Create dashboard page layout with grid of metric cards",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "815ec680-3633-4280-b6e9-1ccf99b09671",
+          "description": "Build MetricCard component showing current value and trend",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "eaca7978-49b7-4cb1-a108-b3ab7ef6d00d",
+          "description": "Integrate chart library (recharts or chart.js) for trend visualization",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "072aeb49-1f1b-4bd9-8748-5c08ff468ba0",
+          "description": "Create recent entries list with quick actions",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "3db947b4-83e6-474c-b206-61d7b2396986",
+          "description": "Add date range selector for filtering data",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "8d37de40-6e5f-419e-b97a-da439ad9df22",
+          "description": "Implement real-time data refresh",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "74da4fe3-2b2e-4952-87da-7c82d4c10578",
+          "description": "Create empty state for new users",
+          "completed": false,
+          "order": 7
+        }
+      ],
+      "acceptanceCriteria": [
+        "Dashboard loads within 1 second",
+        "Charts display correctly with user data",
+        "Metric cards show accurate current values",
+        "Trends are calculated correctly (up/down/stable)",
+        "Date range filtering works correctly",
+        "Empty state guides new users to add data"
+      ],
+      "estimatedEffort": "6h",
+      "tags": [
+        "dashboard",
+        "charts",
+        "metrics"
+      ]
+    },
+    {
+      "id": "530cf9ed-2677-40ce-b3de-6597b46463e5",
+      "title": "Implement Health Data Entry Forms",
+      "description": "Create forms for logging various health metrics: weight, blood pressure, blood sugar, sleep, exercise, etc.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "00525286-ac85-43c7-ad2c-44d107a98e8b",
+      "phaseName": "Core Features",
+      "tasks": [
+        {
+          "id": "1e2e25b5-9f02-4540-8b90-c17d79c9387f",
+          "description": "Create generic HealthEntryForm component with metric type selection",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "20452df4-18b1-40c4-b141-68aae5021064",
+          "description": "Build weight entry form with unit conversion (kg/lbs)",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "a376ed2b-830d-4eff-83e0-629cdb7f6d78",
+          "description": "Build blood pressure form (systolic/diastolic)",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "7716fd8e-9037-4d27-9007-86d54511895f",
+          "description": "Build blood sugar/glucose form with meal timing",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "aad7b44b-3701-4553-bd04-7521cdf1a7dc",
+          "description": "Build sleep tracking form (duration, quality)",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "f5424a6c-516d-426d-adab-68376b3a5fa3",
+          "description": "Build exercise log form (type, duration, intensity)",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "63ceba5a-a2b3-4472-8f58-29983eaf7700",
+          "description": "Add notes field and date/time picker to all forms",
+          "completed": false,
+          "order": 7
+        },
+        {
+          "id": "e68b0c5f-8451-4ce8-bfff-5ca0a0db9428",
+          "description": "Implement form validation with helpful error messages",
+          "completed": false,
+          "order": 8
+        }
+      ],
+      "acceptanceCriteria": [
+        "All forms validate input before submission",
+        "Data is saved correctly to the database",
+        "Unit conversions are accurate",
+        "Date/time defaults to current but is editable",
+        "Success feedback is shown after saving",
+        "Forms are accessible with keyboard navigation"
+      ],
+      "estimatedEffort": "5h",
+      "tags": [
+        "forms",
+        "data-entry",
+        "health-tracking"
+      ]
+    },
+    {
+      "id": "a35e3008-27a1-44fa-9ea7-9087bb1f1c86",
+      "title": "Create Health History and Trends View",
+      "description": "Build a comprehensive view of health data history with filtering, sorting, and export capabilities.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "00525286-ac85-43c7-ad2c-44d107a98e8b",
+      "phaseName": "Core Features",
+      "tasks": [
+        {
+          "id": "aad55c60-bcaa-4916-baf5-47dc1ecf3d6c",
+          "description": "Create history page with tabular data view",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "160c7d04-550a-4330-9863-d3ced69b1fee",
+          "description": "Add filtering by metric type, date range",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "70f11100-fd17-47e4-ad3c-3b30eff0e8dd",
+          "description": "Implement sorting by date, value, metric type",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "ef77ac67-edb0-425f-b315-9326fe5b41fd",
+          "description": "Add pagination for large datasets",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "734fd7d1-b6d5-492d-bc6b-3d3106c6ee0c",
+          "description": "Create detailed trend charts with zoom capability",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "a9715aa8-be68-488e-aeb6-f49375b34b72",
+          "description": "Add ability to edit/delete individual entries",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "54e5e782-a8ed-4854-9905-dd504b894834",
+          "description": "Implement CSV export functionality",
+          "completed": false,
+          "order": 7
+        }
+      ],
+      "acceptanceCriteria": [
+        "History loads efficiently with pagination",
+        "Filters work correctly and can be combined",
+        "Sorting is fast and maintains filter state",
+        "Edit/delete requires confirmation",
+        "CSV export includes all filtered data",
+        "Charts handle large date ranges gracefully"
+      ],
+      "estimatedEffort": "5h",
+      "tags": [
+        "history",
+        "data-visualization",
+        "export"
+      ]
+    },
+    {
+      "id": "8dace42c-df8b-42e0-8add-83ecea6f76ed",
+      "title": "Build Appointment Management System",
+      "description": "Create a complete appointment scheduling and management system with calendar view and reminders.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "00525286-ac85-43c7-ad2c-44d107a98e8b",
+      "phaseName": "Core Features",
+      "tasks": [
+        {
+          "id": "6966cc70-df83-4302-8e32-5396903c79ac",
+          "description": "Create appointments list page with upcoming/past tabs",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "0dd074a7-7150-45d7-bb4b-8c9b6a0db856",
+          "description": "Build calendar view component (month/week/day views)",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "ee959f2f-d357-41ee-91e7-129e2baf455d",
+          "description": "Create appointment creation form",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "a42a74b7-36fc-4929-bb8d-c33806cb0467",
+          "description": "Add appointment detail view with edit capability",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "0ae3bdb9-da6b-4c3c-8790-1497d8aa2362",
+          "description": "Implement appointment status management (scheduled, completed, cancelled)",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "455d18cf-5bbf-4862-88fd-9025a0efa5ca",
+          "description": "Add provider/doctor management",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "24fdcaee-defd-4d2f-bc9b-c3761acbc092",
+          "description": "Create appointment notes and preparation checklist",
+          "completed": false,
+          "order": 7
+        }
+      ],
+      "acceptanceCriteria": [
+        "Calendar displays all appointments correctly",
+        "Appointments can be created with all required fields",
+        "Past appointments are archived but accessible",
+        "Provider information is saved and reusable",
+        "Appointment conflicts are detected and warned",
+        "Notes can be added before and after appointments"
+      ],
+      "estimatedEffort": "6h",
+      "tags": [
+        "appointments",
+        "calendar",
+        "scheduling"
+      ]
+    },
+    {
+      "id": "6f95e149-fe61-4506-8875-9e5803d35cb2",
+      "title": "Implement User Profile and Settings",
+      "description": "Build user profile management with personal info, health goals, preferences, and notification settings.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "00525286-ac85-43c7-ad2c-44d107a98e8b",
+      "phaseName": "Core Features",
+      "tasks": [
+        {
+          "id": "053ebb11-d259-4df6-a004-ec50384fcf1e",
+          "description": "Create profile page with personal information form",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "a11d2d78-49a2-4328-a98a-be42b46170a9",
+          "description": "Add health profile section (DOB, height, blood type, allergies)",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "2ef8c226-81d1-4eb7-bf00-cabed9a8fe88",
+          "description": "Build health goals section with target metrics",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "e6f944c4-7c96-4079-9996-cb199614faf0",
+          "description": "Create settings page with preferences",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "154a2e0c-8ec4-4c0c-ba23-c2e36fded699",
+          "description": "Add unit preferences (metric/imperial)",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "cd656778-1d1e-4517-8f89-f408bb87f6d4",
+          "description": "Implement theme preference (light/dark/system)",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "84a35442-a1a7-4c79-b5fa-ec986100790d",
+          "description": "Add data export/import options",
+          "completed": false,
+          "order": 7
+        },
+        {
+          "id": "2a585c8e-2900-492d-9250-21b6e50bcbef",
+          "description": "Create account deletion flow",
+          "completed": false,
+          "order": 8
+        }
+      ],
+      "acceptanceCriteria": [
+        "Profile information is saved and persisted",
+        "Health goals appear on dashboard for tracking",
+        "Unit preferences are applied throughout the app",
+        "Theme changes immediately without refresh",
+        "Data can be exported in standard format",
+        "Account deletion requires confirmation and removes all data"
+      ],
+      "estimatedEffort": "4h",
+      "tags": [
+        "profile",
+        "settings",
+        "preferences"
+      ]
+    },
+    {
+      "id": "754ccf9a-82a8-4511-9a2a-331b76e2bacd",
+      "title": "Build AI-Powered Symptom Triage System",
+      "description": "Create an intelligent symptom checker that helps users understand their symptoms and provides guidance on seeking care.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "3dce36a8-0754-4682-9af5-0ec6c9a89d97",
+      "phaseName": "Advanced Features",
+      "tasks": [
+        {
+          "id": "e59f869b-fa66-4efa-8b49-7aad7b71b390",
+          "description": "Create symptom input interface with body map or searchable list",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "796e6c55-ae92-476e-86af-64013c2f599d",
+          "description": "Build symptom questionnaire flow (duration, severity, associated symptoms)",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "ac96d0fa-0a03-45a9-aa6f-32476fb8fa15",
+          "description": "Integrate local LLM for symptom analysis",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "49566611-fea2-413f-86e3-840dd6113f2a",
+          "description": "Create triage result display with urgency levels",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "09a94211-210a-4d4a-9f54-ea33528d78d3",
+          "description": "Add care recommendation suggestions (self-care, urgent care, ER)",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "c4da2ae3-fe8b-423d-bb3f-e5caf327ab44",
+          "description": "Implement symptom history logging",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "e59f8807-cfb2-4e7c-a19f-b55b3e7db261",
+          "description": "Add medical disclaimer and liability notices",
+          "completed": false,
+          "order": 7
+        },
+        {
+          "id": "2cf3c9ac-687b-42e0-9866-e2e12d1c1c4d",
+          "description": "Create follow-up symptom tracking",
+          "completed": false,
+          "order": 8
+        }
+      ],
+      "acceptanceCriteria": [
+        "Users can describe symptoms in natural language",
+        "System asks relevant follow-up questions",
+        "Triage results clearly communicate urgency level",
+        "Recommendations are appropriate and safe",
+        "Medical disclaimers are prominently displayed",
+        "Symptom history is saved for doctor visits"
+      ],
+      "estimatedEffort": "8h",
+      "tags": [
+        "ai",
+        "symptoms",
+        "triage",
+        "llm"
+      ]
+    },
+    {
+      "id": "7ade9821-2d22-4306-9cbc-197ad89bc7c8",
+      "title": "Implement Medical Bill Scanner and Analyzer",
+      "description": "Build OCR-powered medical bill scanning with cost breakdown, error detection, and explanation of charges.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "3dce36a8-0754-4682-9af5-0ec6c9a89d97",
+      "phaseName": "Advanced Features",
+      "tasks": [
+        {
+          "id": "2daa4660-9ff5-4c00-ac34-d6cf5bc13363",
+          "description": "Create bill upload interface (photo capture and file upload)",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "641b583e-2d56-43c8-b06f-6e747aff1c8c",
+          "description": "Integrate OCR library (tesseract.js) for text extraction",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "7286a678-8f86-42ae-b499-cd9b60813b82",
+          "description": "Build bill parser to identify line items, codes, and amounts",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "cd433107-a1d6-4a5f-aa92-12d6d0d9dd4a",
+          "description": "Create LLM integration for charge explanation",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "8e0dbf0a-b47b-4adc-a052-534079274a85",
+          "description": "Build cost breakdown visualization",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "3e182655-57f8-4741-a700-89a95aa56a27",
+          "description": "Add common billing error detection",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "05d2f0ca-bc6a-4ef5-a1cf-45625458a94a",
+          "description": "Create bill history and comparison view",
+          "completed": false,
+          "order": 7
+        },
+        {
+          "id": "c144d03d-a79d-4f71-96b8-39d9072bfd39",
+          "description": "Add export for insurance claims",
+          "completed": false,
+          "order": 8
+        }
+      ],
+      "acceptanceCriteria": [
+        "Bills can be uploaded via camera or file",
+        "OCR accurately extracts text from clear images",
+        "Line items are parsed and categorized",
+        "Charge explanations are understandable to laypeople",
+        "Potential errors are flagged with explanations",
+        "Bill history is searchable and sortable"
+      ],
+      "estimatedEffort": "8h",
+      "tags": [
+        "ocr",
+        "bills",
+        "ai",
+        "finance"
+      ]
+    },
+    {
+      "id": "8d61e635-9782-426f-9820-ed4ba10270c3",
+      "title": "Add Comprehensive Accessibility Features",
+      "description": "Implement WCAG 2.1 AA compliance with screen reader support, keyboard navigation, and accessibility preferences.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "3dce36a8-0754-4682-9af5-0ec6c9a89d97",
+      "phaseName": "Advanced Features",
+      "tasks": [
+        {
+          "id": "740f9294-27e5-4482-a0b0-6b3d64f2b7ce",
+          "description": "Audit all components for accessibility issues",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "fd3230d4-e71c-426f-8136-29baf9b3d0bf",
+          "description": "Add proper ARIA labels and roles throughout",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "f2f62dc5-be8b-436b-ac14-2dc2382d81c7",
+          "description": "Implement skip navigation links",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "2d3ff69b-b81c-4a40-8809-2375ce63130f",
+          "description": "Ensure all interactive elements have focus indicators",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "bae4451c-a3d6-4fdd-b424-5fe3079ca899",
+          "description": "Add high contrast mode option",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "3ac3d350-b5f4-4a74-9771-696f6f620c4d",
+          "description": "Implement font size adjustment controls",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "45b70041-3d6a-41b6-961d-a1cfa2fd1fd4",
+          "description": "Add reduce motion preference support",
+          "completed": false,
+          "order": 7
+        },
+        {
+          "id": "919178ce-7eea-4512-9c81-db7ba228e5e4",
+          "description": "Test with screen readers (VoiceOver, NVDA)",
+          "completed": false,
+          "order": 8
+        },
+        {
+          "id": "c77d675e-0f14-4a68-aedc-37e5ea3bb3b4",
+          "description": "Create accessibility statement page",
+          "completed": false,
+          "order": 9
+        }
+      ],
+      "acceptanceCriteria": [
+        "All pages pass WCAG 2.1 AA automated checks",
+        "App is fully navigable via keyboard",
+        "Screen reader announces all content correctly",
+        "Color contrast meets 4.5:1 ratio minimum",
+        "Animations can be disabled via system preference",
+        "Text can be resized up to 200% without loss of content"
+      ],
+      "estimatedEffort": "6h",
+      "tags": [
+        "accessibility",
+        "a11y",
+        "wcag"
+      ]
+    },
+    {
+      "id": "59072f9e-2522-4bbe-ad34-ee0d5b1c64da",
+      "title": "Build Medication Tracking and Reminders",
+      "description": "Create medication management with scheduling, dosage tracking, refill reminders, and interaction warnings.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "3dce36a8-0754-4682-9af5-0ec6c9a89d97",
+      "phaseName": "Advanced Features",
+      "tasks": [
+        {
+          "id": "3d91e7fe-2c46-4151-94bb-670306045e9e",
+          "description": "Create medication list management interface",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "e022896d-154b-4966-a048-ff33f8b721af",
+          "description": "Build medication entry form (name, dosage, frequency, instructions)",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "80545675-140f-4ce4-bbea-800063aeabea",
+          "description": "Implement dose logging and tracking",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "176a8dec-89f0-4db9-9765-8b58c3cfe29e",
+          "description": "Create medication schedule view with today's doses",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "a03e6b8f-4499-451a-aeda-36d6e1de77a6",
+          "description": "Add refill tracking and reminders",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "1a7f1e67-2cd0-49eb-8551-d6109cc9646b",
+          "description": "Implement basic drug interaction checking",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "176950b7-8aa3-4dd7-8874-00a96a6cc54f",
+          "description": "Create adherence reports and statistics",
+          "completed": false,
+          "order": 7
+        },
+        {
+          "id": "090a0fc6-0ddc-46a0-8e11-38a479973c7f",
+          "description": "Add medication photo storage for identification",
+          "completed": false,
+          "order": 8
+        }
+      ],
+      "acceptanceCriteria": [
+        "Medications can be added with complete details",
+        "Schedule shows all due medications clearly",
+        "Doses can be logged with one tap/click",
+        "Refill reminders trigger before running out",
+        "Interaction warnings are displayed when relevant",
+        "Adherence percentage is calculated accurately"
+      ],
+      "estimatedEffort": "6h",
+      "tags": [
+        "medications",
+        "reminders",
+        "tracking"
+      ]
+    },
+    {
+      "id": "3cee0f6d-649d-4bce-be62-1c8655481fd1",
+      "title": "Implement Health Report Generation",
+      "description": "Build automated health report generation for doctor visits with customizable time ranges and metric selection.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "3dce36a8-0754-4682-9af5-0ec6c9a89d97",
+      "phaseName": "Advanced Features",
+      "tasks": [
+        {
+          "id": "9b8ff65e-ba6f-4715-bca7-b151c6a1f13c",
+          "description": "Create report configuration interface",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "d88d5d53-c71e-4e70-9f10-4cbd6896f23d",
+          "description": "Build date range selector with presets",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "87297719-c79e-4c78-a50f-0a5fcaf95788",
+          "description": "Add metric selection checkboxes",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "09ebf033-bb53-42ea-b760-4a238e0eafdf",
+          "description": "Generate summary statistics for selected metrics",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "63805794-f6f4-4cf3-a64d-640497bfe535",
+          "description": "Create printable report layout",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "81cad1c6-3dd1-46bd-87fd-08b44176982e",
+          "description": "Add PDF export functionality",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "1fc9563f-a4f9-4903-800e-244c8eb36cd8",
+          "description": "Include charts and trend visualizations",
+          "completed": false,
+          "order": 7
+        },
+        {
+          "id": "417fa709-a282-49d1-a198-c1c2b1af3757",
+          "description": "Add report history and saved templates",
+          "completed": false,
+          "order": 8
+        }
+      ],
+      "acceptanceCriteria": [
+        "Reports include selected metrics and date range",
+        "Statistics are accurate and clearly presented",
+        "PDF exports are properly formatted",
+        "Charts are readable in print format",
+        "Reports include relevant context for doctors",
+        "Previous reports are saved and accessible"
+      ],
+      "estimatedEffort": "5h",
+      "tags": [
+        "reports",
+        "export",
+        "pdf"
+      ]
+    },
+    {
+      "id": "37dc2c9b-acb0-417f-b0bd-8dcdda18b3a1",
+      "title": "Add Data Backup and Sync Capabilities",
+      "description": "Implement data backup, restore, and optional cloud sync for data persistence and multi-device access.",
+      "type": "feature",
+      "priority": "high",
+      "status": "ready",
+      "phaseId": "3dce36a8-0754-4682-9af5-0ec6c9a89d97",
+      "phaseName": "Advanced Features",
+      "tasks": [
+        {
+          "id": "acf2e8e3-ca55-47d0-9bc3-54edaba64c47",
+          "description": "Create local backup to file system",
+          "completed": false,
+          "order": 1
+        },
+        {
+          "id": "d6fe4fd0-6bac-492d-bd71-79a29fbf439d",
+          "description": "Build backup encryption with user password",
+          "completed": false,
+          "order": 2
+        },
+        {
+          "id": "5eed580f-6d02-4ad2-b3a3-b5ad00b650bc",
+          "description": "Implement backup restore functionality",
+          "completed": false,
+          "order": 3
+        },
+        {
+          "id": "ad516122-b6c0-414f-b84f-18da4ade386e",
+          "description": "Add automatic backup scheduling",
+          "completed": false,
+          "order": 4
+        },
+        {
+          "id": "0d6b6fa5-2b68-4d63-9f66-c0e490548420",
+          "description": "Create backup management UI (list, delete, restore)",
+          "completed": false,
+          "order": 5
+        },
+        {
+          "id": "6cd9929c-3ee9-4f72-8c76-3fad109d2907",
+          "description": "Implement data integrity validation",
+          "completed": false,
+          "order": 6
+        },
+        {
+          "id": "c8c3c23d-5b05-4775-bb52-a714d6ea2af4",
+          "description": "Add backup reminder notifications",
+          "completed": false,
+          "order": 7
+        }
+      ],
+      "acceptanceCriteria": [
+        "Backups include all user data",
+        "Backups are encrypted and secure",
+        "Restore recreates exact data state",
+        "Automatic backups run on schedule",
+        "Corrupted backups are detected and reported",
+        "Users can manage backup history"
+      ],
+      "estimatedEffort": "5h",
+      "tags": [
+        "backup",
+        "data",
+        "security"
+      ]
+    }
+  ],
+  "techStack": [
+    "Next.js 14 (App Router)",
+    "TypeScript",
+    "Tailwind CSS",
+    "SQLite (better-sqlite3)",
+    "React 18",
+    "Recharts (charts)",
+    "Tesseract.js (OCR)",
+    "Local LLM Integration"
+  ],
+  "objectives": [
+    "Create a user-friendly health tracking dashboard",
+    "Enable easy logging of various health metrics",
+    "Provide appointment management with calendar view",
+    "Implement AI-assisted symptom analysis",
+    "Build medical bill scanning and analysis",
+    "Ensure WCAG 2.1 AA accessibility compliance",
+    "Support medication tracking with reminders",
+    "Generate comprehensive health reports for doctor visits"
+  ],
+  "nonGoals": [
+    "Integration with external health APIs (Apple Health, Google Fit) - future phase",
+    "Telemedicine or video consultation features",
+    "Prescription ordering or pharmacy integration",
+    "Insurance claim submission",
+    "Multi-user/family accounts - future phase",
+    "Mobile native apps (PWA only for now)"
+  ]
+}

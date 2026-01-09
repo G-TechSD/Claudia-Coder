@@ -162,17 +162,56 @@ Be honest about effort. If something is complex, say so. If there are unknowns, 
 Respond with valid JSON only, no markdown.`
 
 /**
+ * Existing packet info for build plan integration
+ */
+export interface ExistingPacketInfo {
+  id: string
+  title: string
+  description?: string
+  type?: string
+  status?: string
+  source?: string // e.g., "linear", "manual", "build-plan"
+}
+
+/**
  * Generate build plan user prompt
  */
 export function generateBuildPlanPrompt(
   projectName: string,
   projectDescription: string,
   availableModels: AssignedModel[],
-  constraints?: Partial<BuildConstraints>
+  constraints?: Partial<BuildConstraints>,
+  existingPackets?: ExistingPacketInfo[]
 ): string {
   const modelList = availableModels
     .map(m => `- ${m.name} (${m.provider})`)
     .join("\n")
+
+  // Format existing packets for inclusion in the prompt
+  let existingPacketsSection = ""
+  if (existingPackets && existingPackets.length > 0) {
+    const packetList = existingPackets
+      .map(p => {
+        const status = p.status ? ` [${p.status}]` : ""
+        const source = p.source ? ` (from: ${p.source})` : ""
+        const desc = p.description ? `\n     ${p.description}` : ""
+        return `  - "${p.title}"${status}${source}${desc}`
+      })
+      .join("\n")
+
+    existingPacketsSection = `
+
+EXISTING PACKETS (DO NOT DUPLICATE):
+The following work packets already exist for this project. Your build plan should:
+1. NOT create packets that duplicate this existing work
+2. Reference existing packets where appropriate (e.g., "depends on existing packet X")
+3. Fill in gaps - identify work that is NOT covered by existing packets
+4. Complement existing work - create packets that build upon what's already planned
+
+Existing packets:
+${packetList}
+`
+  }
 
   return `Generate a build plan for:
 
@@ -187,7 +226,7 @@ CONSTRAINTS:
 - Require local first: ${constraints?.requireLocalFirst !== false ? "Yes" : "No"}
 - Human approval needed for: ${constraints?.requireHumanApproval?.join(", ") || "planning, deployment"}
 - Max parallel packets: ${constraints?.maxParallelPackets || 2}
-
+${existingPacketsSection}
 Generate the build plan as JSON with this structure:
 {
   "spec": {

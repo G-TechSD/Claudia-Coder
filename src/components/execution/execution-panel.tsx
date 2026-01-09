@@ -79,6 +79,20 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
     validatorFeedback: null
   })
 
+  // Persist events to localStorage whenever they change
+  React.useEffect(() => {
+    if (events.length > 0) {
+      const persistedEvents = events.map(event => ({
+        id: event.id,
+        type: event.type,
+        message: event.message,
+        timestamp: event.timestamp instanceof Date ? event.timestamp.toISOString() : event.timestamp,
+        projectId: project.id
+      }))
+      localStorage.setItem("claudia_activity_events", JSON.stringify(persistedEvents))
+    }
+  }, [events, project.id])
+
   // Filter to executable packets - include "queued" for Linear-imported issues
   const readyPackets = packets.filter(p =>
     p.status === "ready" || p.status === "pending" || p.status === "queued"

@@ -4,7 +4,8 @@ import {
   BUILD_PLAN_SYSTEM_PROMPT,
   generateBuildPlanPrompt,
   parseBuildPlanResponse,
-  validateBuildPlan
+  validateBuildPlan,
+  type ExistingPacketInfo
 } from "@/lib/ai/build-plan"
 
 /**
@@ -25,7 +26,8 @@ export async function POST(request: NextRequest) {
       constraints = {},
       allowPaidFallback = false,
       preferredProvider = null,  // e.g., "Beast", "Bedroom", "anthropic", "chatgpt", "gemini", "paid_claudecode"
-      preferredModel = null      // Specific model ID to use (e.g., "gpt-oss-20b") - fixes random model selection bug
+      preferredModel = null,     // Specific model ID to use (e.g., "gpt-oss-20b") - fixes random model selection bug
+      existingPackets = [] as ExistingPacketInfo[]  // Existing packets to integrate with (avoid duplicates)
     } = await request.json()
 
     if (!projectName || !projectDescription) {
@@ -39,7 +41,8 @@ export async function POST(request: NextRequest) {
       projectName,
       projectDescription,
       availableModels,
-      constraints
+      constraints,
+      existingPackets
     )
 
     // Handle ChatGPT / OpenAI
