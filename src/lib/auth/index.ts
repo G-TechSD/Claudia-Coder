@@ -48,12 +48,14 @@ export const auth = betterAuth({
   //   },
   // },
 
-  // Trust proxy for HTTPS
+  // Trust localhost origins (both HTTP and HTTPS)
   trustedOrigins: [
+    "http://localhost:3000",
+    "http://localhost:3001",
     "https://localhost:3000",
     "https://localhost:3001",
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-  ].filter(Boolean),
+    process.env.NEXT_PUBLIC_APP_URL,
+  ].filter(Boolean) as string[],
 
   // User configuration
   user: {
