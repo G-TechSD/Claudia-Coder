@@ -43,7 +43,7 @@ import {
   Terminal
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { BuildPlan } from "@/lib/ai/build-plan"
+import type { BuildPlan, ExistingPacketInfo } from "@/lib/ai/build-plan"
 import type { StoredBuildPlan, ProjectStatus } from "@/lib/data/types"
 import {
   getBuildPlanForProject,
@@ -52,7 +52,7 @@ import {
   approveBuildPlan,
   formatFeedbackForRevision
 } from "@/lib/data/build-plans"
-import { savePackets, type WorkPacket } from "@/lib/ai/build-plan"
+import { savePackets, getPacketsForProject, type WorkPacket } from "@/lib/ai/build-plan"
 import { getProjectDefaultModel, type EnabledInstance } from "@/components/project/model-assignment"
 
 interface ProviderOption {
@@ -406,9 +406,22 @@ export function BuildPlanEditor({
 
     setIsGenerating(true)
     setError(null)
-    setGenerationStatus("Connecting to AI provider...")
+    setGenerationStatus("Loading existing packets...")
 
     try {
+      // Load existing packets for this project to include in the build plan context
+      const existingWorkPackets = getPacketsForProject(projectId)
+      const existingPackets: ExistingPacketInfo[] = existingWorkPackets.map(p => ({
+        id: p.id,
+        title: p.title,
+        description: p.description,
+        type: p.type,
+        status: p.status,
+        source: "build-plan"
+      }))
+
+      console.log(`[build-plan-editor] Found ${existingPackets.length} existing packets for project ${projectId}`)
+
       const provider = providers.find(p => p.name === selectedProvider)
       setGenerationStatus(`Generating with ${provider?.displayName || selectedProvider}...`)
 
@@ -421,6 +434,7 @@ export function BuildPlanEditor({
           projectDescription,
           preferredProvider: selectedProvider,
           preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
+          existingPackets,  // Pass existing packets so they're included in the build plan
           constraints: {
             requireLocalFirst: true,
             requireHumanApproval: ["planning", "deployment"]
@@ -701,10 +715,25 @@ export function BuildPlanEditor({
 
     setIsGenerating(true)
     setError(null)
-    const modelOption = REGENERATION_MODEL_OPTIONS.find(m => m.value === regenerationModel)
-    setGenerationStatus(`Regenerating with ${modelOption?.label || regenerationModel}...`)
+    setGenerationStatus("Loading existing packets...")
 
     try {
+      // Load existing packets for this project to include in the build plan context
+      const existingWorkPackets = getPacketsForProject(projectId)
+      const existingPackets: ExistingPacketInfo[] = existingWorkPackets.map(p => ({
+        id: p.id,
+        title: p.title,
+        description: p.description,
+        type: p.type,
+        status: p.status,
+        source: "build-plan"
+      }))
+
+      console.log(`[build-plan-editor] Regenerating with ${existingPackets.length} existing packets for project ${projectId}`)
+
+      const modelOption = REGENERATION_MODEL_OPTIONS.find(m => m.value === regenerationModel)
+      setGenerationStatus(`Regenerating with ${modelOption?.label || regenerationModel}...`)
+
       const response = await fetch("/api/build-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -714,6 +743,7 @@ export function BuildPlanEditor({
           projectDescription,
           preferredProvider: regenerationModel,
           preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
+          existingPackets,  // Pass existing packets so they're included in the build plan
           allowPaidFallback: regenerationModel.startsWith("paid_") ||
             ["chatgpt", "gemini", "anthropic"].includes(regenerationModel),
           constraints: {
