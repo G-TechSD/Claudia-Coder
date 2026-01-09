@@ -244,6 +244,16 @@ async function executeWithClaudeCode(
 
   // MANDATORY QUALITY GATES - No code is "complete" without passing these
   if (result.filesChanged.length > 0) {
+    // Install dependencies if package.json was created/modified (required for TypeScript compilation)
+    const installResult = await installDependenciesIfNeeded(repoPath, result.filesChanged, emit)
+    if (!installResult.success) {
+      return {
+        success: false,
+        output: `DEPENDENCY INSTALLATION FAILED - Cannot run quality gates.\n\n${installResult.output}\n\nClaude Code Output:\n${result.output}`,
+        filesChanged: result.filesChanged
+      }
+    }
+
     emit("thinking", "Running MANDATORY quality gates...", "Tests, TypeScript, and Build must all pass")
 
     const qualityResult = await runQualityGates(repoPath, emit)
@@ -503,6 +513,17 @@ async function executeWithLMStudio(
 
     // MANDATORY QUALITY GATES - No code is "complete" without passing these
     if (filesChanged.length > 0) {
+      // Install dependencies if package.json was created/modified (required for TypeScript compilation)
+      const installResult = await installDependenciesIfNeeded(repoPath, filesChanged, emit)
+      if (!installResult.success) {
+        return {
+          success: false,
+          output: `DEPENDENCY INSTALLATION FAILED - Cannot run quality gates.\n\n${installResult.output}\n\nFiles changed: ${filesChanged.join(", ")}`,
+          filesChanged,
+          mode: "local"
+        }
+      }
+
       emit("thinking", "Running MANDATORY quality gates...", "Tests, TypeScript, and Build must all pass")
 
       const qualityResult = await runQualityGates(repoPath, emit)
@@ -755,6 +776,76 @@ function parseFileOperations(response: string): FileOperation[] {
   }
 
   return operations
+}
+
+/**
+ * Install dependencies if package.json was created or modified
+ * This ensures node_modules exists before TypeScript compilation
+ */
+async function installDependenciesIfNeeded(
+  repoPath: string,
+  filesChanged: string[],
+  emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void
+): Promise<{ success: boolean; output: string }> {
+  // Check if package.json is in the files changed
+  const packageJsonChanged = filesChanged.some(f =>
+    f === "package.json" ||
+    f.endsWith("/package.json") ||
+    f === path.join(repoPath, "package.json")
+  )
+
+  if (!packageJsonChanged) {
+    // Also check if package.json exists but node_modules doesn't
+    const packageJsonPath = path.join(repoPath, "package.json")
+    const nodeModulesPath = path.join(repoPath, "node_modules")
+
+    try {
+      await fs.access(packageJsonPath)
+      try {
+        await fs.access(nodeModulesPath)
+        // Both exist, no need to install
+        return { success: true, output: "Dependencies already installed" }
+      } catch {
+        // package.json exists but node_modules doesn't - need to install
+        emit("thinking", "node_modules missing, installing dependencies...", "Required for TypeScript compilation")
+      }
+    } catch {
+      // No package.json, not a Node.js project
+      return { success: true, output: "No package.json found - skipping dependency installation" }
+    }
+  } else {
+    emit("thinking", "package.json changed, installing dependencies...", "Running npm install --legacy-peer-deps")
+  }
+
+  try {
+    // Run npm install with legacy-peer-deps to handle dependency conflicts
+    const { stdout, stderr } = await execAsync("npm install --legacy-peer-deps", {
+      cwd: repoPath,
+      timeout: 300000, // 5 minutes for npm install
+      env: {
+        ...process.env,
+        // Ensure npm can find node
+        PATH: process.env.PATH
+      }
+    })
+
+    const output = stdout + (stderr ? `\n${stderr}` : "")
+    emit("thinking", "Dependencies installed successfully", `npm install completed`)
+
+    return { success: true, output }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "npm install failed"
+    const stdout = (error as { stdout?: string }).stdout || ""
+    const stderr = (error as { stderr?: string }).stderr || ""
+    const fullOutput = `${stdout}\n${stderr}\n${errorMessage}`
+
+    emit("error", "Failed to install dependencies", errorMessage.substring(0, 500))
+
+    return {
+      success: false,
+      output: `npm install failed:\n${fullOutput}`
+    }
+  }
 }
 
 /**
