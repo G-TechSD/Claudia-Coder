@@ -5,12 +5,13 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
-import { Play, Square, RefreshCw, Loader2, FileText, History, Shield, Radio } from "lucide-react"
+import { Play, Square, RefreshCw, Loader2, FileText, History, Shield, Radio, Zap } from "lucide-react"
 
 // LocalStorage key for persistent session settings
 const STORAGE_KEY_NEVER_LOSE_SESSION = "claude-code-never-lose-session"
 const STORAGE_KEY_RECENT_SESSIONS = "claude-code-recent-sessions"
 const STORAGE_KEY_BACKGROUND_SESSIONS = "claude-code-background-sessions"
+const STORAGE_KEY_AUTO_KICKOFF = "claude-code-auto-kickoff"
 
 // Maximum number of recent sessions to store
 const MAX_RECENT_SESSIONS = 10
@@ -86,6 +87,7 @@ export function ClaudeCodeTerminal({
   const [continueSession, setContinueSession] = useState(false)
   const [resumeSessionId, setResumeSessionId] = useState<string>("")
   const [neverLoseSession, setNeverLoseSession] = useState(false)
+  const [autoKickoff, setAutoKickoff] = useState(false)
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>([])
   const [backgroundSessions, setBackgroundSessions] = useState<BackgroundSession[]>([])
   const [showSessionOptions, setShowSessionOptions] = useState(false)
@@ -104,6 +106,12 @@ export function ClaudeCodeTerminal({
       if (savedNeverLose === "true") {
         setNeverLoseSession(true)
         setContinueSession(true) // Auto-enable continue when never lose is on
+      }
+
+      // Load "auto kickoff" setting
+      const savedAutoKickoff = localStorage.getItem(STORAGE_KEY_AUTO_KICKOFF)
+      if (savedAutoKickoff === "true") {
+        setAutoKickoff(true)
       }
 
       // Load recent sessions
@@ -142,6 +150,13 @@ export function ClaudeCodeTerminal({
       }
     }
   }, [neverLoseSession])
+
+  // Save "auto kickoff" setting when it changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY_AUTO_KICKOFF, autoKickoff.toString())
+    }
+  }, [autoKickoff])
 
   // Save current session to recent sessions when connected
   useEffect(() => {
@@ -303,7 +318,10 @@ export function ClaudeCodeTerminal({
     if (initialPromptSentRef.current) return
     initialPromptSentRef.current = true
 
-    const prompt = initialPrompt || "Read KICKOFF.md for your instructions and current task."
+    // Use "build this app" for auto kickoff, otherwise use provided prompt or default
+    const prompt = autoKickoff
+      ? "build this app"
+      : (initialPrompt || "Read KICKOFF.md for your instructions and current task.")
 
     // Wait a brief moment for Claude Code to fully initialize
     await new Promise(resolve => setTimeout(resolve, 1000))
@@ -312,9 +330,9 @@ export function ClaudeCodeTerminal({
     await sendInput(prompt + "\n")
 
     if (xtermRef.current) {
-      console.log("[Terminal] Sent initial prompt:", prompt)
+      console.log("[Terminal] Sent initial prompt:", prompt, autoKickoff ? "(auto kickoff)" : "")
     }
-  }, [initialPrompt, sendInput])
+  }, [initialPrompt, sendInput, autoKickoff])
 
   // Stop the session - uses ref for sessionId
   const stopSession = useCallback(async () => {
@@ -774,6 +792,23 @@ export function ClaudeCodeTerminal({
               title="Automatically use --continue on every session start. Session state persists even if browser is closed."
             >
               Never Lose Session
+            </label>
+          </div>
+
+          {/* Auto Project Kickoff Toggle */}
+          <div className="flex items-center gap-2">
+            <Zap className={cn("h-3.5 w-3.5", autoKickoff ? "text-yellow-400" : "text-[#6e7681]")} />
+            <Switch
+              checked={autoKickoff}
+              onCheckedChange={setAutoKickoff}
+              className="data-[state=checked]:bg-yellow-600"
+            />
+            <label
+              className="text-xs text-[#8b949e] cursor-pointer"
+              onClick={() => setAutoKickoff(!autoKickoff)}
+              title="Automatically send 'build this app' when session starts. Combined with bypass permissions for fully autonomous operation."
+            >
+              Auto Kickoff
             </label>
           </div>
         </div>
