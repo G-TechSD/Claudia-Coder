@@ -27,7 +27,9 @@ import {
   ThumbsUp,
   ThumbsDown,
   RefreshCw,
-  StopCircle
+  StopCircle,
+  List,
+  LayoutGrid
 } from "lucide-react"
 import { useLegacyPacketExecution, type ExecutionLog, type ExecutionResult } from "@/hooks/usePacketExecution"
 
@@ -180,6 +182,16 @@ function transformApiPacket(apiPacket: ApiPacket): Packet {
   }
 }
 
+// View mode type for list/tile toggle
+type ViewMode = "list" | "tile"
+
+// Helper to get view mode from localStorage
+function getStoredViewMode(): ViewMode {
+  if (typeof window === "undefined") return "list"
+  const stored = localStorage.getItem("claudia_packets_view_mode")
+  return (stored === "tile" ? "tile" : "list") as ViewMode
+}
+
 export default function PacketsPage() {
   const [packets, setPackets] = useState<Packet[]>([])
   const [selectedPacket, setSelectedPacket] = useState<Packet | null>(null)
@@ -189,6 +201,7 @@ export default function PacketsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>("list")
 
   // Execution hook
   const {
@@ -342,6 +355,17 @@ export default function PacketsPage() {
       loadPackets()
     }
   }, [lastResult, loadPackets])
+
+  // Load view mode from localStorage on mount
+  useEffect(() => {
+    setViewMode(getStoredViewMode())
+  }, [])
+
+  // Handle view mode change with localStorage persistence
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem("claudia_packets_view_mode", mode)
+  }
 
   // Handle packet actions
   const handlePacketAction = async (packetId: string, action: "start" | "stop" | "pause" | "cancel") => {
@@ -569,6 +593,34 @@ export default function PacketsPage() {
           Filters
           <ChevronDown className="h-3 w-3" />
         </Button>
+
+        {/* View Mode Toggle */}
+        <div className="flex items-center gap-1 rounded-lg border p-1">
+          <Button
+            variant={viewMode === "list" ? "default" : "ghost"}
+            size="sm"
+            className={cn(
+              "h-7 w-7 p-0",
+              viewMode === "list" && "bg-primary text-primary-foreground"
+            )}
+            onClick={() => handleViewModeChange("list")}
+            title="List view"
+          >
+            <List className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={viewMode === "tile" ? "default" : "ghost"}
+            size="sm"
+            className={cn(
+              "h-7 w-7 p-0",
+              viewMode === "tile" && "bg-primary text-primary-foreground"
+            )}
+            onClick={() => handleViewModeChange("tile")}
+            title="Tile view"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Main Content */}
@@ -643,7 +695,8 @@ export default function PacketsPage() {
                   </>
                 )}
               </div>
-            ) : (
+            ) : viewMode === "list" ? (
+              /* LIST VIEW - Full-width rows with all content visible */
               <div className="divide-y">
                 {filteredPackets.map(packet => {
                   const config = statusConfig[packet.status]
@@ -657,15 +710,24 @@ export default function PacketsPage() {
                       key={packet.id}
                       onClick={() => setSelectedPacket(packet)}
                       className={cn(
-                        "flex items-start gap-3 p-4 cursor-pointer transition-colors",
+                        "flex items-start gap-4 p-4 cursor-pointer transition-colors",
                         isSelected ? "bg-accent" : "hover:bg-accent/50"
                       )}
                     >
-                      <div className="flex-none pt-0.5">
+                      {/* Left side: Status, Priority, Type badges */}
+                      <div className="flex-none flex flex-col items-center gap-2 pt-0.5">
                         <Icon className={cn("h-5 w-5", config.color, config.animate && "animate-spin")} />
+                        <Badge variant={config.badgeVariant} className="text-xs">
+                          {config.label}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {packet.priority}
+                        </Badge>
                       </div>
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-center gap-2">
+
+                      {/* Middle: Content - title, description, metadata */}
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-xs text-muted-foreground">
                             {packet.packetID || packet.id}
                           </span>
@@ -681,26 +743,52 @@ export default function PacketsPage() {
                               )}
                             </span>
                           )}
-                        </div>
-                        <p className="font-medium truncate">{packet.title}</p>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                          {packet.issueIDs.length > 0 && (
-                            <span className="flex items-center gap-1">
-                              <GitBranch className="h-3 w-3" />
-                              {packet.issueIDs.slice(0, 2).join(", ")}
-                              {packet.issueIDs.length > 2 && ` +${packet.issueIDs.length - 2}`}
-                            </span>
-                          )}
                           {workerInfo && (
-                            <span className={cn("flex items-center gap-1", workerInfo.color)}>
+                            <span className={cn("flex items-center gap-1 text-xs", workerInfo.color)}>
                               <User className="h-3 w-3" />
                               {workerInfo.label}
                             </span>
                           )}
                         </div>
+                        <p className="font-medium">{packet.title}</p>
+
+                        {/* Full description - no truncation */}
+                        {packet.summary && (
+                          <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                            {packet.summary}
+                          </p>
+                        )}
+
+                        {/* Dependencies and metadata */}
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                          {packet.issueIDs.length > 0 && (
+                            <span className="flex items-center gap-1">
+                              <GitBranch className="h-3 w-3" />
+                              Issues: {packet.issueIDs.join(", ")}
+                            </span>
+                          )}
+                          {packet.dependencies.length > 0 && (
+                            <span className="flex items-center gap-1">
+                              Dependencies: {packet.dependencies.join(", ")}
+                            </span>
+                          )}
+                          {packet.acceptanceCriteria.length > 0 && (
+                            <span>
+                              {packet.acceptanceCriteria.length} acceptance criteria
+                            </span>
+                          )}
+                          {packet.risks.length > 0 && (
+                            <span className="text-yellow-500">
+                              {packet.risks.length} risk{packet.risks.length !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                          <span>
+                            {packet.issues.length} issue{packet.issues.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
                       </div>
 
-                      {/* Action Buttons - visible on each row */}
+                      {/* Right side: Action Buttons */}
                       <div className="flex-none flex items-center gap-1">
                         {/* Start/Stop Button */}
                         {packet.status === "queued" && (
@@ -798,14 +886,109 @@ export default function PacketsPage() {
                           </>
                         )}
                       </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              /* TILE VIEW - Grid of fixed-height cards with truncated content */
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+                {filteredPackets.map(packet => {
+                  const config = statusConfig[packet.status]
+                  const Icon = config.icon
+                  const isSelected = selectedPacket?.id === packet.id
+                  const isActionLoading = actionLoading === packet.id
 
-                      <div className="flex-none text-right space-y-1">
-                        <Badge className={cn("text-xs", `bg-${config.bg.replace('bg-', '')}/10`, config.color)}>
-                          {config.label}
+                  return (
+                    <div
+                      key={packet.id}
+                      onClick={() => setSelectedPacket(packet)}
+                      className={cn(
+                        "rounded-lg border p-4 cursor-pointer transition-all h-[180px] flex flex-col",
+                        isSelected
+                          ? "bg-accent border-primary ring-1 ring-primary"
+                          : "hover:bg-accent/50 hover:border-primary/50"
+                      )}
+                    >
+                      {/* Header with badges */}
+                      <div className="flex items-center justify-between gap-2 mb-2 flex-none">
+                        <div className="flex items-center gap-1.5">
+                          <Icon className={cn("h-4 w-4", config.color, config.animate && "animate-spin")} />
+                          <Badge variant={config.badgeVariant} className="text-xs px-1.5 py-0">
+                            {config.label}
+                          </Badge>
+                        </div>
+                        <Badge variant="outline" className="text-xs px-1.5 py-0">
+                          {packet.priority}
                         </Badge>
-                        <p className="text-xs text-muted-foreground">
-                          {packet.issues.length} issue{packet.issues.length !== 1 ? "s" : ""}
-                        </p>
+                      </div>
+
+                      {/* Title */}
+                      <p className="font-medium text-sm line-clamp-2 mb-2 flex-none">
+                        {packet.title}
+                      </p>
+
+                      {/* Description - truncated with line-clamp-3 */}
+                      <p className="text-xs text-muted-foreground line-clamp-3 flex-1">
+                        {packet.summary || "No description available"}
+                      </p>
+
+                      {/* Footer with actions */}
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t flex-none">
+                        <span className="font-mono text-xs text-muted-foreground truncate max-w-[100px]">
+                          {packet.packetID || packet.id}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {packet.feedback && (
+                            <span className={cn(
+                              "flex items-center",
+                              packet.feedback === "thumbs_up" ? "text-green-400" : "text-red-400"
+                            )}>
+                              {packet.feedback === "thumbs_up" ? (
+                                <ThumbsUp className="h-3 w-3" />
+                              ) : (
+                                <ThumbsDown className="h-3 w-3" />
+                              )}
+                            </span>
+                          )}
+                          {/* Quick action button */}
+                          {packet.status === "queued" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-green-400 hover:text-green-300 hover:bg-green-400/10"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handlePacketAction(packet.id, "start")
+                              }}
+                              disabled={isActionLoading}
+                            >
+                              {isActionLoading ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Play className="h-3 w-3" />
+                              )}
+                            </Button>
+                          )}
+                          {packet.status === "running" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-orange-400 hover:text-orange-300 hover:bg-orange-400/10"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handlePacketAction(packet.id, "stop")
+                              }}
+                              disabled={isActionLoading}
+                            >
+                              {isActionLoading ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Square className="h-3 w-3" />
+                              )}
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )
