@@ -81,6 +81,7 @@ import { DocsBrowser } from "@/components/project/docs-browser"
 import { VisionDisplay } from "@/components/project/vision-display"
 import { FileBrowser } from "@/components/project/file-browser"
 import { QuickComment } from "@/components/project/quick-comment"
+import { AnalyzeCodebaseButton } from "@/components/project/analyze-codebase-button"
 import {
   Select,
   SelectContent,
@@ -843,6 +844,36 @@ export default function ProjectDetailPage() {
             isExecuting={isExecuting}
             hasLinkedRepo={project.repos.length > 0}
             onStartBuild={handleStartBuild}
+          />
+
+          {/* Analyze Existing Codebase - Shows when project has linked repos but no build plan */}
+          <AnalyzeCodebaseButton
+            projectId={project.id}
+            projectName={project.name}
+            projectDescription={project.description}
+            hasLinkedRepo={project.repos.length > 0}
+            repoPath={project.repos.find(r => r.localPath)?.localPath}
+            hasBuildPlan={hasBuildPlan}
+            onAnalysisComplete={() => {
+              // Refresh build plan status
+              const buildPlan = getBuildPlanForProject(project.id)
+              if (buildPlan) {
+                setHasBuildPlan(true)
+                setBuildPlanApproved(buildPlan.status === "approved" || buildPlan.status === "locked")
+                setCurrentBuildPlan(buildPlan)
+              }
+              // Refresh packets
+              const storedPackets = localStorage.getItem("claudia_packets")
+              if (storedPackets) {
+                try {
+                  const allPackets = JSON.parse(storedPackets)
+                  const projectPackets = allPackets[project.id] || []
+                  setPackets(projectPackets)
+                } catch {
+                  console.error("Failed to parse packets")
+                }
+              }
+            }}
           />
 
           {/* Build Plan Section - Prominent for Planning Phase */}
