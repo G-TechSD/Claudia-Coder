@@ -28,6 +28,7 @@ import {
   permanentlyDeleteProject,
   emptyTrash
 } from "@/lib/data/projects"
+import { useAuth } from "@/components/auth/auth-provider"
 import type { Project, ProjectStatus } from "@/lib/data/types"
 
 // Status config for showing previous status badge
@@ -57,18 +58,23 @@ function formatDate(dateStr: string): string {
 }
 
 export default function TrashPage() {
+  const { user } = useAuth()
+  const userId = user?.id
   const [projects, setProjects] = useState<Project[]>([])
   const [search, setSearch] = useState("")
   const [isLoading, setIsLoading] = useState(true)
 
   // Load trashed projects
   useEffect(() => {
-    loadTrashedProjects()
-  }, [])
+    if (userId) {
+      loadTrashedProjects()
+    }
+  }, [userId])
 
   const loadTrashedProjects = () => {
+    if (!userId) return
     setIsLoading(true)
-    const trashedProjects = getTrashedProjects()
+    const trashedProjects = getTrashedProjects(userId)
     setProjects(trashedProjects)
     setIsLoading(false)
   }
@@ -87,23 +93,23 @@ export default function TrashPage() {
 
   const handleRestore = (id: string, name: string) => {
     if (confirm(`Restore project "${name}"?`)) {
-      restoreProject(id)
+      restoreProject(id, userId)
       loadTrashedProjects()
     }
   }
 
   const handlePermanentDelete = (id: string, name: string) => {
     if (confirm(`Permanently delete project "${name}"? This action cannot be undone.`)) {
-      permanentlyDeleteProject(id)
+      permanentlyDeleteProject(id, userId)
       loadTrashedProjects()
     }
   }
 
   const handleEmptyTrash = () => {
-    if (projects.length === 0) return
+    if (projects.length === 0 || !userId) return
 
     if (confirm(`Permanently delete all ${projects.length} projects in trash? This action cannot be undone.`)) {
-      const deleted = emptyTrash()
+      const deleted = emptyTrash(userId)
       loadTrashedProjects()
       alert(`${deleted} projects permanently deleted.`)
     }

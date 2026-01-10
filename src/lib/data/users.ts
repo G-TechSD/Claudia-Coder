@@ -4,12 +4,13 @@
  */
 
 import { db } from "@/lib/auth/db"
+import { type Role, ROLES, isAdminEmail } from "@/lib/auth/roles"
 
 export interface AdminUser {
   id: string
   name: string
   email: string
-  role: string
+  role: Role
   image: string | null
   emailVerified: number
   ndaSigned: number
@@ -22,7 +23,8 @@ export interface AdminUser {
   updatedAt: string
 }
 
-export type UserRole = "admin" | "beta_tester" | "user"
+// Re-export Role type for convenience
+export type UserRole = Role
 
 /**
  * Get all users for admin management
@@ -68,11 +70,18 @@ export function getUserById(id: string): AdminUser | null {
 
 /**
  * Update user role
+ * Note: bill@gtechsd.com cannot have their role changed from admin
  */
 export function updateUserRole(id: string, role: UserRole): boolean {
-  const validRoles = ["admin", "beta_tester", "user"]
+  const validRoles: Role[] = [ROLES.ADMIN, ROLES.BETA_TESTER, ROLES.USER]
   if (!validRoles.includes(role)) {
     throw new Error(`Invalid role: ${role}`)
+  }
+
+  // Check if this is the admin user - they cannot have their role changed
+  const user = db.prepare("SELECT email FROM user WHERE id = ?").get(id) as { email: string } | undefined
+  if (user && isAdminEmail(user.email) && role !== ROLES.ADMIN) {
+    throw new Error("Cannot change the role of the primary admin account")
   }
 
   const now = new Date().toISOString()

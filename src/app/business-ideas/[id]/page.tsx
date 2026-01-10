@@ -59,6 +59,7 @@ import { VoiceChatPanel } from "@/components/business-ideas/voice-chat-panel"
 import { ConvertToProjectDialog } from "@/components/business-ideas/convert-to-project-dialog"
 import { ExecutiveSummary, ViabilityInterview, type ExecutiveSummaryData } from "@/components/business"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useAuth } from "@/components/auth/auth-provider"
 
 const statusConfig: Record<BusinessIdeaStatus, {
   label: string
@@ -87,6 +88,8 @@ const potentialConfig: Record<BusinessIdeaPotential, {
 export default function BusinessIdeaDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const { user } = useAuth()
+  const userId = user?.id
   const ideaId = Array.isArray(params.id) ? params.id[0] : (params.id as string)
 
   const [idea, setIdea] = useState<BusinessIdea | null>(null)
@@ -103,19 +106,19 @@ export default function BusinessIdeaDetailPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!ideaId) {
+    if (!ideaId || !userId) {
       setLoading(false)
       return
     }
 
-    const found = getBusinessIdea(ideaId)
+    const found = getBusinessIdea(ideaId, userId)
     setIdea(found)
     if (found) {
       setEditTitle(found.title)
       setEditSummary(found.summary)
     }
     setLoading(false)
-  }, [ideaId])
+  }, [ideaId, userId])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -127,7 +130,7 @@ export default function BusinessIdeaDetailPage() {
     const updated = updateBusinessIdea(idea.id, {
       title: editTitle,
       summary: editSummary
-    })
+    }, userId)
     if (updated) {
       setIdea(updated)
       setIsEditing(false)
@@ -144,20 +147,20 @@ export default function BusinessIdeaDetailPage() {
 
   const handleStatusChange = (newStatus: BusinessIdeaStatus) => {
     if (!idea) return
-    const updated = updateBusinessIdea(idea.id, { status: newStatus })
+    const updated = updateBusinessIdea(idea.id, { status: newStatus }, userId)
     if (updated) setIdea(updated)
   }
 
   const handlePotentialChange = (newPotential: BusinessIdeaPotential) => {
     if (!idea) return
-    const updated = updateBusinessIdea(idea.id, { potential: newPotential })
+    const updated = updateBusinessIdea(idea.id, { potential: newPotential }, userId)
     if (updated) setIdea(updated)
   }
 
   const handleDelete = () => {
     if (!idea) return
     if (confirm(`Permanently delete "${idea.title}"? This cannot be undone.`)) {
-      deleteBusinessIdea(idea.id)
+      deleteBusinessIdea(idea.id, userId)
       router.push("/business-ideas")
     }
   }
@@ -171,7 +174,7 @@ export default function BusinessIdeaDetailPage() {
     const updatedWithUser = addMessageToIdea(idea.id, {
       role: "user",
       content: message.trim()
-    })
+    }, userId)
 
     if (updatedWithUser) {
       setIdea(updatedWithUser)
@@ -184,7 +187,7 @@ export default function BusinessIdeaDetailPage() {
       const updatedWithAI = addMessageToIdea(idea.id, {
         role: "assistant",
         content: aiResponse
-      })
+      }, userId)
       if (updatedWithAI) {
         setIdea(updatedWithAI)
       }
@@ -208,7 +211,7 @@ export default function BusinessIdeaDetailPage() {
 
   const handleUpdateExecutiveSummary = (field: string, value: unknown) => {
     if (!idea) return
-    const updated = updateBusinessIdea(idea.id, { [field]: value })
+    const updated = updateBusinessIdea(idea.id, { [field]: value }, userId)
     if (updated) {
       setIdea(updated)
       // If updating executive summary data, also update local state
@@ -227,7 +230,7 @@ export default function BusinessIdeaDetailPage() {
     const updated = updateBusinessIdea(idea.id, {
       viabilityInsights: insights,
       viabilityAnswers: answers
-    })
+    }, userId)
     if (updated) setIdea(updated)
   }
 
@@ -454,12 +457,12 @@ export default function BusinessIdeaDetailPage() {
                 const updatedWithUser = addMessageToIdea(idea.id, {
                   role: "user",
                   content: msg
-                })
+                }, userId)
                 if (updatedWithUser) {
                   const updatedWithAssistant = addMessageToIdea(idea.id, {
                     role: "assistant",
                     content: resp
-                  })
+                  }, userId)
                   if (updatedWithAssistant) {
                     setIdea(updatedWithAssistant)
                   }

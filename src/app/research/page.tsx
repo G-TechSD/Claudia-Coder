@@ -79,6 +79,7 @@ import {
   type ResearchRecommendation
 } from "@/lib/data/research"
 import { createProject } from "@/lib/data/projects"
+import { useAuth } from "@/components/auth/auth-provider"
 import type { PriorArtResearch, CompetitorAnalysis } from "@/lib/data/types"
 
 // ============ Configuration ============
@@ -177,6 +178,8 @@ function getSaturationConfig(saturation: string) {
 
 export default function ResearchPage() {
   const router = useRouter()
+  const { user } = useAuth()
+  const userId = user?.id
   const [entries, setEntries] = useState<ResearchEntry[]>([])
   const [statusFilter, setStatusFilter] = useState<ResearchStatus | "all">("all")
   const [recommendationFilter, setRecommendationFilter] = useState<ResearchRecommendation | "all">("all")
@@ -199,12 +202,15 @@ export default function ResearchPage() {
 
   // Load entries
   useEffect(() => {
-    loadEntries()
-  }, [])
+    if (userId) {
+      loadEntries()
+    }
+  }, [userId])
 
   const loadEntries = () => {
+    if (!userId) return
     setIsLoading(true)
-    const allEntries = getAllResearch({ includeConverted: true })
+    const allEntries = getAllResearch({ includeConverted: true, userId })
     setEntries(allEntries)
     setIsLoading(false)
   }
@@ -236,11 +242,21 @@ export default function ResearchPage() {
   }, [entries, statusFilter, recommendationFilter, search])
 
   // Stats
-  const stats = useMemo(() => getResearchStats(), [entries])
+  const stats = useMemo(() => {
+    if (!userId) {
+      return {
+        total: 0,
+        byStatus: { pending: 0, researching: 0, completed: 0, failed: 0 },
+        byRecommendation: { pursue: 0, pivot: 0, abandon: 0, undetermined: 0 },
+        converted: 0
+      }
+    }
+    return getResearchStats(userId)
+  }, [entries, userId])
 
   // Create new research entry
   const handleCreate = async () => {
-    if (!newTopic.trim()) return
+    if (!newTopic.trim() || !userId) return
 
     setIsCreating(true)
     const entry = createResearch({
@@ -248,7 +264,7 @@ export default function ResearchPage() {
       description: newDescription.trim(),
       status: "pending",
       tags: []
-    })
+    }, userId)
 
     setNewTopic("")
     setNewDescription("")
@@ -265,7 +281,7 @@ export default function ResearchPage() {
   // Delete entry
   const handleDelete = (id: string, topic: string) => {
     if (confirm(`Permanently delete research for "${topic}"? This cannot be undone.`)) {
-      deleteResearch(id)
+      deleteResearch(id, userId)
       if (selectedEntry?.id === id) {
         setSelectedEntry(null)
       }
@@ -275,14 +291,14 @@ export default function ResearchPage() {
 
   // Perform research
   const performResearch = async (id: string) => {
-    const entry = getResearch(id)
+    const entry = getResearch(id, userId)
     if (!entry) return
 
     setResearchingId(id)
     setResearchStatus("Starting research...")
 
     // Update status to researching
-    updateResearch(id, { status: "researching" })
+    updateResearch(id, { status: "researching" }, userId)
     loadEntries()
 
     try {
@@ -307,9 +323,9 @@ export default function ResearchPage() {
         updateResearch(id, {
           status: "failed",
           notes: `Research failed: ${data.error}`
-        })
+        }, userId)
       } else if (data.research) {
-        updateResearchFindings(id, data.research)
+        updateResearchFindings(id, data.research, userId)
         setResearchStatus("Research complete!")
         setTimeout(() => setResearchStatus(""), 2000)
       }
@@ -318,20 +334,20 @@ export default function ResearchPage() {
       updateResearch(id, {
         status: "failed",
         notes: `Research failed: ${err instanceof Error ? err.message : "Unknown error"}`
-      })
+      }, userId)
     } finally {
       setResearchingId(null)
       loadEntries()
       // Refresh selected entry if it was the one being researched
       if (selectedEntry?.id === id) {
-        setSelectedEntry(getResearch(id))
+        setSelectedEntry(getResearch(id, userId))
       }
     }
   }
 
   // Create project from research
   const handleCreateProject = async (entry: ResearchEntry) => {
-    if (!entry.findings) return
+    if (!entry.findings || !userId) return
 
     const project = createProject({
       name: entry.topic,
@@ -341,10 +357,10 @@ export default function ResearchPage() {
       repos: [],
       packetIds: [],
       tags: entry.tags
-    })
+    }, userId)
 
     // Mark research as converted
-    markResearchConverted(entry.id, project.id)
+    markResearchConverted(entry.id, project.id, userId)
     loadEntries()
 
     // Navigate to the new project

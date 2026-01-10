@@ -483,3 +483,204 @@ export function deleteOldSessions(daysOld: number = 30): number {
     return 0
   }
 }
+
+/**
+ * Get user session statistics
+ */
+export function getUserSessionStats(userId: string): {
+  totalSessions: number
+  totalDuration: number
+  lastActiveAt: string | null
+  totalClicks: number
+  totalErrors: number
+  avgSessionDuration: number
+} {
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) as totalSessions,
+      COALESCE(SUM(duration), 0) as totalDuration,
+      MAX(startedAt) as lastActiveAt,
+      COALESCE(SUM(clickCount), 0) as totalClicks,
+      COALESCE(SUM(errorCount), 0) as totalErrors,
+      COALESCE(AVG(duration), 0) as avgSessionDuration
+    FROM recorded_session
+    WHERE userId = ?
+  `).get(userId) as {
+    totalSessions: number
+    totalDuration: number
+    lastActiveAt: string | null
+    totalClicks: number
+    totalErrors: number
+    avgSessionDuration: number
+  }
+
+  return stats
+}
+
+/**
+ * Get all users with their session stats
+ */
+export function getAllUsersWithSessionStats(): {
+  userId: string
+  userName: string
+  userEmail: string
+  userImage: string | null
+  userRole: string
+  sessionCount: number
+  totalDuration: number
+  lastActiveAt: string | null
+  totalClicks: number
+  totalErrors: number
+  avgSessionDuration: number
+  createdAt: string
+}[] {
+  return db.prepare(`
+    SELECT
+      u.id as userId,
+      u.name as userName,
+      u.email as userEmail,
+      u.image as userImage,
+      u.role as userRole,
+      COUNT(rs.id) as sessionCount,
+      COALESCE(SUM(rs.duration), 0) as totalDuration,
+      MAX(rs.startedAt) as lastActiveAt,
+      COALESCE(SUM(rs.clickCount), 0) as totalClicks,
+      COALESCE(SUM(rs.errorCount), 0) as totalErrors,
+      COALESCE(AVG(rs.duration), 0) as avgSessionDuration,
+      u.createdAt
+    FROM user u
+    LEFT JOIN recorded_session rs ON u.id = rs.userId
+    GROUP BY u.id
+    ORDER BY lastActiveAt DESC NULLS LAST, u.createdAt DESC
+  `).all() as {
+    userId: string
+    userName: string
+    userEmail: string
+    userImage: string | null
+    userRole: string
+    sessionCount: number
+    totalDuration: number
+    lastActiveAt: string | null
+    totalClicks: number
+    totalErrors: number
+    avgSessionDuration: number
+    createdAt: string
+  }[]
+}
+
+/**
+ * Get platform engagement stats
+ */
+export function getPlatformStats(): {
+  totalUsers: number
+  activeUsersToday: number
+  activeUsersThisWeek: number
+  activeUsersThisMonth: number
+  sessionsToday: number
+  sessionsThisWeek: number
+  sessionsThisMonth: number
+  avgSessionsPerUser: number
+  avgSessionDuration: number
+  totalSessionTime: number
+  topFeatures: { feature: string; count: number }[]
+  usersByRole: { role: string; count: number }[]
+} {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+  // User counts
+  const userCounts = db.prepare(`
+    SELECT COUNT(*) as totalUsers FROM user
+  `).get() as { totalUsers: number }
+
+  // Active users (users who have sessions)
+  const activeUsers = db.prepare(`
+    SELECT
+      COUNT(DISTINCT CASE WHEN startedAt >= ? THEN userId END) as activeToday,
+      COUNT(DISTINCT CASE WHEN startedAt >= ? THEN userId END) as activeThisWeek,
+      COUNT(DISTINCT CASE WHEN startedAt >= ? THEN userId END) as activeThisMonth
+    FROM recorded_session
+  `).get(todayStart, weekAgo, monthAgo) as {
+    activeToday: number
+    activeThisWeek: number
+    activeThisMonth: number
+  }
+
+  // Session counts
+  const sessionCounts = db.prepare(`
+    SELECT
+      SUM(CASE WHEN startedAt >= ? THEN 1 ELSE 0 END) as sessionsToday,
+      SUM(CASE WHEN startedAt >= ? THEN 1 ELSE 0 END) as sessionsThisWeek,
+      SUM(CASE WHEN startedAt >= ? THEN 1 ELSE 0 END) as sessionsThisMonth,
+      AVG(duration) as avgDuration,
+      SUM(duration) as totalDuration
+    FROM recorded_session
+  `).get(todayStart, weekAgo, monthAgo) as {
+    sessionsToday: number
+    sessionsThisWeek: number
+    sessionsThisMonth: number
+    avgDuration: number
+    totalDuration: number
+  }
+
+  // Average sessions per user
+  const avgSessions = db.prepare(`
+    SELECT AVG(sessionCount) as avg FROM (
+      SELECT COUNT(*) as sessionCount FROM recorded_session GROUP BY userId
+    )
+  `).get() as { avg: number | null }
+
+  // Top pages/features visited (from pagesVisited JSON)
+  const topFeatures: { feature: string; count: number }[] = []
+  try {
+    const pagesData = db.prepare(`
+      SELECT pagesVisited FROM recorded_session WHERE pagesVisited IS NOT NULL
+    `).all() as { pagesVisited: string }[]
+
+    const featureCounts: Record<string, number> = {}
+    for (const row of pagesData) {
+      try {
+        const pages = JSON.parse(row.pagesVisited) as string[]
+        for (const page of pages) {
+          // Extract feature name from URL path
+          const feature = page.replace(/^\//, "").split("/")[0] || "home"
+          featureCounts[feature] = (featureCounts[feature] || 0) + 1
+        }
+      } catch {
+        // Skip invalid JSON
+      }
+    }
+
+    // Sort by count and take top 10
+    Object.entries(featureCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .forEach(([feature, count]) => {
+        topFeatures.push({ feature, count })
+      })
+  } catch {
+    // Ignore errors
+  }
+
+  // Users by role
+  const usersByRole = db.prepare(`
+    SELECT role, COUNT(*) as count FROM user GROUP BY role ORDER BY count DESC
+  `).all() as { role: string; count: number }[]
+
+  return {
+    totalUsers: userCounts.totalUsers,
+    activeUsersToday: activeUsers.activeToday || 0,
+    activeUsersThisWeek: activeUsers.activeThisWeek || 0,
+    activeUsersThisMonth: activeUsers.activeThisMonth || 0,
+    sessionsToday: sessionCounts.sessionsToday || 0,
+    sessionsThisWeek: sessionCounts.sessionsThisWeek || 0,
+    sessionsThisMonth: sessionCounts.sessionsThisMonth || 0,
+    avgSessionsPerUser: avgSessions.avg || 0,
+    avgSessionDuration: sessionCounts.avgDuration || 0,
+    totalSessionTime: sessionCounts.totalDuration || 0,
+    topFeatures,
+    usersByRole,
+  }
+}

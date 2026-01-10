@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
   DialogContent,
@@ -13,6 +15,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import {
   Plus,
@@ -26,6 +35,9 @@ import {
   AlertTriangle,
   Check,
   Link as LinkIcon,
+  Send,
+  MessageSquare,
+  User,
 } from "lucide-react"
 
 interface InviteUsage {
@@ -44,6 +56,11 @@ interface Invite {
   expiresAt: string | null
   status: "pending" | "used" | "expired" | "revoked"
   createdBy: string
+  createdByName: string | null
+  customMessage: string | null
+  emailSent: boolean
+  emailSentAt: string | null
+  inviterName: string | null
   createdAt: string
   updatedAt: string
   usages: InviteUsage[]
@@ -59,6 +76,25 @@ interface InviteStats {
   usedCapacity: number
   remainingCapacity: number
 }
+
+const DEFAULT_INVITE_MESSAGE = `You've been invited to join Claudia, an AI-powered development platform that helps you build software faster and smarter.
+
+As a beta tester, you'll get early access to:
+- AI-assisted code generation and review
+- Intelligent project management
+- Automated documentation
+- And much more!`
+
+const EXPIRATION_OPTIONS = [
+  { value: "1", label: "1 day" },
+  { value: "3", label: "3 days" },
+  { value: "7", label: "7 days" },
+  { value: "14", label: "14 days" },
+  { value: "30", label: "30 days" },
+  { value: "60", label: "60 days" },
+  { value: "90", label: "90 days" },
+  { value: "never", label: "Never expires" },
+]
 
 const statusConfig = {
   pending: { label: "Pending", color: "text-yellow-400", bg: "bg-yellow-500/20", icon: Clock },
@@ -102,9 +138,12 @@ export default function InvitesPage() {
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
   const [newInviteEmail, setNewInviteEmail] = React.useState("")
   const [newInviteMaxUses, setNewInviteMaxUses] = React.useState("1")
-  const [newInviteExpiry, setNewInviteExpiry] = React.useState("")
+  const [newInviteExpiryDays, setNewInviteExpiryDays] = React.useState("7")
+  const [newInviteMessage, setNewInviteMessage] = React.useState(DEFAULT_INVITE_MESSAGE)
+  const [sendEmail, setSendEmail] = React.useState(true)
   const [creating, setCreating] = React.useState(false)
   const [createError, setCreateError] = React.useState<string | null>(null)
+  const [emailConfigured, setEmailConfigured] = React.useState(true)
 
   const fetchInvites = React.useCallback(async () => {
     try {
@@ -113,6 +152,7 @@ export default function InvitesPage() {
       const data = await res.json()
       setInvites(data.invites)
       setStats(data.stats)
+      setEmailConfigured(data.emailConfigured !== false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load invites")
     } finally {
@@ -130,13 +170,24 @@ export default function InvitesPage() {
     setCreateError(null)
 
     try {
+      // Calculate expiration date
+      let expiresAt: string | undefined
+      if (newInviteExpiryDays !== "never") {
+        const days = parseInt(newInviteExpiryDays, 10)
+        const expDate = new Date()
+        expDate.setDate(expDate.getDate() + days)
+        expiresAt = expDate.toISOString()
+      }
+
       const res = await fetch("/api/admin/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: newInviteEmail || undefined,
           maxUses: parseInt(newInviteMaxUses, 10),
-          expiresAt: newInviteExpiry || undefined,
+          expiresAt,
+          customMessage: newInviteMessage !== DEFAULT_INVITE_MESSAGE ? newInviteMessage : undefined,
+          sendEmail: sendEmail && !!newInviteEmail,
         }),
       })
 
@@ -149,7 +200,9 @@ export default function InvitesPage() {
       // Reset form and close dialog
       setNewInviteEmail("")
       setNewInviteMaxUses("1")
-      setNewInviteExpiry("")
+      setNewInviteExpiryDays("7")
+      setNewInviteMessage(DEFAULT_INVITE_MESSAGE)
+      setSendEmail(true)
       setCreateDialogOpen(false)
 
       // Refresh invites list
@@ -185,6 +238,28 @@ export default function InvitesPage() {
       }
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to revoke invite")
+    }
+  }
+
+  const handleResendEmail = async (invite: Invite) => {
+    if (!invite.email) return
+
+    try {
+      const res = await fetch(`/api/admin/invites/${invite.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resendEmail: true }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "Failed to resend email")
+      }
+
+      await fetchInvites()
+      alert("Email sent successfully!")
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to resend email")
     }
   }
 
@@ -232,7 +307,7 @@ export default function InvitesPage() {
           Create Invite
         </Button>
         <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-          <DialogContent>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create Beta Invite</DialogTitle>
               <DialogDescription>
@@ -241,45 +316,109 @@ export default function InvitesPage() {
             </DialogHeader>
             <form onSubmit={handleCreateInvite} className="space-y-4 mt-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email (optional)</Label>
+                <Label htmlFor="email">Recipient Email</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="Restrict to specific email"
+                  placeholder="user@example.com"
                   value={newInviteEmail}
                   onChange={(e) => setNewInviteEmail(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Leave empty to allow any email
+                  Enter an email to send the invite directly, or leave empty for a generic invite link
                 </p>
               </div>
+
+              {/* Custom Message */}
               <div className="space-y-2">
-                <Label htmlFor="maxUses">Max Uses</Label>
-                <Input
-                  id="maxUses"
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={newInviteMaxUses}
-                  onChange={(e) => setNewInviteMaxUses(e.target.value)}
+                <Label htmlFor="message">Personal Message</Label>
+                <Textarea
+                  id="message"
+                  placeholder="Add a personal message..."
+                  value={newInviteMessage}
+                  onChange={(e) => setNewInviteMessage(e.target.value)}
+                  rows={5}
+                  className="resize-none"
                 />
+                <p className="text-xs text-muted-foreground">
+                  This message will be included in the invitation email
+                </p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="expiry">Expiry Date (optional)</Label>
-                <Input
-                  id="expiry"
-                  type="datetime-local"
-                  value={newInviteExpiry}
-                  onChange={(e) => setNewInviteExpiry(e.target.value)}
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Max Uses */}
+                <div className="space-y-2">
+                  <Label htmlFor="maxUses">Max Uses</Label>
+                  <Input
+                    id="maxUses"
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={newInviteMaxUses}
+                    onChange={(e) => setNewInviteMaxUses(e.target.value)}
+                  />
+                </div>
+
+                {/* Expiration Days */}
+                <div className="space-y-2">
+                  <Label htmlFor="expiry">Expires In</Label>
+                  <Select
+                    value={newInviteExpiryDays}
+                    onValueChange={setNewInviteExpiryDays}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select expiration" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EXPIRATION_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
+              {/* Send Email Toggle */}
+              {newInviteEmail && (
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
+                  <div className="flex items-center gap-3">
+                    <Send className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Send invitation email</p>
+                      <p className="text-xs text-muted-foreground">
+                        {emailConfigured
+                          ? "Automatically send the invite to this email"
+                          : "Email not configured - invite link only"}
+                      </p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={sendEmail && emailConfigured}
+                    onCheckedChange={setSendEmail}
+                    disabled={!emailConfigured}
+                  />
+                </div>
+              )}
+
+              {!emailConfigured && (
+                <div className="flex items-center gap-2 text-sm text-yellow-500 bg-yellow-500/10 p-3 rounded-lg">
+                  <AlertTriangle className="h-4 w-4 flex-none" />
+                  <span>
+                    Email not configured. Set RESEND_API_KEY or SMTP variables in .env.local
+                  </span>
+                </div>
+              )}
+
               {createError && (
                 <div className="flex items-center gap-2 text-sm text-destructive">
                   <AlertTriangle className="h-4 w-4" />
                   {createError}
                 </div>
               )}
-              <div className="flex justify-end gap-2">
+
+              <div className="flex justify-end gap-2 pt-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -292,6 +431,11 @@ export default function InvitesPage() {
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       Creating...
+                    </>
+                  ) : sendEmail && newInviteEmail && emailConfigured ? (
+                    <>
+                      <Send className="h-4 w-4 mr-2" />
+                      Create & Send
                     </>
                   ) : (
                     "Create & Copy Link"
@@ -412,11 +556,23 @@ export default function InvitesPage() {
                             {invite.email}
                           </Badge>
                         )}
+                        {invite.emailSent && (
+                          <Badge variant="secondary" className="text-xs gap-1">
+                            <Send className="h-3 w-3" />
+                            Sent
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <span>
                           {invite.usedCount}/{invite.maxUses} uses
                         </span>
+                        {invite.inviterName && (
+                          <span className="flex items-center gap-1">
+                            <User className="h-3 w-3" />
+                            {invite.inviterName}
+                          </span>
+                        )}
                         <span>{formatDateShort(invite.createdAt)}</span>
                         {invite.expiresAt && (
                           <span
@@ -489,7 +645,13 @@ export default function InvitesPage() {
                   </div>
                   {selectedInvite.email && (
                     <p className="text-sm text-muted-foreground">
-                      Restricted to: {selectedInvite.email}
+                      Sent to: {selectedInvite.email}
+                    </p>
+                  )}
+                  {selectedInvite.inviterName && (
+                    <p className="text-sm text-muted-foreground flex items-center gap-1">
+                      <User className="h-3 w-3" />
+                      Invited by: {selectedInvite.inviterName}
                     </p>
                   )}
                 </div>
@@ -501,6 +663,21 @@ export default function InvitesPage() {
                     {selectedInvite.usedCount} / {selectedInvite.maxUses}
                   </span>
                 </div>
+
+                {/* Custom Message */}
+                {selectedInvite.customMessage && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                      <MessageSquare className="h-3 w-3" />
+                      Custom Message
+                    </p>
+                    <div className="p-3 rounded-lg bg-muted/50 border-l-2 border-primary">
+                      <p className="text-sm whitespace-pre-wrap">
+                        {selectedInvite.customMessage}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Details */}
                 <div className="space-y-3">
@@ -526,6 +703,14 @@ export default function InvitesPage() {
                           )}
                         >
                           {formatDate(selectedInvite.expiresAt)}
+                        </span>
+                      </div>
+                    )}
+                    {selectedInvite.emailSent && selectedInvite.emailSentAt && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Email Sent</span>
+                        <span className="font-mono text-xs">
+                          {formatDate(selectedInvite.emailSentAt)}
                         </span>
                       </div>
                     )}
@@ -586,6 +771,16 @@ export default function InvitesPage() {
                       </>
                     )}
                   </Button>
+                  {selectedInvite.email && selectedInvite.status === "pending" && (
+                    <Button
+                      className="w-full gap-2"
+                      variant="outline"
+                      onClick={() => handleResendEmail(selectedInvite)}
+                    >
+                      <Send className="h-4 w-4" />
+                      {selectedInvite.emailSent ? "Resend Email" : "Send Email"}
+                    </Button>
+                  )}
                   {selectedInvite.status !== "revoked" && (
                     <Button
                       className="w-full gap-2"

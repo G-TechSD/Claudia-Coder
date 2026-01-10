@@ -1,6 +1,9 @@
 /**
  * Projects Data Store
  * Claudia-native project storage with optional Linear sync
+ *
+ * IMPORTANT: All project data is user-scoped. Projects belong to specific users
+ * and are stored in user-specific localStorage keys.
  */
 
 import {
@@ -12,6 +15,14 @@ import {
   InterviewSession,
   LinkedRepo
 } from "./types"
+import {
+  getUserStorageItem,
+  setUserStorageItem,
+  USER_STORAGE_KEYS,
+  canUserAccessItem,
+  filterUserAccessibleItems,
+  dispatchStorageChange
+} from "./user-storage"
 
 // UUID generator that works in all contexts (HTTP, HTTPS, localhost)
 function generateUUID(): string {
@@ -27,8 +38,9 @@ function generateUUID(): string {
   })
 }
 
-const STORAGE_KEY = "claudia_projects"
-const INTERVIEWS_KEY = "claudia_interviews"
+// Legacy storage keys (kept for migration purposes)
+const LEGACY_STORAGE_KEY = "claudia_projects"
+const LEGACY_INTERVIEWS_KEY = "claudia_interviews"
 
 // Base directory for all Claudia project working directories
 const CLAUDIA_PROJECTS_BASE = "/home/bill/claudia-projects"
@@ -138,50 +150,138 @@ export function getProjectWorkingDirectory(projectId: string): string | null {
 
 // ============ Storage Helpers ============
 
+/**
+ * Get all projects for a specific user from user-scoped storage
+ * Falls back to legacy storage for migration purposes
+ */
+function getStoredProjectsForUser(userId: string): Project[] {
+  if (typeof window === "undefined") return []
+
+  // Try user-scoped storage first
+  const userProjects = getUserStorageItem<Project[]>(userId, USER_STORAGE_KEYS.PROJECTS)
+  if (userProjects) {
+    return userProjects
+  }
+
+  // Fallback to legacy storage and filter by userId
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
+  if (stored) {
+    const allProjects: Project[] = JSON.parse(stored)
+    // Filter to only return projects belonging to this user or public/legacy projects
+    return allProjects.filter(p =>
+      p.userId === userId ||
+      p.isPublic === true ||
+      p.collaboratorIds?.includes(userId) ||
+      !p.userId // Legacy projects without userId
+    )
+  }
+
+  return []
+}
+
+/**
+ * Save projects for a specific user to user-scoped storage
+ */
+function saveProjectsForUser(userId: string, projects: Project[]): void {
+  if (typeof window === "undefined") return
+
+  // Ensure all projects have the userId set
+  const projectsWithUser = projects.map(p => ({
+    ...p,
+    userId: p.userId || userId
+  }))
+
+  setUserStorageItem(userId, USER_STORAGE_KEYS.PROJECTS, projectsWithUser)
+  dispatchStorageChange(userId, USER_STORAGE_KEYS.PROJECTS, projectsWithUser)
+}
+
+/**
+ * @deprecated Use getStoredProjectsForUser instead
+ * Legacy function for backwards compatibility - returns ALL projects
+ */
 function getStoredProjects(): Project[] {
   if (typeof window === "undefined") return []
-  const stored = localStorage.getItem(STORAGE_KEY)
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
   return stored ? JSON.parse(stored) : []
 }
 
+/**
+ * @deprecated Use saveProjectsForUser instead
+ * Legacy function for backwards compatibility
+ */
 function saveProjects(projects: Project[]): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects))
+  localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(projects))
 }
 
-function getStoredInterviews(): InterviewSession[] {
+/**
+ * Get interviews for a specific user
+ */
+function getStoredInterviewsForUser(userId: string): InterviewSession[] {
   if (typeof window === "undefined") return []
-  const stored = localStorage.getItem(INTERVIEWS_KEY)
+
+  const userInterviews = getUserStorageItem<InterviewSession[]>(userId, USER_STORAGE_KEYS.INTERVIEWS)
+  if (userInterviews) return userInterviews
+
+  // Fallback to legacy storage
+  const stored = localStorage.getItem(LEGACY_INTERVIEWS_KEY)
   return stored ? JSON.parse(stored) : []
 }
 
+/**
+ * Save interviews for a specific user
+ */
+function saveInterviewsForUser(userId: string, interviews: InterviewSession[]): void {
+  if (typeof window === "undefined") return
+  setUserStorageItem(userId, USER_STORAGE_KEYS.INTERVIEWS, interviews)
+}
+
+/**
+ * @deprecated Use getStoredInterviewsForUser instead
+ */
+function getStoredInterviews(): InterviewSession[] {
+  if (typeof window === "undefined") return []
+  const stored = localStorage.getItem(LEGACY_INTERVIEWS_KEY)
+  return stored ? JSON.parse(stored) : []
+}
+
+/**
+ * @deprecated Use saveInterviewsForUser instead
+ */
 function saveInterviews(interviews: InterviewSession[]): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(INTERVIEWS_KEY, JSON.stringify(interviews))
+  localStorage.setItem(LEGACY_INTERVIEWS_KEY, JSON.stringify(interviews))
 }
 
 // ============ Project CRUD ============
 
 /**
- * Get all projects, optionally including trashed projects
+ * Get all projects for a user, optionally including trashed projects
  * By default, trashed projects are excluded
- * If userId is provided, only returns projects owned by that user or public projects
+ *
+ * IMPORTANT: userId is now REQUIRED for user data sandboxing.
+ * Projects are stored per-user to prevent data leakage.
+ *
+ * @param options.userId - Required: The user ID to get projects for
+ * @param options.includeTrashed - Include trashed projects
+ * @param options.isAdmin - If true, can see all projects (for admin monitoring)
  */
 export function getAllProjects(options?: {
   includeTrashed?: boolean
   userId?: string
+  isAdmin?: boolean
 }): Project[] {
-  let projects = getStoredProjects()
-
-  // Filter by user if userId is provided
-  if (options?.userId) {
-    projects = projects.filter(p =>
-      p.userId === options.userId ||
-      p.isPublic === true ||
-      p.collaboratorIds?.includes(options.userId!) ||
-      !p.userId // Legacy projects without userId - show to all users for now
-    )
+  // If no userId provided, return empty array for safety
+  // This prevents accidental data leakage
+  if (!options?.userId) {
+    console.warn("getAllProjects called without userId - returning empty array for safety")
+    return []
   }
+
+  let projects = getStoredProjectsForUser(options.userId)
+
+  // Filter by access permissions
+  projects = filterUserAccessibleItems(options.userId, projects, options.isAdmin || false)
 
   if (options?.includeTrashed) {
     return projects
@@ -192,24 +292,52 @@ export function getAllProjects(options?: {
 // Alias for getAllProjects
 export const getProjects = getAllProjects
 
-export function getProject(id: string): Project | null {
-  const projects = getStoredProjects()
+/**
+ * Get a project by ID
+ * @param id - The project ID
+ * @param userId - Optional: The user ID requesting the project (for access control)
+ * @param isAdmin - Optional: If true, bypasses access control
+ */
+export function getProject(id: string, userId?: string, isAdmin?: boolean): Project | null {
+  // For backwards compatibility, try legacy storage first if no userId
+  let projects: Project[]
+
+  if (userId) {
+    projects = getStoredProjectsForUser(userId)
+  } else {
+    // Fallback to legacy storage (will be deprecated)
+    projects = getStoredProjects()
+  }
+
   const project = projects.find(p => p.id === id)
 
   if (!project) return null
 
+  // Check access permissions if userId is provided
+  if (userId && !canUserAccessItem(userId, project, isAdmin || false)) {
+    console.warn(`User ${userId} attempted to access project ${id} without permission`)
+    return null
+  }
+
   // Ensure workingDirectory is set (migrate older projects)
   if (!project.workingDirectory) {
     const workingDir = generateWorkingDirectoryPath(project.name, project.id)
-    const updatedProject = updateProject(id, { workingDirectory: workingDir })
+    const updatedProject = updateProject(id, { workingDirectory: workingDir }, userId)
     return updatedProject
   }
 
   return project
 }
 
-export function createProject(data: Omit<Project, "id" | "createdAt" | "updatedAt">): Project {
-  const projects = getStoredProjects()
+/**
+ * Create a new project
+ * @param data - Project data (without id, createdAt, updatedAt)
+ * @param userId - Optional: The user ID creating the project (will be set as owner)
+ */
+export function createProject(
+  data: Omit<Project, "id" | "createdAt" | "updatedAt">,
+  userId?: string
+): Project {
   const now = new Date().toISOString()
   const id = generateUUID()
 
@@ -222,21 +350,54 @@ export function createProject(data: Omit<Project, "id" | "createdAt" | "updatedA
   const project: Project = {
     ...data,
     id,
+    userId: data.userId || userId, // Set owner
     workingDirectory,
     basePath,
     createdAt: now,
     updatedAt: now
   }
 
-  projects.push(project)
-  saveProjects(projects)
+  // Use user-scoped storage if userId is available
+  if (userId || project.userId) {
+    const ownerUserId = userId || project.userId!
+    const projects = getStoredProjectsForUser(ownerUserId)
+    projects.push(project)
+    saveProjectsForUser(ownerUserId, projects)
+  } else {
+    // Fallback to legacy storage
+    const projects = getStoredProjects()
+    projects.push(project)
+    saveProjects(projects)
+  }
+
   return project
 }
 
-export function updateProject(id: string, updates: Partial<Project>): Project | null {
-  const projects = getStoredProjects()
-  const index = projects.findIndex(p => p.id === id)
+/**
+ * Update a project
+ * @param id - The project ID to update
+ * @param updates - Partial project data to update
+ * @param userId - Optional: The user ID making the update (for access control)
+ */
+export function updateProject(
+  id: string,
+  updates: Partial<Project>,
+  userId?: string
+): Project | null {
+  // Get the project to find its owner
+  const existingProject = getProject(id, userId)
+  if (!existingProject) return null
 
+  const ownerUserId = userId || existingProject.userId
+
+  let projects: Project[]
+  if (ownerUserId) {
+    projects = getStoredProjectsForUser(ownerUserId)
+  } else {
+    projects = getStoredProjects()
+  }
+
+  const index = projects.findIndex(p => p.id === id)
   if (index === -1) return null
 
   projects[index] = {
@@ -245,17 +406,42 @@ export function updateProject(id: string, updates: Partial<Project>): Project | 
     updatedAt: new Date().toISOString()
   }
 
-  saveProjects(projects)
+  if (ownerUserId) {
+    saveProjectsForUser(ownerUserId, projects)
+  } else {
+    saveProjects(projects)
+  }
+
   return projects[index]
 }
 
-export function deleteProject(id: string): boolean {
-  const projects = getStoredProjects()
-  const filtered = projects.filter(p => p.id !== id)
+/**
+ * Delete a project
+ * @param id - The project ID to delete
+ * @param userId - Optional: The user ID making the deletion (for access control)
+ */
+export function deleteProject(id: string, userId?: string): boolean {
+  const existingProject = getProject(id, userId)
+  if (!existingProject) return false
 
+  const ownerUserId = userId || existingProject.userId
+
+  let projects: Project[]
+  if (ownerUserId) {
+    projects = getStoredProjectsForUser(ownerUserId)
+  } else {
+    projects = getStoredProjects()
+  }
+
+  const filtered = projects.filter(p => p.id !== id)
   if (filtered.length === projects.length) return false
 
-  saveProjects(filtered)
+  if (ownerUserId) {
+    saveProjectsForUser(ownerUserId, filtered)
+  } else {
+    saveProjects(filtered)
+  }
+
   return true
 }
 
@@ -263,11 +449,11 @@ export function deleteProject(id: string): boolean {
 
 /**
  * Send a project to trash
- * Preserves the previous status so it can be restored later
+ * @param id - The project ID
+ * @param userId - The user ID (for access control)
  */
-export function trashProject(id: string): Project | null {
-  const projects = getStoredProjects()
-  const project = projects.find(p => p.id === id)
+export function trashProject(id: string, userId?: string): Project | null {
+  const project = getProject(id, userId)
 
   if (!project || project.status === "trashed") return null
 
@@ -275,16 +461,16 @@ export function trashProject(id: string): Project | null {
     previousStatus: project.status,
     status: "trashed",
     trashedAt: new Date().toISOString()
-  })
+  }, userId)
 }
 
 /**
  * Restore a project from trash
- * Returns to its previous status, or "active" if no previous status was recorded
+ * @param id - The project ID
+ * @param userId - The user ID (for access control)
  */
-export function restoreProject(id: string): Project | null {
-  const projects = getStoredProjects()
-  const project = projects.find(p => p.id === id)
+export function restoreProject(id: string, userId?: string): Project | null {
+  const project = getProject(id, userId)
 
   if (!project || project.status !== "trashed") return null
 
@@ -294,60 +480,82 @@ export function restoreProject(id: string): Project | null {
     status: restoredStatus,
     previousStatus: undefined,
     trashedAt: undefined
-  })
+  }, userId)
 }
 
 /**
- * Get all trashed projects
+ * Get all trashed projects for a user
+ * @param userId - Required: The user ID
  */
-export function getTrashedProjects(): Project[] {
-  return getStoredProjects().filter(p => p.status === "trashed")
+export function getTrashedProjects(userId: string): Project[] {
+  if (!userId) return []
+  return getStoredProjectsForUser(userId).filter(p => p.status === "trashed")
 }
 
 /**
  * Permanently delete a project from trash
- * Only works on trashed projects
+ * @param id - The project ID
+ * @param userId - The user ID (for access control)
  */
-export function permanentlyDeleteProject(id: string): boolean {
-  const projects = getStoredProjects()
-  const project = projects.find(p => p.id === id)
+export function permanentlyDeleteProject(id: string, userId?: string): boolean {
+  const project = getProject(id, userId)
 
   // Only allow permanent deletion of trashed projects
   if (!project || project.status !== "trashed") return false
 
-  return deleteProject(id)
+  return deleteProject(id, userId)
 }
 
 /**
- * Empty the trash - permanently delete all trashed projects
+ * Empty the trash - permanently delete all trashed projects for a user
+ * @param userId - Required: The user ID
  */
-export function emptyTrash(): number {
-  const projects = getStoredProjects()
+export function emptyTrash(userId: string): number {
+  if (!userId) return 0
+
+  const projects = getStoredProjectsForUser(userId)
   const trashedCount = projects.filter(p => p.status === "trashed").length
   const remaining = projects.filter(p => p.status !== "trashed")
 
-  saveProjects(remaining)
+  saveProjectsForUser(userId, remaining)
   return trashedCount
 }
 
 // ============ Project Starring ============
 
-export function toggleProjectStar(id: string): Project | null {
-  const project = getProject(id)
+/**
+ * Toggle star status on a project
+ * @param id - The project ID
+ * @param userId - The user ID (for access control)
+ */
+export function toggleProjectStar(id: string, userId?: string): Project | null {
+  const project = getProject(id, userId)
   if (!project) return null
 
-  return updateProject(id, { starred: !project.starred })
+  return updateProject(id, { starred: !project.starred }, userId)
 }
 
-export function getStarredProjects(): Project[] {
-  const projects = getStoredProjects()
+/**
+ * Get all starred projects for a user
+ * @param userId - Required: The user ID
+ */
+export function getStarredProjects(userId: string): Project[] {
+  if (!userId) return []
+  const projects = getStoredProjectsForUser(userId)
   return projects.filter(p => p.starred === true)
 }
 
 // ============ Project Queries ============
 
-export function filterProjects(filter: ProjectFilter): Project[] {
-  let projects = getStoredProjects()
+/**
+ * Filter projects by criteria
+ * @param filter - Filter criteria
+ * @param userId - Required: The user ID
+ */
+export function filterProjects(filter: ProjectFilter, userId: string): Project[] {
+  if (!userId) return []
+
+  let projects = getStoredProjectsForUser(userId)
 
   if (filter.status) {
     projects = projects.filter(p => p.status === filter.status)
@@ -375,8 +583,21 @@ export function filterProjects(filter: ProjectFilter): Project[] {
   return projects
 }
 
-export function getProjectStats(): ProjectStats {
-  const projects = getStoredProjects()
+/**
+ * Get project statistics for a user
+ * @param userId - Required: The user ID
+ */
+export function getProjectStats(userId: string): ProjectStats {
+  if (!userId) {
+    return {
+      total: 0,
+      byStatus: { planning: 0, active: 0, paused: 0, completed: 0, archived: 0, trashed: 0 },
+      activeRepos: 0,
+      activePackets: 0
+    }
+  }
+
+  const projects = getStoredProjectsForUser(userId)
 
   const byStatus: Record<ProjectStatus, number> = {
     planning: 0,
@@ -411,11 +632,18 @@ export function getProjectStats(): ProjectStats {
 
 // ============ Repo Linking ============
 
+/**
+ * Link a repo to a project
+ * @param projectId - The project ID
+ * @param repo - The repo to link
+ * @param userId - The user ID (for access control)
+ */
 export function linkRepoToProject(
   projectId: string,
-  repo: LinkedRepo
+  repo: LinkedRepo,
+  userId?: string
 ): Project | null {
-  const project = getProject(projectId)
+  const project = getProject(projectId, userId)
   if (!project) return null
 
   // Check if already linked
@@ -425,28 +653,44 @@ export function linkRepoToProject(
 
   return updateProject(projectId, {
     repos: [...project.repos, repo]
-  })
+  }, userId)
 }
 
+/**
+ * Unlink a repo from a project
+ * @param projectId - The project ID
+ * @param provider - The repo provider
+ * @param repoId - The repo ID
+ * @param userId - The user ID (for access control)
+ */
 export function unlinkRepoFromProject(
   projectId: string,
   provider: LinkedRepo["provider"],
-  repoId: number
+  repoId: number,
+  userId?: string
 ): Project | null {
-  const project = getProject(projectId)
+  const project = getProject(projectId, userId)
   if (!project) return null
 
   return updateProject(projectId, {
     repos: project.repos.filter(r => !(r.provider === provider && r.id === repoId))
-  })
+  }, userId)
 }
 
+/**
+ * Update the local path for a repo
+ * @param projectId - The project ID
+ * @param repoId - The repo ID
+ * @param localPath - The new local path
+ * @param userId - The user ID (for access control)
+ */
 export function updateRepoLocalPath(
   projectId: string,
   repoId: number,
-  localPath: string
+  localPath: string,
+  userId?: string
 ): Project | null {
-  const project = getProject(projectId)
+  const project = getProject(projectId, userId)
   if (!project) return null
 
   const updatedRepos = project.repos.map(r => {
@@ -456,20 +700,32 @@ export function updateRepoLocalPath(
     return r
   })
 
-  return updateProject(projectId, { repos: updatedRepos })
+  return updateProject(projectId, { repos: updatedRepos }, userId)
 }
 
 // ============ Linear Sync ============
 
+/**
+ * Configure Linear sync for a project
+ * @param projectId - The project ID
+ * @param config - Linear sync configuration
+ * @param userId - The user ID (for access control)
+ */
 export function configureLinearSync(
   projectId: string,
-  config: LinearSyncConfig
+  config: LinearSyncConfig,
+  userId?: string
 ): Project | null {
-  return updateProject(projectId, { linearSync: config })
+  return updateProject(projectId, { linearSync: config }, userId)
 }
 
-export function markLinearSynced(projectId: string): Project | null {
-  const project = getProject(projectId)
+/**
+ * Mark project as synced with Linear
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
+ */
+export function markLinearSynced(projectId: string, userId?: string): Project | null {
+  const project = getProject(projectId, userId)
   if (!project || !project.linearSync) return null
 
   return updateProject(projectId, {
@@ -478,11 +734,17 @@ export function markLinearSynced(projectId: string): Project | null {
       lastSyncAt: new Date().toISOString(),
       syncErrors: []
     }
-  })
+  }, userId)
 }
 
-export function recordLinearSyncError(projectId: string, error: string): Project | null {
-  const project = getProject(projectId)
+/**
+ * Record a Linear sync error
+ * @param projectId - The project ID
+ * @param error - The error message
+ * @param userId - The user ID (for access control)
+ */
+export function recordLinearSyncError(projectId: string, error: string, userId?: string): Project | null {
+  const project = getProject(projectId, userId)
   if (!project || !project.linearSync) return null
 
   return updateProject(projectId, {
@@ -490,7 +752,7 @@ export function recordLinearSyncError(projectId: string, error: string): Project
       ...project.linearSync,
       syncErrors: [...(project.linearSync.syncErrors || []), error]
     }
-  })
+  }, userId)
 }
 
 // One-time import from Linear (creates a new project with imported mode)
@@ -500,8 +762,13 @@ export interface LinearImportData {
   name: string
   description: string
   issueCount: number
+  userId?: string  // The user importing the project
 }
 
+/**
+ * Import a project from Linear
+ * @param data - Linear import data including optional userId
+ */
 export function importFromLinear(data: LinearImportData): Project {
   return createProject({
     name: data.name,
@@ -521,15 +788,23 @@ export function importFromLinear(data: LinearImportData): Project {
       importedIssueCount: data.issueCount
     },
     tags: ["imported-from-linear"]
-  })
+  }, data.userId)
 }
 
-// Enable two-way sync on an existing project
+/**
+ * Enable two-way sync on an existing project
+ * @param projectId - The project ID
+ * @param linearProjectId - The Linear project ID
+ * @param linearTeamId - The Linear team ID
+ * @param options - Sync options
+ * @param userId - The user ID (for access control)
+ */
 export function enableTwoWaySync(
   projectId: string,
   linearProjectId: string,
   linearTeamId: string,
-  options: { syncIssues: boolean; syncComments: boolean; syncStatus: boolean }
+  options: { syncIssues: boolean; syncComments: boolean; syncStatus: boolean },
+  userId?: string
 ): Project | null {
   return configureLinearSync(projectId, {
     mode: "two_way",
@@ -538,61 +813,107 @@ export function enableTwoWaySync(
     syncIssues: options.syncIssues,
     syncComments: options.syncComments,
     syncStatus: options.syncStatus
-  })
+  }, userId)
 }
 
-// Disable Linear sync
-export function disableLinearSync(projectId: string): Project | null {
-  const project = getProject(projectId)
+/**
+ * Disable Linear sync
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
+ */
+export function disableLinearSync(projectId: string, userId?: string): Project | null {
+  const project = getProject(projectId, userId)
   if (!project) return null
 
   return updateProject(projectId, {
     linearSync: undefined
-  })
+  }, userId)
 }
 
 // ============ Interview Storage ============
 
-export function saveInterview(interview: InterviewSession): void {
-  const interviews = getStoredInterviews()
-  const index = interviews.findIndex(i => i.id === interview.id)
+/**
+ * Save an interview for a user
+ * @param interview - The interview session
+ * @param userId - The user ID
+ */
+export function saveInterview(interview: InterviewSession, userId?: string): void {
+  if (userId) {
+    const interviews = getStoredInterviewsForUser(userId)
+    const index = interviews.findIndex(i => i.id === interview.id)
 
-  if (index >= 0) {
-    interviews[index] = interview
+    if (index >= 0) {
+      interviews[index] = interview
+    } else {
+      interviews.push(interview)
+    }
+
+    saveInterviewsForUser(userId, interviews)
   } else {
-    interviews.push(interview)
-  }
+    // Legacy fallback
+    const interviews = getStoredInterviews()
+    const index = interviews.findIndex(i => i.id === interview.id)
 
-  saveInterviews(interviews)
+    if (index >= 0) {
+      interviews[index] = interview
+    } else {
+      interviews.push(interview)
+    }
+
+    saveInterviews(interviews)
+  }
 }
 
-export function getInterview(id: string): InterviewSession | null {
-  const interviews = getStoredInterviews()
+/**
+ * Get an interview by ID
+ * @param id - The interview ID
+ * @param userId - The user ID
+ */
+export function getInterview(id: string, userId?: string): InterviewSession | null {
+  const interviews = userId ? getStoredInterviewsForUser(userId) : getStoredInterviews()
   return interviews.find(i => i.id === id) || null
 }
 
+/**
+ * Get interviews for a specific target
+ * @param targetType - The target type
+ * @param targetId - The target ID
+ * @param userId - The user ID
+ */
 export function getInterviewsForTarget(
   targetType: string,
-  targetId: string
+  targetId: string,
+  userId?: string
 ): InterviewSession[] {
-  const interviews = getStoredInterviews()
+  const interviews = userId ? getStoredInterviewsForUser(userId) : getStoredInterviews()
   return interviews.filter(
     i => i.targetType === targetType && i.targetId === targetId
   )
 }
 
+/**
+ * Attach an interview to a project
+ * @param projectId - The project ID
+ * @param interview - The interview session
+ * @param userId - The user ID (for access control)
+ */
 export function attachInterviewToProject(
   projectId: string,
-  interview: InterviewSession
+  interview: InterviewSession,
+  userId?: string
 ): Project | null {
-  saveInterview(interview)
-  return updateProject(projectId, { creationInterview: interview })
+  saveInterview(interview, userId)
+  return updateProject(projectId, { creationInterview: interview }, userId)
 }
 
 // ============ Sample Data ============
 
-export function seedSampleProjects(): void {
-  const existing = getStoredProjects()
+/**
+ * Seed sample projects for a user
+ * @param userId - The user ID to create sample projects for
+ */
+export function seedSampleProjects(userId?: string): void {
+  const existing = userId ? getStoredProjectsForUser(userId) : getStoredProjects()
   if (existing.length > 0) return // Don't overwrite existing data
 
   const sampleProjects: Omit<Project, "id" | "createdAt" | "updatedAt">[] = [
@@ -637,6 +958,6 @@ export function seedSampleProjects(): void {
   ]
 
   for (const project of sampleProjects) {
-    createProject(project)
+    createProject(project, userId)
   }
 }

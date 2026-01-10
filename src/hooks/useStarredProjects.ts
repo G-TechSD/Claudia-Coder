@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import type { Project } from "@/lib/data/types"
 import { getStarredProjects, toggleProjectStar, getAllProjects } from "@/lib/data/projects"
+import { useAuth } from "@/components/auth/auth-provider"
 
 const STORAGE_EVENT_KEY = "claudia_projects_starred_update"
 
@@ -11,15 +12,22 @@ const STORAGE_EVENT_KEY = "claudia_projects_starred_update"
  * Provides starred projects list and toggle functionality with cross-component sync
  */
 export function useStarredProjects() {
+  const { user } = useAuth()
+  const userId = user?.id
   const [starredProjects, setStarredProjects] = useState<Project[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   // Load starred projects
   const loadStarred = useCallback(() => {
-    const starred = getStarredProjects()
+    if (!userId) {
+      setStarredProjects([])
+      setIsLoading(false)
+      return
+    }
+    const starred = getStarredProjects(userId)
     setStarredProjects(starred)
     setIsLoading(false)
-  }, [])
+  }, [userId])
 
   // Initial load
   useEffect(() => {
@@ -49,14 +57,14 @@ export function useStarredProjects() {
 
   // Toggle star status for a project
   const toggleStar = useCallback((projectId: string) => {
-    const updated = toggleProjectStar(projectId)
+    const updated = toggleProjectStar(projectId, userId)
     if (updated) {
       loadStarred()
       // Dispatch custom event for same-window components
       window.dispatchEvent(new CustomEvent(STORAGE_EVENT_KEY))
     }
     return updated
-  }, [loadStarred])
+  }, [loadStarred, userId])
 
   // Check if a project is starred
   const isStarred = useCallback((projectId: string) => {

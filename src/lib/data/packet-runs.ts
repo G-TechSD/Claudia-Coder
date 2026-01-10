@@ -1,11 +1,21 @@
 /**
  * Packet Runs Data Store
  * Storage module for packet execution run history using localStorage
+ *
+ * IMPORTANT: All packet run data is user-scoped. Runs belong to specific users
+ * and are stored in user-specific localStorage keys.
  */
 
 import { PacketRun, PacketRunRating } from "./types"
+import {
+  getUserStorageItem,
+  setUserStorageItem,
+  USER_STORAGE_KEYS,
+  dispatchStorageChange
+} from "./user-storage"
 
-const STORAGE_KEY = "claudia_packet_runs"
+// Legacy storage key (kept for migration purposes)
+const LEGACY_STORAGE_KEY = "claudia_packet_runs"
 
 // ============ Helper Functions ============
 
@@ -28,33 +38,64 @@ function generateUUID(): string {
 /**
  * Calculate the next iteration number for a packet
  */
-function calculateNextIteration(packetId: string): number {
-  const runs = getPacketRuns(packetId)
+function calculateNextIteration(packetId: string, userId?: string): number {
+  const runs = getPacketRuns(packetId, userId)
   if (runs.length === 0) return 1
   return Math.max(...runs.map(r => r.iteration)) + 1
 }
 
 // ============ Storage Helpers ============
 
-function getStoredRuns(): PacketRun[] {
+/**
+ * Get all packet runs for a specific user
+ */
+function getStoredRunsForUser(userId: string): PacketRun[] {
   if (typeof window === "undefined") return []
-  const stored = localStorage.getItem(STORAGE_KEY)
+
+  const userRuns = getUserStorageItem<PacketRun[]>(userId, USER_STORAGE_KEYS.PACKET_RUNS)
+  if (userRuns) return userRuns
+
+  // Fallback to legacy storage
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
   return stored ? JSON.parse(stored) : []
 }
 
+/**
+ * Save packet runs for a specific user
+ */
+function saveRunsForUser(userId: string, runs: PacketRun[]): void {
+  if (typeof window === "undefined") return
+  setUserStorageItem(userId, USER_STORAGE_KEYS.PACKET_RUNS, runs)
+  dispatchStorageChange(userId, USER_STORAGE_KEYS.PACKET_RUNS, runs)
+}
+
+/**
+ * @deprecated Use getStoredRunsForUser instead
+ */
+function getStoredRuns(): PacketRun[] {
+  if (typeof window === "undefined") return []
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
+  return stored ? JSON.parse(stored) : []
+}
+
+/**
+ * @deprecated Use saveRunsForUser instead
+ */
 function saveRuns(runs: PacketRun[]): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(runs))
+  localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(runs))
 }
 
 // ============ Packet Run CRUD ============
 
 /**
  * Get all runs for a specific packet
- * Returns runs sorted by iteration (newest first)
+ * @param packetId - The packet ID
+ * @param userId - The user ID (for access control)
+ * @returns Runs sorted by iteration (newest first)
  */
-export function getPacketRuns(packetId: string): PacketRun[] {
-  const runs = getStoredRuns()
+export function getPacketRuns(packetId: string, userId?: string): PacketRun[] {
+  const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
   return runs
     .filter(r => r.packetId === packetId)
     .sort((a, b) => b.iteration - a.iteration)
@@ -62,18 +103,23 @@ export function getPacketRuns(packetId: string): PacketRun[] {
 
 /**
  * Get a specific run by ID
+ * @param runId - The run ID
+ * @param userId - The user ID (for access control)
  */
-export function getPacketRun(runId: string): PacketRun | null {
-  const runs = getStoredRuns()
+export function getPacketRun(runId: string, userId?: string): PacketRun | null {
+  const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
   return runs.find(r => r.id === runId) || null
 }
 
 /**
  * Create a new run for a packet
- * Automatically generates ID, sets timestamps, and calculates iteration number
+ * @param packetId - The packet ID
+ * @param projectId - The project ID
+ * @param userId - The user ID (owner of the run)
+ * @returns The created run with auto-generated ID, timestamps, and iteration number
  */
-export function createPacketRun(packetId: string, projectId: string): PacketRun {
-  const runs = getStoredRuns()
+export function createPacketRun(packetId: string, projectId: string, userId?: string): PacketRun {
+  const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
   const now = new Date().toISOString()
 
   const run: PacketRun = {
@@ -83,20 +129,28 @@ export function createPacketRun(packetId: string, projectId: string): PacketRun 
     startedAt: now,
     status: "running",
     output: "",
-    iteration: calculateNextIteration(packetId)
+    iteration: calculateNextIteration(packetId, userId)
   }
 
   runs.push(run)
-  saveRuns(runs)
+
+  if (userId) {
+    saveRunsForUser(userId, runs)
+  } else {
+    saveRuns(runs)
+  }
+
   return run
 }
 
 /**
  * Update a run with partial updates
- * Useful for adding output, completing runs, etc.
+ * @param runId - The run ID
+ * @param updates - Partial updates
+ * @param userId - The user ID (for access control)
  */
-export function updatePacketRun(runId: string, updates: Partial<PacketRun>): PacketRun | null {
-  const runs = getStoredRuns()
+export function updatePacketRun(runId: string, updates: Partial<PacketRun>, userId?: string): PacketRun | null {
+  const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
   const index = runs.findIndex(r => r.id === runId)
 
   if (index === -1) return null
@@ -109,19 +163,29 @@ export function updatePacketRun(runId: string, updates: Partial<PacketRun>): Pac
     ...allowedUpdates
   }
 
-  saveRuns(runs)
+  if (userId) {
+    saveRunsForUser(userId, runs)
+  } else {
+    saveRuns(runs)
+  }
+
   return runs[index]
 }
 
 /**
  * Add feedback (rating and optional comment) to a run
+ * @param runId - The run ID
+ * @param rating - Thumbs up/down or null
+ * @param comment - Optional comment
+ * @param userId - The user ID (for access control)
  */
 export function addRunFeedback(
   runId: string,
   rating: "thumbs_up" | "thumbs_down" | null,
-  comment?: string
+  comment?: string,
+  userId?: string
 ): PacketRun | null {
-  const runs = getStoredRuns()
+  const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
   const index = runs.findIndex(r => r.id === runId)
 
   if (index === -1) return null
@@ -132,24 +196,33 @@ export function addRunFeedback(
     comment: comment !== undefined ? comment : runs[index].comment
   }
 
-  saveRuns(runs)
+  if (userId) {
+    saveRunsForUser(userId, runs)
+  } else {
+    saveRuns(runs)
+  }
+
   return runs[index]
 }
 
 /**
  * Get the latest (most recent) run for a packet
+ * @param packetId - The packet ID
+ * @param userId - The user ID (for access control)
  */
-export function getLatestPacketRun(packetId: string): PacketRun | null {
-  const runs = getPacketRuns(packetId)
+export function getLatestPacketRun(packetId: string, userId?: string): PacketRun | null {
+  const runs = getPacketRuns(packetId, userId)
   return runs.length > 0 ? runs[0] : null
 }
 
 /**
  * Get all runs for a project
- * Returns runs sorted by startedAt (newest first)
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
+ * @returns Runs sorted by startedAt (newest first)
  */
-export function getProjectRuns(projectId: string): PacketRun[] {
-  const runs = getStoredRuns()
+export function getProjectRuns(projectId: string, userId?: string): PacketRun[] {
+  const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
   return runs
     .filter(r => r.projectId === projectId)
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
@@ -159,33 +232,49 @@ export function getProjectRuns(projectId: string): PacketRun[] {
 
 /**
  * Delete a specific run
+ * @param runId - The run ID
+ * @param userId - The user ID (for access control)
  */
-export function deletePacketRun(runId: string): boolean {
-  const runs = getStoredRuns()
+export function deletePacketRun(runId: string, userId?: string): boolean {
+  const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
   const filtered = runs.filter(r => r.id !== runId)
 
   if (filtered.length === runs.length) return false
 
-  saveRuns(filtered)
+  if (userId) {
+    saveRunsForUser(userId, filtered)
+  } else {
+    saveRuns(filtered)
+  }
+
   return true
 }
 
 /**
  * Delete all runs for a packet
+ * @param packetId - The packet ID
+ * @param userId - The user ID (for access control)
  */
-export function deletePacketRuns(packetId: string): number {
-  const runs = getStoredRuns()
+export function deletePacketRuns(packetId: string, userId?: string): number {
+  const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
   const filtered = runs.filter(r => r.packetId !== packetId)
   const deletedCount = runs.length - filtered.length
 
-  saveRuns(filtered)
+  if (userId) {
+    saveRunsForUser(userId, filtered)
+  } else {
+    saveRuns(filtered)
+  }
+
   return deletedCount
 }
 
 /**
  * Get run statistics for a packet
+ * @param packetId - The packet ID
+ * @param userId - The user ID (for access control)
  */
-export function getPacketRunStats(packetId: string): {
+export function getPacketRunStats(packetId: string, userId?: string): {
   total: number
   completed: number
   failed: number
@@ -194,7 +283,7 @@ export function getPacketRunStats(packetId: string): {
   thumbsUp: number
   thumbsDown: number
 } {
-  const runs = getPacketRuns(packetId)
+  const runs = getPacketRuns(packetId, userId)
 
   return {
     total: runs.length,
@@ -208,9 +297,14 @@ export function getPacketRunStats(packetId: string): {
 }
 
 /**
- * Clear all stored runs (useful for testing/reset)
+ * Clear all stored runs for a user
+ * @param userId - Required: The user ID
  */
-export function clearAllRuns(): void {
+export function clearAllRuns(userId: string): void {
   if (typeof window === "undefined") return
-  localStorage.removeItem(STORAGE_KEY)
+  if (!userId) {
+    console.warn("clearAllRuns called without userId - no action taken for safety")
+    return
+  }
+  saveRunsForUser(userId, [])
 }

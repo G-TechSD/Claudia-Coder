@@ -4,6 +4,7 @@
  */
 
 import { db } from "./db"
+import { determineNewUserRole, ROLES, type Role } from "./roles"
 
 /**
  * Initialize NDA-related database tables
@@ -204,6 +205,7 @@ export function isInviteCodeValid(code: string): {
 
 /**
  * Use an invite code for a user
+ * Also updates the user's role to beta_tester (unless they're the admin)
  */
 export function useInviteCode(code: string, userId: string): boolean {
   const { valid, invite } = isInviteCodeValid(code)
@@ -212,9 +214,23 @@ export function useInviteCode(code: string, userId: string): boolean {
     return false
   }
 
+  // Update invite usage
   db.prepare(
     `UPDATE beta_invite SET uses = uses + 1, usedBy = ?, usedAt = datetime('now') WHERE code = ?`
   ).run(userId, code)
+
+  // Get user's email to determine appropriate role
+  const user = db
+    .prepare("SELECT email FROM user WHERE id = ?")
+    .get(userId) as { email: string } | undefined
+
+  if (user) {
+    // Determine and set the appropriate role
+    const newRole = determineNewUserRole(user.email, true)
+    const now = new Date().toISOString()
+    db.prepare("UPDATE user SET role = ?, updatedAt = ? WHERE id = ?")
+      .run(newRole, now, userId)
+  }
 
   return true
 }

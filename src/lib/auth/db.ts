@@ -182,4 +182,12 @@ export function initializeAuthDatabase() {
 // Initialize on import
 initializeAuthDatabase()
 
+// Import and run admin role check after database is ready
+// This ensures bill@gtechsd.com always has admin role
+import("./roles").then(({ ensureAdminRole }) => {
+  ensureAdminRole()
+}).catch(() => {
+  // Silent fail - roles module may have circular dependency issues during initial load
+})
+
 export { DB_PATH }

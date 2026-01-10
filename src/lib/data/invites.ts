@@ -14,6 +14,10 @@ export interface BetaInvite {
   expiresAt: string | null
   status: "pending" | "used" | "expired" | "revoked"
   createdBy: string
+  createdByName: string | null
+  customMessage: string | null
+  emailSent: boolean
+  emailSentAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -32,6 +36,7 @@ export interface InviteWithUsages extends BetaInvite {
     userEmail: string
     usedAt: string
   }>
+  inviterName: string | null
 }
 
 /**
@@ -64,6 +69,31 @@ export function initializeInvitesDatabase() {
       UNIQUE(inviteId, userId)
     )
   `)
+
+  // Add custom message and email tracking columns
+  try {
+    db.exec(`ALTER TABLE beta_invite ADD COLUMN customMessage TEXT`)
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    db.exec(`ALTER TABLE beta_invite ADD COLUMN createdByName TEXT`)
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    db.exec(`ALTER TABLE beta_invite ADD COLUMN emailSent INTEGER DEFAULT 0`)
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    db.exec(`ALTER TABLE beta_invite ADD COLUMN emailSentAt TEXT`)
+  } catch {
+    // Column already exists
+  }
 
   // Add NDA status to user table if not exists
   try {
@@ -122,14 +152,16 @@ export function createInvite(params: {
   maxUses?: number
   expiresAt?: string
   createdBy: string
+  createdByName?: string
+  customMessage?: string
 }): BetaInvite {
   const id = generateId()
   const code = generateInviteCode()
   const now = new Date().toISOString()
 
   const stmt = db.prepare(`
-    INSERT INTO beta_invite (id, code, email, maxUses, expiresAt, createdBy, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO beta_invite (id, code, email, maxUses, expiresAt, createdBy, createdByName, customMessage, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   stmt.run(
@@ -139,6 +171,8 @@ export function createInvite(params: {
     params.maxUses || 1,
     params.expiresAt || null,
     params.createdBy,
+    params.createdByName || null,
+    params.customMessage || null,
     now,
     now
   )
@@ -152,9 +186,27 @@ export function createInvite(params: {
     expiresAt: params.expiresAt || null,
     status: "pending",
     createdBy: params.createdBy,
+    createdByName: params.createdByName || null,
+    customMessage: params.customMessage || null,
+    emailSent: false,
+    emailSentAt: null,
     createdAt: now,
     updatedAt: now,
   }
+}
+
+/**
+ * Mark an invite as having email sent
+ */
+export function markEmailSent(inviteId: string): boolean {
+  const now = new Date().toISOString()
+  const result = db.prepare(`
+    UPDATE beta_invite
+    SET emailSent = 1, emailSentAt = ?, updatedAt = ?
+    WHERE id = ?
+  `).run(now, now, inviteId)
+
+  return result.changes > 0
 }
 
 /**
@@ -162,8 +214,11 @@ export function createInvite(params: {
  */
 export function getAllInvites(): InviteWithUsages[] {
   const invites = db.prepare(`
-    SELECT * FROM beta_invite ORDER BY createdAt DESC
-  `).all() as BetaInvite[]
+    SELECT bi.*, u.name as inviterName
+    FROM beta_invite bi
+    LEFT JOIN user u ON bi.createdBy = u.id
+    ORDER BY bi.createdAt DESC
+  `).all() as (BetaInvite & { inviterName: string | null })[]
 
   return invites.map((invite) => {
     const usages = db.prepare(`
@@ -193,10 +248,15 @@ export function getAllInvites(): InviteWithUsages[] {
       }
     }
 
+    // Convert emailSent from integer to boolean
+    const emailSent = Boolean(invite.emailSent)
+
     return {
       ...invite,
+      emailSent,
       status,
       usages,
+      inviterName: invite.inviterName || invite.createdByName,
     }
   })
 }

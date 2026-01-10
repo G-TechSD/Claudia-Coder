@@ -6,6 +6,13 @@
 import { NextResponse } from "next/server"
 import { headers } from "next/headers"
 import { auth } from "./index"
+import {
+  type Role,
+  type Permission,
+  roleHasPermission,
+  canAccessAdminPanel,
+  isAdmin as checkIsAdmin,
+} from "./roles"
 
 /**
  * Response types for API helpers
@@ -127,6 +134,79 @@ export function withRole<T extends Request>(role: string) {
  * Returns null if not authenticated
  */
 export async function getCurrentUserId(): Promise<string | null> {
-  const auth = await verifyApiAuth()
-  return auth?.user.id ?? null
+  const authResult = await verifyApiAuth()
+  return authResult?.user.id ?? null
+}
+
+/**
+ * Higher-order function to wrap an API handler with admin-only access
+ *
+ * Usage:
+ * ```ts
+ * export const POST = withAdmin(async (auth, request) => {
+ *   // Only admins can access this
+ *   return NextResponse.json({ success: true })
+ * })
+ * ```
+ */
+export function withAdmin<T extends Request>(
+  handler: (auth: AuthenticatedRequest, request: T) => Promise<Response>
+) {
+  return withRole<T>("admin")(handler)
+}
+
+/**
+ * Higher-order function to wrap an API handler with permission-based auth
+ *
+ * Usage:
+ * ```ts
+ * export const POST = withPermission("invite_users")(async (auth, request) => {
+ *   // Only users with invite_users permission can access this
+ *   return NextResponse.json({ success: true })
+ * })
+ * ```
+ */
+export function withPermission<T extends Request>(permission: Permission) {
+  return (handler: (auth: AuthenticatedRequest, request: T) => Promise<Response>) => {
+    return async (request: T): Promise<Response> => {
+      const authResult = await verifyApiAuth()
+
+      if (!authResult) {
+        return unauthorizedResponse()
+      }
+
+      const userRole = (authResult.user.role || "user") as Role
+      if (!roleHasPermission(userRole, permission)) {
+        return forbiddenResponse(`Requires ${permission} permission`)
+      }
+
+      return handler(authResult, request)
+    }
+  }
+}
+
+/**
+ * Check if the current request is from an admin user
+ */
+export async function isCurrentUserAdmin(): Promise<boolean> {
+  const authResult = await verifyApiAuth()
+  if (!authResult) return false
+  return authResult.user.role === "admin"
+}
+
+/**
+ * Require admin access - returns error response if not admin, null if ok
+ */
+export async function requireAdmin(): Promise<Response | null> {
+  const authResult = await verifyApiAuth()
+
+  if (!authResult) {
+    return unauthorizedResponse()
+  }
+
+  if (authResult.user.role !== "admin") {
+    return forbiddenResponse("Admin access required")
+  }
+
+  return null
 }

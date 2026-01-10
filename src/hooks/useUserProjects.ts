@@ -145,16 +145,9 @@ export function useUserProjects() {
 
   // Get trashed projects for current user
   const getTrashedProjects = useCallback(() => {
-    const allTrashed = getTrashedProjectsBase()
-    if (!user) return []
-
-    return allTrashed.filter(
-      (p) =>
-        p.userId === user.id ||
-        p.isPublic === true ||
-        !p.userId // Legacy projects
-    )
-  }, [user])
+    if (!user?.id) return []
+    return getTrashedProjectsBase(user.id)
+  }, [user?.id])
 
   return {
     projects,

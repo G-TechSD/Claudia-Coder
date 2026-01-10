@@ -47,6 +47,7 @@ import { BrainDumpInput } from "@/components/business-ideas/brain-dump-input"
 import { BusinessIdeaInterview, type BusinessIdeaSummary } from "@/components/business-ideas/business-idea-interview"
 import { ConvertToProjectDialog } from "@/components/business-ideas/convert-to-project-dialog"
 import { VoiceChatPanel } from "@/components/business-ideas/voice-chat-panel"
+import { useAuth } from "@/components/auth/auth-provider"
 
 type PageMode = "list" | "braindump" | "interview" | "review"
 
@@ -88,6 +89,8 @@ function formatDate(dateStr: string): string {
 
 export default function BusinessIdeasPage() {
   const router = useRouter()
+  const { user } = useAuth()
+  const userId = user?.id
   const [ideas, setIdeas] = useState<BusinessIdea[]>([])
   const [statusFilter, setStatusFilter] = useState<BusinessIdeaStatus | "all">("all")
   const [search, setSearch] = useState("")
@@ -106,12 +109,15 @@ export default function BusinessIdeasPage() {
 
   // Load ideas
   useEffect(() => {
-    loadIdeas()
-  }, [])
+    if (userId) {
+      loadIdeas()
+    }
+  }, [userId])
 
   const loadIdeas = () => {
+    if (!userId) return
     setIsLoading(true)
-    const allIdeas = getAllBusinessIdeas()
+    const allIdeas = getAllBusinessIdeas({ userId })
     setIdeas(allIdeas)
     setIsLoading(false)
   }
@@ -140,11 +146,20 @@ export default function BusinessIdeasPage() {
   }, [ideas, statusFilter, search])
 
   // Stats
-  const stats = useMemo(() => getBusinessIdeaStats(), [ideas])
+  const stats = useMemo(() => {
+    if (!userId) {
+      return {
+        total: 0,
+        byStatus: { brainstorming: 0, exploring: 0, validating: 0, ready: 0, converted: 0, archived: 0 },
+        byPotential: { low: 0, medium: 0, high: 0, "very-high": 0 }
+      }
+    }
+    return getBusinessIdeaStats(userId)
+  }, [ideas, userId])
 
   const handleArchive = (id: string, title: string) => {
     if (confirm(`Archive "${title}"?`)) {
-      archiveBusinessIdea(id)
+      archiveBusinessIdea(id, userId)
       loadIdeas()
     }
   }
@@ -189,7 +204,7 @@ export default function BusinessIdeasPage() {
   }
 
   const handleSaveIdea = () => {
-    if (!generatedSummary) return
+    if (!generatedSummary || !userId) return
 
     const newIdea = createBusinessIdea({
       title: generatedSummary.title,
@@ -211,7 +226,7 @@ export default function BusinessIdeasPage() {
       competitiveAdvantage: generatedSummary.competitiveAdvantage,
       keyRisks: generatedSummary.keyRisks,
       nextSteps: generatedSummary.nextSteps
-    })
+    }, userId)
 
     setNewlyCreatedIdea(newIdea)
     loadIdeas()

@@ -3,6 +3,9 @@
  *
  * Manages which AI models are assigned to a project and how
  * work is routed to them based on task type.
+ *
+ * IMPORTANT: Project model configs are user-scoped. Each user's model
+ * configurations are stored separately to prevent data leakage.
  */
 
 import type { AIModel, ProviderName, ModelStrength } from "./providers"
@@ -61,17 +64,40 @@ export interface TaskModelOverride {
   reason?: string // Why this override exists
 }
 
-// Storage key prefix
-const STORAGE_KEY_PREFIX = "project-models-"
+// Storage key prefix - now includes user ID for sandboxing
+const LEGACY_STORAGE_KEY_PREFIX = "project-models-"
+const USER_STORAGE_KEY_PREFIX = "claudia_user_"
+
+/**
+ * Get the user-scoped storage key for project model config
+ */
+function getStorageKey(projectId: string, userId?: string): string {
+  if (userId) {
+    return `${USER_STORAGE_KEY_PREFIX}${userId}_project_models_${projectId}`
+  }
+  // Legacy fallback
+  return LEGACY_STORAGE_KEY_PREFIX + projectId
+}
 
 /**
  * Get model config for a project
+ * @param projectId - The project ID
+ * @param userId - The user ID (for user-scoped storage)
  */
-export function getProjectModelConfig(projectId: string): ProjectModelConfig | null {
+export function getProjectModelConfig(projectId: string, userId?: string): ProjectModelConfig | null {
   if (typeof window === "undefined") return null
 
   try {
-    const stored = localStorage.getItem(STORAGE_KEY_PREFIX + projectId)
+    // Try user-scoped key first
+    if (userId) {
+      const userScoped = localStorage.getItem(getStorageKey(projectId, userId))
+      if (userScoped) {
+        return JSON.parse(userScoped)
+      }
+    }
+
+    // Fallback to legacy key for backwards compatibility
+    const stored = localStorage.getItem(LEGACY_STORAGE_KEY_PREFIX + projectId)
     if (stored) {
       return JSON.parse(stored)
     }
@@ -84,12 +110,15 @@ export function getProjectModelConfig(projectId: string): ProjectModelConfig | n
 
 /**
  * Save model config for a project
+ * @param config - The model configuration
+ * @param userId - The user ID (for user-scoped storage)
  */
-export function saveProjectModelConfig(config: ProjectModelConfig): void {
+export function saveProjectModelConfig(config: ProjectModelConfig, userId?: string): void {
   if (typeof window === "undefined") return
 
   try {
-    localStorage.setItem(STORAGE_KEY_PREFIX + config.projectId, JSON.stringify(config))
+    const key = getStorageKey(config.projectId, userId)
+    localStorage.setItem(key, JSON.stringify(config))
   } catch {
     console.warn("Failed to save project model config")
   }

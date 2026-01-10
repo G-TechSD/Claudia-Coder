@@ -1,7 +1,17 @@
 /**
  * Business Ideas Data Store
  * Storage and management for business idea brainstorming
+ *
+ * IMPORTANT: All business idea data is user-scoped. Ideas belong to specific users
+ * and are stored in user-specific localStorage keys.
  */
+
+import {
+  getUserStorageItem,
+  setUserStorageItem,
+  USER_STORAGE_KEYS,
+  dispatchStorageChange
+} from "./user-storage"
 
 // ============ Types ============
 
@@ -104,7 +114,8 @@ export interface BusinessIdea {
 
 // ============ Storage ============
 
-const STORAGE_KEY = "claudia_business_ideas"
+// Legacy storage key (kept for migration purposes)
+const LEGACY_STORAGE_KEY = "claudia_business_ideas"
 
 // UUID generator that works in all contexts
 function generateUUID(): string {
@@ -118,26 +129,62 @@ function generateUUID(): string {
   })
 }
 
-function getStoredIdeas(): BusinessIdea[] {
+/**
+ * Get business ideas for a specific user
+ */
+function getStoredIdeasForUser(userId: string): BusinessIdea[] {
   if (typeof window === "undefined") return []
-  const stored = localStorage.getItem(STORAGE_KEY)
+
+  const userIdeas = getUserStorageItem<BusinessIdea[]>(userId, USER_STORAGE_KEYS.BUSINESS_IDEAS)
+  if (userIdeas) return userIdeas
+
+  // Fallback to legacy storage
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
   return stored ? JSON.parse(stored) : []
 }
 
+/**
+ * Save business ideas for a specific user
+ */
+function saveIdeasForUser(userId: string, ideas: BusinessIdea[]): void {
+  if (typeof window === "undefined") return
+  setUserStorageItem(userId, USER_STORAGE_KEYS.BUSINESS_IDEAS, ideas)
+  dispatchStorageChange(userId, USER_STORAGE_KEYS.BUSINESS_IDEAS, ideas)
+}
+
+/**
+ * @deprecated Use getStoredIdeasForUser instead
+ */
+function getStoredIdeas(): BusinessIdea[] {
+  if (typeof window === "undefined") return []
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
+  return stored ? JSON.parse(stored) : []
+}
+
+/**
+ * @deprecated Use saveIdeasForUser instead
+ */
 function saveIdeas(ideas: BusinessIdea[]): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas))
+  localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(ideas))
 }
 
 // ============ CRUD Operations ============
 
 /**
- * Get all business ideas
+ * Get all business ideas for a user
+ * @param options - Filter options including userId (required)
  */
 export function getAllBusinessIdeas(options?: {
   includeArchived?: boolean
+  userId?: string
 }): BusinessIdea[] {
-  const ideas = getStoredIdeas()
+  if (!options?.userId) {
+    console.warn("getAllBusinessIdeas called without userId - returning empty array for safety")
+    return []
+  }
+
+  const ideas = getStoredIdeasForUser(options.userId)
   if (options?.includeArchived) {
     return ideas
   }
@@ -146,19 +193,24 @@ export function getAllBusinessIdeas(options?: {
 
 /**
  * Get a single business idea by ID
+ * @param id - The idea ID
+ * @param userId - The user ID (for access control)
  */
-export function getBusinessIdea(id: string): BusinessIdea | null {
-  const ideas = getStoredIdeas()
+export function getBusinessIdea(id: string, userId?: string): BusinessIdea | null {
+  const ideas = userId ? getStoredIdeasForUser(userId) : getStoredIdeas()
   return ideas.find(i => i.id === id) || null
 }
 
 /**
  * Create a new business idea
+ * @param data - Business idea data
+ * @param userId - The user ID (owner)
  */
 export function createBusinessIdea(
-  data: Omit<BusinessIdea, "id" | "createdAt" | "updatedAt">
+  data: Omit<BusinessIdea, "id" | "createdAt" | "updatedAt">,
+  userId?: string
 ): BusinessIdea {
-  const ideas = getStoredIdeas()
+  const ideas = userId ? getStoredIdeasForUser(userId) : getStoredIdeas()
   const now = new Date().toISOString()
 
   const idea: BusinessIdea = {
@@ -169,18 +221,28 @@ export function createBusinessIdea(
   }
 
   ideas.push(idea)
-  saveIdeas(ideas)
+
+  if (userId) {
+    saveIdeasForUser(userId, ideas)
+  } else {
+    saveIdeas(ideas)
+  }
+
   return idea
 }
 
 /**
  * Update an existing business idea
+ * @param id - The idea ID
+ * @param updates - Partial updates
+ * @param userId - The user ID (for access control)
  */
 export function updateBusinessIdea(
   id: string,
-  updates: Partial<Omit<BusinessIdea, "id" | "createdAt">>
+  updates: Partial<Omit<BusinessIdea, "id" | "createdAt">>,
+  userId?: string
 ): BusinessIdea | null {
-  const ideas = getStoredIdeas()
+  const ideas = userId ? getStoredIdeasForUser(userId) : getStoredIdeas()
   const index = ideas.findIndex(i => i.id === id)
 
   if (index === -1) return null
@@ -191,38 +253,56 @@ export function updateBusinessIdea(
     updatedAt: new Date().toISOString()
   }
 
-  saveIdeas(ideas)
+  if (userId) {
+    saveIdeasForUser(userId, ideas)
+  } else {
+    saveIdeas(ideas)
+  }
+
   return ideas[index]
 }
 
 /**
  * Delete a business idea permanently
+ * @param id - The idea ID
+ * @param userId - The user ID (for access control)
  */
-export function deleteBusinessIdea(id: string): boolean {
-  const ideas = getStoredIdeas()
+export function deleteBusinessIdea(id: string, userId?: string): boolean {
+  const ideas = userId ? getStoredIdeasForUser(userId) : getStoredIdeas()
   const filtered = ideas.filter(i => i.id !== id)
 
   if (filtered.length === ideas.length) return false
 
-  saveIdeas(filtered)
+  if (userId) {
+    saveIdeasForUser(userId, filtered)
+  } else {
+    saveIdeas(filtered)
+  }
+
   return true
 }
 
 /**
  * Archive a business idea
+ * @param id - The idea ID
+ * @param userId - The user ID (for access control)
  */
-export function archiveBusinessIdea(id: string): BusinessIdea | null {
-  return updateBusinessIdea(id, { status: "archived" })
+export function archiveBusinessIdea(id: string, userId?: string): BusinessIdea | null {
+  return updateBusinessIdea(id, { status: "archived" }, userId)
 }
 
 /**
  * Add a message to a business idea's chat history
+ * @param id - The idea ID
+ * @param message - Message data
+ * @param userId - The user ID (for access control)
  */
 export function addMessageToIdea(
   id: string,
-  message: Omit<BusinessIdeaMessage, "id" | "timestamp">
+  message: Omit<BusinessIdeaMessage, "id" | "timestamp">,
+  userId?: string
 ): BusinessIdea | null {
-  const idea = getBusinessIdea(id)
+  const idea = getBusinessIdea(id, userId)
   if (!idea) return null
 
   const newMessage: BusinessIdeaMessage = {
@@ -233,31 +313,44 @@ export function addMessageToIdea(
 
   return updateBusinessIdea(id, {
     messages: [...idea.messages, newMessage]
-  })
+  }, userId)
 }
 
 /**
  * Mark an idea as converted to a project
+ * @param id - The idea ID
+ * @param projectId - The created project ID
+ * @param userId - The user ID (for access control)
  */
 export function markIdeaAsConverted(
   id: string,
-  projectId: string
+  projectId: string,
+  userId?: string
 ): BusinessIdea | null {
   return updateBusinessIdea(id, {
     status: "converted",
     convertedProjectId: projectId
-  })
+  }, userId)
 }
 
 /**
- * Get business idea statistics
+ * Get business idea statistics for a user
+ * @param userId - Required: The user ID
  */
-export function getBusinessIdeaStats(): {
+export function getBusinessIdeaStats(userId: string): {
   total: number
   byStatus: Record<BusinessIdeaStatus, number>
   byPotential: Record<BusinessIdeaPotential, number>
 } {
-  const ideas = getStoredIdeas()
+  if (!userId) {
+    return {
+      total: 0,
+      byStatus: { brainstorming: 0, exploring: 0, validating: 0, ready: 0, converted: 0, archived: 0 },
+      byPotential: { low: 0, medium: 0, high: 0, "very-high": 0 }
+    }
+  }
+
+  const ideas = getStoredIdeasForUser(userId)
 
   const byStatus: Record<BusinessIdeaStatus, number> = {
     brainstorming: 0,
@@ -288,10 +381,14 @@ export function getBusinessIdeaStats(): {
 }
 
 /**
- * Search business ideas
+ * Search business ideas for a user
+ * @param query - Search query
+ * @param userId - Required: The user ID
  */
-export function searchBusinessIdeas(query: string): BusinessIdea[] {
-  const ideas = getStoredIdeas()
+export function searchBusinessIdeas(query: string, userId: string): BusinessIdea[] {
+  if (!userId) return []
+
+  const ideas = getStoredIdeasForUser(userId)
   const lower = query.toLowerCase()
 
   return ideas.filter(i =>

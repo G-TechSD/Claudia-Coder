@@ -1,6 +1,9 @@
 /**
  * Build Plans Data Store
  * Persistent storage for generated build plans with user feedback
+ *
+ * IMPORTANT: All build plan data is user-scoped. Build plans belong to specific users
+ * and are stored in user-specific localStorage keys.
  */
 
 import type {
@@ -11,6 +14,12 @@ import type {
   EditedNonGoal,
   SectionComment
 } from "./types"
+import {
+  getUserStorageItem,
+  setUserStorageItem,
+  USER_STORAGE_KEYS,
+  dispatchStorageChange
+} from "./user-storage"
 
 // UUID generator that works in all contexts (HTTP, HTTPS, localhost)
 function generateUUID(): string {
@@ -24,34 +33,89 @@ function generateUUID(): string {
   })
 }
 
-const STORAGE_KEY = "claudia_build_plans"
+// Legacy storage key (kept for migration purposes)
+const LEGACY_STORAGE_KEY = "claudia_build_plans"
 
 // ============ Storage Helpers ============
 
+/**
+ * Get all build plans for a specific user from user-scoped storage
+ */
+function getStoredBuildPlansForUser(userId: string): StoredBuildPlan[] {
+  if (typeof window === "undefined") return []
+
+  const userPlans = getUserStorageItem<StoredBuildPlan[]>(userId, USER_STORAGE_KEYS.BUILD_PLANS)
+  if (userPlans) return userPlans
+
+  // Fallback to legacy storage and filter by userId
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
+  if (stored) {
+    const allPlans: StoredBuildPlan[] = JSON.parse(stored)
+    // For build plans, we filter by projectId ownership
+    // This is handled at the query level since build plans are linked to projects
+    return allPlans
+  }
+
+  return []
+}
+
+/**
+ * Save build plans for a specific user
+ */
+function saveBuildPlansForUser(userId: string, plans: StoredBuildPlan[]): void {
+  if (typeof window === "undefined") return
+  setUserStorageItem(userId, USER_STORAGE_KEYS.BUILD_PLANS, plans)
+  dispatchStorageChange(userId, USER_STORAGE_KEYS.BUILD_PLANS, plans)
+}
+
+/**
+ * @deprecated Use getStoredBuildPlansForUser instead
+ */
 function getStoredBuildPlans(): StoredBuildPlan[] {
   if (typeof window === "undefined") return []
-  const stored = localStorage.getItem(STORAGE_KEY)
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
   return stored ? JSON.parse(stored) : []
 }
 
+/**
+ * @deprecated Use saveBuildPlansForUser instead
+ */
 function saveBuildPlans(plans: StoredBuildPlan[]): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(plans))
+  localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(plans))
 }
 
 // ============ Build Plan CRUD ============
 
-export function getAllBuildPlans(): StoredBuildPlan[] {
-  return getStoredBuildPlans()
+/**
+ * Get all build plans for a user
+ * @param userId - Required: The user ID
+ */
+export function getAllBuildPlans(userId?: string): StoredBuildPlan[] {
+  if (!userId) {
+    console.warn("getAllBuildPlans called without userId - returning empty array for safety")
+    return []
+  }
+  return getStoredBuildPlansForUser(userId)
 }
 
-export function getBuildPlan(id: string): StoredBuildPlan | null {
-  const plans = getStoredBuildPlans()
+/**
+ * Get a build plan by ID
+ * @param id - The build plan ID
+ * @param userId - The user ID (for access control)
+ */
+export function getBuildPlan(id: string, userId?: string): StoredBuildPlan | null {
+  const plans = userId ? getStoredBuildPlansForUser(userId) : getStoredBuildPlans()
   return plans.find(p => p.id === id) || null
 }
 
-export function getBuildPlanForProject(projectId: string): StoredBuildPlan | null {
-  const plans = getStoredBuildPlans()
+/**
+ * Get the most recent build plan for a project
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
+ */
+export function getBuildPlanForProject(projectId: string, userId?: string): StoredBuildPlan | null {
+  const plans = userId ? getStoredBuildPlansForUser(userId) : getStoredBuildPlans()
   // Return the most recent plan for this project
   const projectPlans = plans
     .filter(p => p.projectId === projectId)
@@ -59,8 +123,13 @@ export function getBuildPlanForProject(projectId: string): StoredBuildPlan | nul
   return projectPlans[0] || null
 }
 
-export function getBuildPlanHistory(projectId: string): StoredBuildPlan[] {
-  const plans = getStoredBuildPlans()
+/**
+ * Get all build plans for a project (history)
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
+ */
+export function getBuildPlanHistory(projectId: string, userId?: string): StoredBuildPlan[] {
+  const plans = userId ? getStoredBuildPlansForUser(userId) : getStoredBuildPlans()
   return plans
     .filter(p => p.projectId === projectId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -72,10 +141,16 @@ export interface CreateBuildPlanInput {
   generatedBy: { server: string; model: string }
   previousVersionId?: string
   revisionNotes?: string
+  userId?: string  // The user creating the build plan
 }
 
+/**
+ * Create a new build plan
+ * @param input - Build plan input data including optional userId
+ */
 export function createBuildPlan(input: CreateBuildPlanInput): StoredBuildPlan {
-  const plans = getStoredBuildPlans()
+  const userId = input.userId
+  const plans = userId ? getStoredBuildPlansForUser(userId) : getStoredBuildPlans()
   const now = new Date().toISOString()
 
   // Get revision number for this project
@@ -120,15 +195,28 @@ export function createBuildPlan(input: CreateBuildPlanInput): StoredBuildPlan {
   }
 
   plans.push(plan)
-  saveBuildPlans(plans)
+
+  if (userId) {
+    saveBuildPlansForUser(userId, plans)
+  } else {
+    saveBuildPlans(plans)
+  }
+
   return plan
 }
 
+/**
+ * Update a build plan
+ * @param id - The build plan ID
+ * @param updates - Partial updates
+ * @param userId - The user ID (for access control)
+ */
 export function updateBuildPlan(
   id: string,
-  updates: Partial<Omit<StoredBuildPlan, "id" | "projectId" | "createdAt">>
+  updates: Partial<Omit<StoredBuildPlan, "id" | "projectId" | "createdAt">>,
+  userId?: string
 ): StoredBuildPlan | null {
-  const plans = getStoredBuildPlans()
+  const plans = userId ? getStoredBuildPlansForUser(userId) : getStoredBuildPlans()
   const index = plans.findIndex(p => p.id === id)
 
   if (index === -1) return null
@@ -139,76 +227,136 @@ export function updateBuildPlan(
     updatedAt: new Date().toISOString()
   }
 
-  saveBuildPlans(plans)
+  if (userId) {
+    saveBuildPlansForUser(userId, plans)
+  } else {
+    saveBuildPlans(plans)
+  }
+
   return plans[index]
 }
 
-export function deleteBuildPlan(id: string): boolean {
-  const plans = getStoredBuildPlans()
+/**
+ * Delete a build plan
+ * @param id - The build plan ID
+ * @param userId - The user ID (for access control)
+ */
+export function deleteBuildPlan(id: string, userId?: string): boolean {
+  const plans = userId ? getStoredBuildPlansForUser(userId) : getStoredBuildPlans()
   const filtered = plans.filter(p => p.id !== id)
 
   if (filtered.length === plans.length) return false
 
-  saveBuildPlans(filtered)
+  if (userId) {
+    saveBuildPlansForUser(userId, filtered)
+  } else {
+    saveBuildPlans(filtered)
+  }
+
   return true
 }
 
 // ============ Status Management ============
 
-export function approveBuildPlan(id: string, approvedBy?: string): StoredBuildPlan | null {
+/**
+ * Approve a build plan
+ * @param id - The build plan ID
+ * @param approvedBy - Optional approver name
+ * @param userId - The user ID (for access control)
+ */
+export function approveBuildPlan(id: string, approvedBy?: string, userId?: string): StoredBuildPlan | null {
   return updateBuildPlan(id, {
     status: "approved",
     approvedAt: new Date().toISOString(),
     approvedBy
-  })
+  }, userId)
 }
 
-export function lockBuildPlan(id: string): StoredBuildPlan | null {
+/**
+ * Lock a build plan
+ * @param id - The build plan ID
+ * @param userId - The user ID (for access control)
+ */
+export function lockBuildPlan(id: string, userId?: string): StoredBuildPlan | null {
   return updateBuildPlan(id, {
     status: "locked",
     lockedAt: new Date().toISOString()
-  })
+  }, userId)
 }
 
-export function unlockBuildPlan(id: string): StoredBuildPlan | null {
-  const plan = getBuildPlan(id)
+/**
+ * Unlock a build plan
+ * @param id - The build plan ID
+ * @param userId - The user ID (for access control)
+ */
+export function unlockBuildPlan(id: string, userId?: string): StoredBuildPlan | null {
+  const plan = getBuildPlan(id, userId)
   if (!plan) return null
 
   return updateBuildPlan(id, {
     status: plan.approvedAt ? "approved" : "draft",
     lockedAt: undefined
-  })
+  }, userId)
 }
 
 // ============ Feedback Management ============
 
+/**
+ * Update objectives for a build plan
+ * @param planId - The build plan ID
+ * @param objectives - Updated objectives
+ * @param userId - The user ID (for access control)
+ */
 export function updateObjectives(
   planId: string,
-  objectives: EditedObjective[]
+  objectives: EditedObjective[],
+  userId?: string
 ): StoredBuildPlan | null {
-  return updateBuildPlan(planId, { editedObjectives: objectives })
+  return updateBuildPlan(planId, { editedObjectives: objectives }, userId)
 }
 
+/**
+ * Update non-goals for a build plan
+ * @param planId - The build plan ID
+ * @param nonGoals - Updated non-goals
+ * @param userId - The user ID (for access control)
+ */
 export function updateNonGoals(
   planId: string,
-  nonGoals: EditedNonGoal[]
+  nonGoals: EditedNonGoal[],
+  userId?: string
 ): StoredBuildPlan | null {
-  return updateBuildPlan(planId, { editedNonGoals: nonGoals })
+  return updateBuildPlan(planId, { editedNonGoals: nonGoals }, userId)
 }
 
+/**
+ * Update packet feedback for a build plan
+ * @param planId - The build plan ID
+ * @param feedback - Updated feedback
+ * @param userId - The user ID (for access control)
+ */
 export function updatePacketFeedback(
   planId: string,
-  feedback: PacketFeedback[]
+  feedback: PacketFeedback[],
+  userId?: string
 ): StoredBuildPlan | null {
-  return updateBuildPlan(planId, { packetFeedback: feedback })
+  return updateBuildPlan(planId, { packetFeedback: feedback }, userId)
 }
 
+/**
+ * Add a section comment to a build plan
+ * @param planId - The build plan ID
+ * @param sectionId - The section ID
+ * @param comment - The comment text
+ * @param userId - The user ID (for access control)
+ */
 export function addSectionComment(
   planId: string,
   sectionId: string,
-  comment: string
+  comment: string,
+  userId?: string
 ): StoredBuildPlan | null {
-  const plan = getBuildPlan(planId)
+  const plan = getBuildPlan(planId, userId)
   if (!plan) return null
 
   const existingIndex = plan.sectionComments.findIndex(c => c.sectionId === sectionId)
@@ -228,7 +376,7 @@ export function addSectionComment(
     })
   }
 
-  return updateBuildPlan(planId, { sectionComments: updatedComments })
+  return updateBuildPlan(planId, { sectionComments: updatedComments }, userId)
 }
 
 // ============ Revision Helpers ============
@@ -240,8 +388,13 @@ export interface RevisionContext {
   sectionComments: SectionComment[]
 }
 
-export function getRevisionContext(planId: string): RevisionContext | null {
-  const plan = getBuildPlan(planId)
+/**
+ * Get revision context for a build plan
+ * @param planId - The build plan ID
+ * @param userId - The user ID (for access control)
+ */
+export function getRevisionContext(planId: string, userId?: string): RevisionContext | null {
+  const plan = getBuildPlan(planId, userId)
   if (!plan) return null
 
   return {
@@ -309,14 +462,29 @@ export function formatFeedbackForRevision(context: RevisionContext): string {
 
 // ============ Query Helpers ============
 
-export function getDraftPlans(): StoredBuildPlan[] {
-  return getStoredBuildPlans().filter(p => p.status === "draft")
+/**
+ * Get all draft build plans for a user
+ * @param userId - Required: The user ID
+ */
+export function getDraftPlans(userId: string): StoredBuildPlan[] {
+  if (!userId) return []
+  return getStoredBuildPlansForUser(userId).filter(p => p.status === "draft")
 }
 
-export function getApprovedPlans(): StoredBuildPlan[] {
-  return getStoredBuildPlans().filter(p => p.status === "approved")
+/**
+ * Get all approved build plans for a user
+ * @param userId - Required: The user ID
+ */
+export function getApprovedPlans(userId: string): StoredBuildPlan[] {
+  if (!userId) return []
+  return getStoredBuildPlansForUser(userId).filter(p => p.status === "approved")
 }
 
-export function getLockedPlans(): StoredBuildPlan[] {
-  return getStoredBuildPlans().filter(p => p.status === "locked")
+/**
+ * Get all locked build plans for a user
+ * @param userId - Required: The user ID
+ */
+export function getLockedPlans(userId: string): StoredBuildPlan[] {
+  if (!userId) return []
+  return getStoredBuildPlansForUser(userId).filter(p => p.status === "locked")
 }

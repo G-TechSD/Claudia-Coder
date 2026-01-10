@@ -1,6 +1,9 @@
 /**
  * Business Development Data Store
  * Generate and manage business development documents from build plans
+ *
+ * IMPORTANT: All business development data is user-scoped. Documents belong to specific users
+ * and are stored in user-specific localStorage keys.
  */
 
 import type {
@@ -17,6 +20,12 @@ import type {
 } from "./types"
 import { getProject, updateProject } from "./projects"
 import { getBuildPlanForProject } from "./build-plans"
+import {
+  getUserStorageItem,
+  setUserStorageItem,
+  USER_STORAGE_KEYS,
+  dispatchStorageChange
+} from "./user-storage"
 
 // UUID generator that works in all contexts (HTTP, HTTPS, localhost)
 function generateUUID(): string {
@@ -30,28 +39,60 @@ function generateUUID(): string {
   })
 }
 
-const STORAGE_KEY = "claudia_business_dev"
+// Legacy storage key (kept for migration purposes)
+const LEGACY_STORAGE_KEY = "claudia_business_dev"
 
 // ============ Storage Helpers ============
 
-function getStoredBusinessDevs(): BusinessDev[] {
+/**
+ * Get business dev documents for a specific user
+ */
+function getStoredBusinessDevsForUser(userId: string): BusinessDev[] {
   if (typeof window === "undefined") return []
-  const stored = localStorage.getItem(STORAGE_KEY)
+
+  const userDocs = getUserStorageItem<BusinessDev[]>(userId, USER_STORAGE_KEYS.BUSINESS_DEV)
+  if (userDocs) return userDocs
+
+  // Fallback to legacy storage
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
   return stored ? JSON.parse(stored) : []
 }
 
+/**
+ * Save business dev documents for a specific user
+ */
+function saveBusinessDevsForUser(userId: string, docs: BusinessDev[]): void {
+  if (typeof window === "undefined") return
+  setUserStorageItem(userId, USER_STORAGE_KEYS.BUSINESS_DEV, docs)
+  dispatchStorageChange(userId, USER_STORAGE_KEYS.BUSINESS_DEV, docs)
+}
+
+/**
+ * @deprecated Use getStoredBusinessDevsForUser instead
+ */
+function getStoredBusinessDevs(): BusinessDev[] {
+  if (typeof window === "undefined") return []
+  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
+  return stored ? JSON.parse(stored) : []
+}
+
+/**
+ * @deprecated Use saveBusinessDevsForUser instead
+ */
 function saveBusinessDevs(docs: BusinessDev[]): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(docs))
+  localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(docs))
 }
 
 // ============ Business Dev CRUD ============
 
 /**
  * Get business development document for a project
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
  */
-export function getBusinessDev(projectId: string): BusinessDev | null {
-  const docs = getStoredBusinessDevs()
+export function getBusinessDev(projectId: string, userId?: string): BusinessDev | null {
+  const docs = userId ? getStoredBusinessDevsForUser(userId) : getStoredBusinessDevs()
   // Return the most recent for this project
   const projectDocs = docs
     .filter(d => d.projectId === projectId)
@@ -61,17 +102,21 @@ export function getBusinessDev(projectId: string): BusinessDev | null {
 
 /**
  * Get business development document by ID
+ * @param id - The document ID
+ * @param userId - The user ID (for access control)
  */
-export function getBusinessDevById(id: string): BusinessDev | null {
-  const docs = getStoredBusinessDevs()
+export function getBusinessDevById(id: string, userId?: string): BusinessDev | null {
+  const docs = userId ? getStoredBusinessDevsForUser(userId) : getStoredBusinessDevs()
   return docs.find(d => d.id === id) || null
 }
 
 /**
  * Get all business dev documents for a project (history)
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
  */
-export function getBusinessDevHistory(projectId: string): BusinessDev[] {
-  const docs = getStoredBusinessDevs()
+export function getBusinessDevHistory(projectId: string, userId?: string): BusinessDev[] {
+  const docs = userId ? getStoredBusinessDevsForUser(userId) : getStoredBusinessDevs()
   return docs
     .filter(d => d.projectId === projectId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -79,13 +124,17 @@ export function getBusinessDevHistory(projectId: string): BusinessDev[] {
 
 /**
  * Update an existing business development document
+ * @param projectId - The project ID
+ * @param updates - Partial updates
+ * @param userId - The user ID (for access control)
  */
 export function updateBusinessDev(
   projectId: string,
-  updates: Partial<Omit<BusinessDev, "id" | "projectId" | "createdAt">>
+  updates: Partial<Omit<BusinessDev, "id" | "projectId" | "createdAt">>,
+  userId?: string
 ): BusinessDev | null {
-  const docs = getStoredBusinessDevs()
-  const existing = getBusinessDev(projectId)
+  const docs = userId ? getStoredBusinessDevsForUser(userId) : getStoredBusinessDevs()
+  const existing = getBusinessDev(projectId, userId)
 
   if (!existing) return null
 
@@ -99,22 +148,31 @@ export function updateBusinessDev(
   }
 
   docs[index] = updated
-  saveBusinessDevs(docs)
+
+  if (userId) {
+    saveBusinessDevsForUser(userId, docs)
+  } else {
+    saveBusinessDevs(docs)
+  }
 
   // Also update the project reference
-  updateProject(projectId, { businessDev: updated })
+  updateProject(projectId, { businessDev: updated }, userId)
 
   return updated
 }
 
 /**
  * Create a new business development document
+ * @param projectId - The project ID
+ * @param data - Document data
+ * @param userId - The user ID (owner)
  */
 function createBusinessDev(
   projectId: string,
-  data: Omit<BusinessDev, "id" | "projectId" | "createdAt" | "updatedAt">
+  data: Omit<BusinessDev, "id" | "projectId" | "createdAt" | "updatedAt">,
+  userId?: string
 ): BusinessDev {
-  const docs = getStoredBusinessDevs()
+  const docs = userId ? getStoredBusinessDevsForUser(userId) : getStoredBusinessDevs()
   const now = new Date().toISOString()
 
   const businessDev: BusinessDev = {
@@ -126,24 +184,35 @@ function createBusinessDev(
   }
 
   docs.push(businessDev)
-  saveBusinessDevs(docs)
+
+  if (userId) {
+    saveBusinessDevsForUser(userId, docs)
+  } else {
+    saveBusinessDevs(docs)
+  }
 
   // Also update the project reference
-  updateProject(projectId, { businessDev })
+  updateProject(projectId, { businessDev }, userId)
 
   return businessDev
 }
 
 /**
  * Delete a business development document
+ * @param id - The document ID
+ * @param userId - The user ID (for access control)
  */
-export function deleteBusinessDev(id: string): boolean {
-  const docs = getStoredBusinessDevs()
+export function deleteBusinessDev(id: string, userId?: string): boolean {
+  const docs = userId ? getStoredBusinessDevsForUser(userId) : getStoredBusinessDevs()
   const filtered = docs.filter(d => d.id !== id)
 
   if (filtered.length === docs.length) return false
 
-  saveBusinessDevs(filtered)
+  if (userId) {
+    saveBusinessDevsForUser(userId, filtered)
+  } else {
+    saveBusinessDevs(filtered)
+  }
   return true
 }
 
@@ -151,40 +220,52 @@ export function deleteBusinessDev(id: string): boolean {
 
 /**
  * Update business dev status
+ * @param projectId - The project ID
+ * @param status - New status
+ * @param userId - The user ID (for access control)
  */
 export function updateBusinessDevStatus(
   projectId: string,
-  status: BusinessDevStatus
+  status: BusinessDevStatus,
+  userId?: string
 ): BusinessDev | null {
-  return updateBusinessDev(projectId, { status })
+  return updateBusinessDev(projectId, { status }, userId)
 }
 
 /**
  * Submit for review
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
  */
-export function submitForReview(projectId: string): BusinessDev | null {
-  return updateBusinessDevStatus(projectId, "review")
+export function submitForReview(projectId: string, userId?: string): BusinessDev | null {
+  return updateBusinessDevStatus(projectId, "review", userId)
 }
 
 /**
  * Approve business dev document
+ * @param projectId - The project ID
+ * @param approvedBy - The approver name/ID
+ * @param userId - The user ID (for access control)
  */
 export function approveBusinessDev(
   projectId: string,
-  approvedBy?: string
+  approvedBy?: string,
+  userId?: string
 ): BusinessDev | null {
   return updateBusinessDev(projectId, {
     status: "approved",
     approvedAt: new Date().toISOString(),
     approvedBy
-  })
+  }, userId)
 }
 
 /**
  * Archive business dev document
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
  */
-export function archiveBusinessDev(projectId: string): BusinessDev | null {
-  return updateBusinessDevStatus(projectId, "archived")
+export function archiveBusinessDev(projectId: string, userId?: string): BusinessDev | null {
+  return updateBusinessDevStatus(projectId, "archived", userId)
 }
 
 // ============ Generation ============
@@ -196,16 +277,18 @@ export interface GenerateBusinessDevInput {
     server: string
     model: string
   }
+  userId?: string
 }
 
 /**
  * Generate business development document from build plan
  * This creates a template that can be further refined by AI or manually edited
+ * @param input - Generation input including projectId, buildPlan, generatedBy, and userId
  */
 export function generateBusinessDev(input: GenerateBusinessDevInput): BusinessDev {
-  const { projectId, generatedBy } = input
-  const project = getProject(projectId)
-  const buildPlan = input.buildPlan || getBuildPlanForProject(projectId)
+  const { projectId, generatedBy, userId } = input
+  const project = getProject(projectId, userId)
+  const buildPlan = input.buildPlan || getBuildPlanForProject(projectId, userId)
 
   if (!project) {
     throw new Error(`Project not found: ${projectId}`)
@@ -347,7 +430,7 @@ export function generateBusinessDev(input: GenerateBusinessDevInput): BusinessDe
     generatedFromBuildPlanId: buildPlan?.id
   }
 
-  return createBusinessDev(projectId, businessDevData)
+  return createBusinessDev(projectId, businessDevData, userId)
 }
 
 // ============ Helper Functions ============
@@ -404,18 +487,22 @@ export interface ExportPDFOptions {
   includeRisks?: boolean
   companyName?: string
   companyLogo?: string
+  userId?: string
 }
 
 /**
  * Export business development document as PDF
  * Returns HTML content that can be converted to PDF by the client
+ * @param projectId - The project ID
+ * @param options - Export options including userId for access control
  */
 export function exportBusinessDevPDF(
   projectId: string,
   options: ExportPDFOptions = {}
 ): { html: string; filename: string } | null {
-  const businessDev = getBusinessDev(projectId)
-  const project = getProject(projectId)
+  const { userId, ...exportOptions } = options
+  const businessDev = getBusinessDev(projectId, userId)
+  const project = getProject(projectId, userId)
 
   if (!businessDev || !project) return null
 
@@ -843,36 +930,51 @@ function generatePDFHTML(
 // ============ Query Helpers ============
 
 /**
- * Get all business dev documents
+ * Get all business dev documents for a user
+ * @param userId - Required: The user ID
  */
-export function getAllBusinessDevs(): BusinessDev[] {
-  return getStoredBusinessDevs()
+export function getAllBusinessDevs(userId?: string): BusinessDev[] {
+  if (!userId) {
+    console.warn("getAllBusinessDevs called without userId - returning empty array for safety")
+    return []
+  }
+  return getStoredBusinessDevsForUser(userId)
 }
 
 /**
  * Check if a project has a business dev document
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
  */
-export function hasBusinessDev(projectId: string): boolean {
-  return getBusinessDev(projectId) !== null
+export function hasBusinessDev(projectId: string, userId?: string): boolean {
+  return getBusinessDev(projectId, userId) !== null
 }
 
 /**
  * Get business dev documents by status
+ * @param status - The status to filter by
+ * @param userId - Required: The user ID
  */
-export function getBusinessDevsByStatus(status: BusinessDevStatus): BusinessDev[] {
-  return getStoredBusinessDevs().filter(d => d.status === status)
+export function getBusinessDevsByStatus(status: BusinessDevStatus, userId?: string): BusinessDev[] {
+  if (!userId) {
+    console.warn("getBusinessDevsByStatus called without userId - returning empty array for safety")
+    return []
+  }
+  return getStoredBusinessDevsForUser(userId).filter(d => d.status === status)
 }
 
 /**
  * Get draft business dev documents
+ * @param userId - Required: The user ID
  */
-export function getDraftBusinessDevs(): BusinessDev[] {
-  return getBusinessDevsByStatus("draft")
+export function getDraftBusinessDevs(userId?: string): BusinessDev[] {
+  return getBusinessDevsByStatus("draft", userId)
 }
 
 /**
  * Get approved business dev documents
+ * @param userId - Required: The user ID
  */
-export function getApprovedBusinessDevs(): BusinessDev[] {
-  return getBusinessDevsByStatus("approved")
+export function getApprovedBusinessDevs(userId?: string): BusinessDev[] {
+  return getBusinessDevsByStatus("approved", userId)
 }

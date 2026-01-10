@@ -28,6 +28,7 @@ import {
 import { createProject } from "@/lib/data/projects"
 import type { Project } from "@/lib/data/types"
 import { markIdeaAsConverted, type BusinessIdea } from "@/lib/data/business-ideas"
+import { useAuth } from "@/components/auth/auth-provider"
 
 interface ConvertToProjectDialogProps {
   open: boolean
@@ -46,6 +47,8 @@ export function ConvertToProjectDialog({
   suggestedType,
   onSuccess
 }: ConvertToProjectDialogProps) {
+  const { user } = useAuth()
+  const userId = user?.id
   const [projectType, setProjectType] = useState<ProjectType>(suggestedType || "both")
   const [businessName, setBusinessName] = useState(`${idea.title} - Business`)
   const [devName, setDevName] = useState(`${idea.title} - Dev`)
@@ -108,7 +111,7 @@ export function ConvertToProjectDialog({
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           }
-        })
+        }, userId)
         results.businessProject = businessProject
       }
 
@@ -123,14 +126,14 @@ export function ConvertToProjectDialog({
           repos: [],
           packetIds: [],
           tags: ["development", "from-business-idea", ...(projectType === "both" ? ["linked-project"] : [])]
-        })
+        }, userId)
         results.devProject = devProject
       }
 
       // Mark the idea as converted, linking to the primary project
       const primaryProjectId = results.businessProject?.id || results.devProject?.id
       if (primaryProjectId) {
-        markIdeaAsConverted(idea.id, primaryProjectId)
+        markIdeaAsConverted(idea.id, primaryProjectId, userId)
       }
 
       onSuccess(results)

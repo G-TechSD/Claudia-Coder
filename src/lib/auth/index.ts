@@ -7,6 +7,7 @@
 import { betterAuth } from "better-auth"
 import { twoFactor } from "better-auth/plugins"
 import { db } from "./db"
+import { isAdminEmail, ROLES } from "./roles"
 
 export const auth = betterAuth({
   // App name used as issuer for TOTP authenticator apps
@@ -19,6 +20,25 @@ export const auth = betterAuth({
     enabled: true,
     autoSignIn: true,
     requireEmailVerification: false, // Can enable later with email provider
+  },
+
+  // Database hooks for role assignment
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          // Set admin role for the admin email
+          // Otherwise default to "user" (invite redemption will set beta_tester)
+          const role = isAdminEmail(user.email) ? ROLES.ADMIN : ROLES.USER
+          return {
+            data: {
+              ...user,
+              role,
+            },
+          }
+        },
+      },
+    },
   },
 
   // Session configuration

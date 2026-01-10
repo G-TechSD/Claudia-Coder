@@ -42,6 +42,7 @@ import {
   getTrashedProjects
 } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
+import { useAuth } from "@/components/auth/auth-provider"
 import type { Project, ProjectStatus, ProjectFilter } from "@/lib/data/types"
 
 const statusConfig: Record<ProjectStatus, {
@@ -82,6 +83,8 @@ type ViewMode = "list" | "grid"
 const VIEW_MODE_KEY = "claudia_projects_view"
 
 export default function ProjectsPage() {
+  const { user } = useAuth()
+  const userId = user?.id
   const [projects, setProjects] = useState<Project[]>([])
   const [filter, setFilter] = useState<ProjectFilter>({})
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all")
@@ -114,13 +117,16 @@ export default function ProjectsPage() {
 
   // Load projects
   useEffect(() => {
-    seedSampleProjects() // Seed sample data on first load
-    loadProjects()
-  }, [])
+    if (userId) {
+      seedSampleProjects(userId) // Seed sample data on first load
+      loadProjects()
+    }
+  }, [userId])
 
   const loadProjects = () => {
+    if (!userId) return
     setIsLoading(true)
-    const allProjects = getAllProjects()
+    const allProjects = getAllProjects({ userId })
     setProjects(allProjects)
     setIsLoading(false)
   }
@@ -153,14 +159,27 @@ export default function ProjectsPage() {
   }, [projects, statusFilter, search])
 
   // Stats
-  const stats = useMemo(() => getProjectStats(), [projects])
+  const stats = useMemo(() => {
+    if (!userId) {
+      return {
+        total: 0,
+        byStatus: { planning: 0, active: 0, paused: 0, completed: 0, archived: 0, trashed: 0 },
+        activeRepos: 0,
+        activePackets: 0
+      }
+    }
+    return getProjectStats(userId)
+  }, [projects, userId])
 
   // Get trashed projects count for showing badge on Trash link
-  const trashedCount = useMemo(() => getTrashedProjects().length, [projects])
+  const trashedCount = useMemo(() => {
+    if (!userId) return 0
+    return getTrashedProjects(userId).length
+  }, [projects, userId])
 
   const handleTrash = (id: string, name: string) => {
     if (confirm(`Send project "${name}" to trash?`)) {
-      trashProject(id)
+      trashProject(id, userId)
       loadProjects()
     }
   }

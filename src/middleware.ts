@@ -3,10 +3,99 @@
  * Redirects unauthenticated users to login page
  * Enforces beta tester sandboxed access restrictions
  * Requires NDA signature for beta testers
+ * Enforces user data access sandboxing
  */
 
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
+
+// ============ User Data Access Control ============
+
+/**
+ * Get the current user ID from the session cookie
+ * This is used for user data sandboxing verification
+ */
+function getCurrentUserId(request: NextRequest): string | null {
+  const userIdCookie = request.cookies.get("claudia-user-id")
+  return userIdCookie?.value || null
+}
+
+/**
+ * API routes that handle user-scoped data and require user ID verification
+ * These routes must include the user ID in the request and verify access
+ */
+const USER_DATA_API_ROUTES = [
+  "/api/projects",
+  "/api/build-plans",
+  "/api/packets",
+  "/api/resources",
+  "/api/research",
+  "/api/business-ideas",
+  "/api/patents",
+  "/api/business-dev",
+  "/api/brain-dumps",
+]
+
+/**
+ * Check if a route handles user-scoped data
+ */
+function isUserDataRoute(pathname: string): boolean {
+  return USER_DATA_API_ROUTES.some(route => pathname.startsWith(route))
+}
+
+/**
+ * Verify user data access for API routes
+ * Returns an error response if access should be denied
+ */
+function verifyUserDataAccess(
+  request: NextRequest,
+  pathname: string
+): NextResponse | null {
+  // Skip verification for non-user-data routes
+  if (!isUserDataRoute(pathname)) {
+    return null
+  }
+
+  const currentUserId = getCurrentUserId(request)
+  const isAdminUser = isAdmin(request)
+
+  // Admin users can access all data
+  if (isAdminUser) {
+    return null
+  }
+
+  // If no user ID is available, deny access to user data routes
+  if (!currentUserId) {
+    return NextResponse.json(
+      {
+        error: "User ID Required",
+        message: "User identification required for this resource. Please log in again.",
+        code: "USER_ID_REQUIRED",
+      },
+      { status: 401 }
+    )
+  }
+
+  // For GET requests with a userId query param, verify it matches current user
+  const url = new URL(request.url)
+  const requestedUserId = url.searchParams.get("userId")
+
+  if (requestedUserId && requestedUserId !== currentUserId) {
+    return NextResponse.json(
+      {
+        error: "Access Denied",
+        message: "You can only access your own data.",
+        code: "USER_DATA_ACCESS_DENIED",
+      },
+      { status: 403 }
+    )
+  }
+
+  // For POST/PUT/PATCH requests, we'd need to check the body
+  // This is handled at the API route level since we can't easily parse body in middleware
+
+  return null
+}
 
 // Routes that don't require authentication
 const publicPaths = [
@@ -240,7 +329,22 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(restrictedUrl)
   }
 
-  return NextResponse.next()
+  // Verify user data access for API routes (user sandboxing)
+  if (pathname.startsWith("/api/")) {
+    const accessError = verifyUserDataAccess(request, pathname)
+    if (accessError) {
+      return accessError
+    }
+  }
+
+  // Add user ID to response headers for client-side use
+  const response = NextResponse.next()
+  const currentUserId = getCurrentUserId(request)
+  if (currentUserId) {
+    response.headers.set("x-claudia-user-id", currentUserId)
+  }
+
+  return response
 }
 
 // Configure which paths the middleware runs on

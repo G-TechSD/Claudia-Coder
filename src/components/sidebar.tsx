@@ -81,6 +81,7 @@ const toolsItems: NavItem[] = [
 
 // Admin category items
 const adminItems: NavItem[] = [
+  { title: "Admin Panel", href: "/admin", icon: ShieldCheck },
   { title: "Users", href: "/admin/users", icon: Users },
   { title: "Sessions", href: "/admin/sessions", icon: Video },
   { title: "Invites", href: "/admin/invites", icon: UserPlus },
@@ -253,7 +254,9 @@ export function Sidebar() {
   // Refresh trashed count periodically and on path changes
   React.useEffect(() => {
     const updateTrashedCount = () => {
-      setTrashedCount(getTrashedProjects().length)
+      if (user?.id) {
+        setTrashedCount(getTrashedProjects(user.id).length)
+      }
     }
     updateTrashedCount()
 
@@ -268,7 +271,7 @@ export function Sidebar() {
       window.removeEventListener("storage", handleStorageChange)
       clearInterval(interval)
     }
-  }, [pathname])
+  }, [pathname, user?.id])
 
   // Dynamic badge counts lookup
   const badgeCounts: Record<string, number> = {
