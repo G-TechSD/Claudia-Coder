@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -58,7 +58,12 @@ import {
   FolderPlus,
   ExternalLink,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  MessageCircle,
+  Send,
+  Bot,
+  User,
+  RotateCcw
 } from "lucide-react"
 import {
   getAllResearch,
@@ -679,9 +684,20 @@ export default function ResearchPage() {
                     </Button>
                   )}
                   <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => {
+                      setSelectedEntry(null)
+                      setShowNewDialog(true)
+                    }}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    New Search
+                  </Button>
+                  <Button
                     variant="ghost"
                     size="icon"
-                    className="lg:hidden"
                     onClick={() => setSelectedEntry(null)}
                   >
                     <XCircle className="h-4 w-4" />
@@ -758,6 +774,14 @@ interface ResearchResultsProps {
   setExpandedCompetitor: (id: string | null) => void
 }
 
+// Chat message type
+interface ChatMessage {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  timestamp: string
+}
+
 function ResearchResults({
   research,
   expandedCompetitor,
@@ -765,6 +789,176 @@ function ResearchResults({
 }: ResearchResultsProps) {
   const recConfig = recommendationConfig[research.recommendation]
   const saturationConfig = getSaturationConfig(research.marketSaturation)
+
+  // Chat state
+  const [showChat, setShowChat] = useState(false)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState("")
+  const [isChatLoading, setIsChatLoading] = useState(false)
+  const [streamingContent, setStreamingContent] = useState("")
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Scroll to bottom of chat when messages change
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [chatMessages, streamingContent])
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto"
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`
+    }
+  }, [chatInput])
+
+  // Initialize chat with greeting when opened
+  useEffect(() => {
+    if (showChat && chatMessages.length === 0) {
+      const greeting: ChatMessage = {
+        id: `msg-${Date.now()}`,
+        role: "assistant",
+        content: `I've analyzed the research report for "${research.projectName}". I can help you understand the findings, explore specific competitors in more detail, discuss market opportunities, or brainstorm ways to differentiate your idea. What would you like to know?`,
+        timestamp: new Date().toISOString()
+      }
+      setChatMessages([greeting])
+    }
+  }, [showChat, chatMessages.length, research.projectName])
+
+  const sendChatMessage = useCallback(async () => {
+    if (!chatInput.trim() || isChatLoading) return
+
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+
+    const userMessage: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      role: "user",
+      content: chatInput.trim(),
+      timestamp: new Date().toISOString()
+    }
+
+    setChatMessages(prev => [...prev, userMessage])
+    setChatInput("")
+    setIsChatLoading(true)
+    setStreamingContent("")
+
+    try {
+      const response = await fetch("/api/research/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [...chatMessages, userMessage].map(m => ({
+            role: m.role,
+            content: m.content
+          })),
+          researchContext: {
+            projectName: research.projectName,
+            projectDescription: research.projectDescription,
+            recommendation: research.recommendation,
+            confidenceLevel: research.confidenceLevel,
+            marketSaturation: research.marketSaturation,
+            totalCompetitors: research.totalCompetitorsFound,
+            competitors: research.competitors.map(c => ({
+              name: c.name,
+              category: c.category,
+              description: c.description,
+              strengths: c.strengths,
+              weaknesses: c.weaknesses,
+              ourAdvantage: c.ourAdvantage
+            })),
+            keyInsights: research.keyInsights,
+            whyPursue: research.whyPursue,
+            whyNotPursue: research.whyNotPursue,
+            differentiators: research.differentiators,
+            risks: research.risks,
+            opportunities: research.opportunities
+          }
+        }),
+        signal: abortControllerRef.current.signal
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error("No response body")
+
+      const decoder = new TextDecoder()
+      let fullContent = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value, { stream: true })
+        const lines = chunk.split("\n")
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6)
+            if (data === "[DONE]") continue
+
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.type === "content") {
+                fullContent += parsed.content
+                setStreamingContent(fullContent)
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+
+      // Add the complete assistant message
+      const assistantMessage: ChatMessage = {
+        id: `msg-${Date.now()}`,
+        role: "assistant",
+        content: fullContent,
+        timestamp: new Date().toISOString()
+      }
+
+      setChatMessages(prev => [...prev, assistantMessage])
+      setStreamingContent("")
+
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return
+      }
+
+      console.error("Chat error:", error)
+
+      const errorMessage: ChatMessage = {
+        id: `msg-${Date.now()}`,
+        role: "assistant",
+        content: "I apologize, but I encountered an issue. Please try again.",
+        timestamp: new Date().toISOString()
+      }
+      setChatMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsChatLoading(false)
+      setStreamingContent("")
+    }
+  }, [chatInput, isChatLoading, chatMessages, research])
+
+  const handleChatKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      sendChatMessage()
+    }
+  }
+
+  const clearChat = () => {
+    setChatMessages([])
+    setShowChat(false)
+  }
 
   return (
     <div className="space-y-6">
@@ -1221,6 +1415,175 @@ function ResearchResults({
           </div>
         </div>
       )}
+
+      {/* Chat About Report Section */}
+      <Card className="border-cyan-500/30">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <MessageCircle className="h-4 w-4 text-cyan-500" />
+              Discuss This Report
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              {showChat && chatMessages.length > 1 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={clearChat}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Clear Chat
+                </Button>
+              )}
+              <Button
+                variant={showChat ? "secondary" : "outline"}
+                size="sm"
+                className="gap-2"
+                onClick={() => setShowChat(!showChat)}
+              >
+                {showChat ? (
+                  <>
+                    <ChevronUp className="h-4 w-4" />
+                    Hide Chat
+                  </>
+                ) : (
+                  <>
+                    <MessageCircle className="h-4 w-4" />
+                    Start Chat
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+          {!showChat && (
+            <CardDescription className="mt-1">
+              Have questions about this research? Start a conversation to explore the findings in more detail.
+            </CardDescription>
+          )}
+        </CardHeader>
+
+        {showChat && (
+          <CardContent className="space-y-4">
+            {/* Chat Messages */}
+            <div className="border rounded-lg bg-muted/20">
+              <ScrollArea className="h-[300px] p-4">
+                <div className="space-y-4">
+                  {chatMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={cn(
+                        "flex gap-3",
+                        message.role === "user" && "flex-row-reverse"
+                      )}
+                    >
+                      <div className={cn(
+                        "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0",
+                        message.role === "user" ? "bg-primary" : "bg-cyan-500/20"
+                      )}>
+                        {message.role === "user" ? (
+                          <User className="h-4 w-4 text-primary-foreground" />
+                        ) : (
+                          <Bot className="h-4 w-4 text-cyan-500" />
+                        )}
+                      </div>
+                      <div className={cn(
+                        "max-w-[85%] rounded-2xl px-4 py-3",
+                        message.role === "user"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted"
+                      )}>
+                        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Streaming content */}
+                  {isChatLoading && streamingContent && (
+                    <div className="flex gap-3">
+                      <div className="h-8 w-8 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                        <Bot className="h-4 w-4 text-cyan-500" />
+                      </div>
+                      <div className="max-w-[85%] rounded-2xl px-4 py-3 bg-muted">
+                        <p className="text-sm whitespace-pre-wrap">{streamingContent}</p>
+                        <span className="inline-block w-2 h-4 bg-cyan-500 animate-pulse ml-1" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Loading indicator */}
+                  {isChatLoading && !streamingContent && (
+                    <div className="flex gap-3">
+                      <div className="h-8 w-8 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                        <Bot className="h-4 w-4 text-cyan-500" />
+                      </div>
+                      <div className="bg-muted rounded-2xl px-4 py-3">
+                        <Loader2 className="h-4 w-4 animate-spin text-cyan-500" />
+                      </div>
+                    </div>
+                  )}
+
+                  <div ref={chatEndRef} />
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Chat Input */}
+            <div className="flex gap-2">
+              <div className="flex-1 relative">
+                <Textarea
+                  ref={textareaRef}
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={handleChatKeyDown}
+                  placeholder="Ask about competitors, market opportunities, risks..."
+                  disabled={isChatLoading}
+                  className="min-h-[44px] max-h-[120px] resize-none pr-12"
+                  rows={1}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  disabled={!chatInput.trim() || isChatLoading}
+                  onClick={sendChatMessage}
+                  className="absolute right-2 bottom-2 h-8 w-8"
+                >
+                  {isChatLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground text-center">
+              Press Enter to send, Shift+Enter for new line
+            </p>
+
+            {/* Suggested Questions */}
+            {chatMessages.length === 1 && (
+              <div className="flex flex-wrap gap-2 pt-2">
+                {[
+                  "What are the main risks of pursuing this idea?",
+                  "How can I differentiate from the top competitors?",
+                  "What market gaps could I target?",
+                  "What would make this idea more viable?"
+                ].map((question, i) => (
+                  <Button
+                    key={i}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-auto py-1.5"
+                    onClick={() => setChatInput(question)}
+                  >
+                    {question}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
 
       {/* Generation Info */}
       <div className="flex items-center justify-between text-xs text-muted-foreground pt-4 border-t">

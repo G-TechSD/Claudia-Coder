@@ -340,7 +340,7 @@ class ProjectQueue {
 const sampleProjects: SimProject[] = [
   {
     id: "proj-1",
-    name: "HyperHealth Dashboard",
+    name: "Example Dashboard",
     description: "Health tracking application with charts and metrics",
     packets: [
       {

@@ -63,10 +63,8 @@ The OrangePi N8N instance hosts 48 workflows implementing a sophisticated multi-
 | `7F5rMVM0oDMKFQ69` | LMStudio Agentic Dev Tools - WIDESCREEN COMPLETE | inactive | agentic | ARCHIVE - Old version |
 | `GIIBAxWXuajs5a60` | LMStudio Agentic Dev Tools - WORKING | inactive | agentic | ARCHIVE - Old version |
 | `84Q057mJFw0V43RT` | Autonomous App Builder v2 | inactive | builder | ARCHIVE - Duplicate ID |
-| `GgqnjjUrBSVIpezk` | HyperHealthCare-LinearGitLabOpenAI-DevOps | inactive | devops | ARCHIVE - Project-specific |
 | `7Wb6lgJ0BbU7tOL9` | Generate AI viral videos with NanoBanana & VEO3 | inactive | media | ARCHIVE - Unrelated |
 | `aaCTXpS5nqGkK2P6` | Haiku | inactive | project | ARCHIVE - Empty placeholder |
-| `2cRLcRpAMpKCbZNf` | HyperHealth | inactive | project | ARCHIVE - Empty placeholder |
 | `5guwnQnd9v35XlQ4` | RoBox | inactive | project | ARCHIVE - Empty placeholder |
 | `AyIrEjvnExd5GhI6` | GoldenEye | inactive | project | ARCHIVE - Empty placeholder |
 | `Csv9Ss6YZjrSxwYa` | Ganesha | inactive | project | ARCHIVE - Empty placeholder |
@@ -149,13 +147,12 @@ HTTP trigger endpoints for external integration.
 | `k8WuYzk6FPt55nk1` | Claudia Simple Webhook - Working | inactive | Duplicate |
 | `yZQN8BoBDRDVjO7L` | Claudia Simple Webhook - Working | inactive | Duplicate |
 
-### Project Placeholders (8 workflows)
+### Project Placeholders (7 workflows)
 
 Empty project-specific workflows - all archive candidates.
 
 | ID | Name | Status |
 |----|------|--------|
-| `2cRLcRpAMpKCbZNf` | HyperHealth | inactive |
 | `5guwnQnd9v35XlQ4` | RoBox | inactive |
 | `AyIrEjvnExd5GhI6` | GoldenEye | inactive |
 | `Csv9Ss6YZjrSxwYa` | Ganesha | inactive |
@@ -183,7 +180,6 @@ Miscellaneous and specialized workflows.
 |----|------|--------|----------|
 | `XjHkwOQyasPylfBO` | RAG AI Agent Template V4 | inactive | template |
 | `WPuxiZXV1cvR34Vk` | New Project Interview | inactive | utility |
-| `GgqnjjUrBSVIpezk` | HyperHealthCare-LinearGitLabOpenAI-DevOps | inactive | devops |
 | `7Wb6lgJ0BbU7tOL9` | Generate AI viral videos with NanoBanana | inactive | media |
 | `kvsadw8ZKBBeErQN` | Claudia Code - Beast Driven | inactive | orchestrator |
 
@@ -499,12 +495,6 @@ The following workflows have detailed analysis documents:
 | Workflow | Analysis File | Rating |
 |----------|---------------|--------|
 | LMStudio Agentic Dev Tools | [lmstudio-agentic-dev-tools.md](lmstudio-agentic-dev-tools.md) | MEDIUM |
-
-### Project Placeholders
-
-| Workflow | Analysis File | Rating |
-|----------|---------------|--------|
-| HyperHealth | [hyperhealth.md](hyperhealth.md) | 0/10 - Empty Placeholder |
 
 ---
 

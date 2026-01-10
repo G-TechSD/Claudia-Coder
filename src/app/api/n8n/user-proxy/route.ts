@@ -9,12 +9,73 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import https from "https"
+import * as https from "https"
+import * as http from "http"
 
-// Allow self-signed certificates for local N8N instances
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false,
-})
+/**
+ * Make HTTPS request that accepts self-signed certificates
+ */
+function httpsRequest(url: string, options: {
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+  timeout?: number
+}): Promise<{ ok: boolean; status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url)
+    const isHttps = urlObj.protocol === "https:"
+    const reqModule = isHttps ? https : http
+
+    const reqOptions = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || (isHttps ? 443 : 80),
+      path: urlObj.pathname + urlObj.search,
+      method: options.method || "GET",
+      headers: options.headers || {},
+      rejectUnauthorized: false, // Accept self-signed certificates
+      timeout: options.timeout || 30000,
+    }
+
+    const req = reqModule.request(reqOptions, (res) => {
+      let body = ""
+      res.on("data", (chunk) => { body += chunk })
+      res.on("end", () => {
+        resolve({
+          ok: res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode || 0,
+          body,
+        })
+      })
+    })
+
+    req.on("error", reject)
+    req.on("timeout", () => {
+      req.destroy()
+      reject(new Error("Request timed out"))
+    })
+
+    if (options.body) {
+      req.write(options.body)
+    }
+    req.end()
+  })
+}
+
+/**
+ * Fetch with self-signed cert support for both HTTP and HTTPS
+ */
+async function fetchWithSelfSignedCert(
+  url: string,
+  options: { method?: string; headers?: Record<string, string>; body?: string; timeout?: number } = {}
+): Promise<{ ok: boolean; status: number; json: () => Promise<unknown>; text: () => Promise<string> }> {
+  const result = await httpsRequest(url, options)
+  return {
+    ok: result.ok,
+    status: result.status,
+    json: async () => JSON.parse(result.body),
+    text: async () => result.body,
+  }
+}
 
 interface ProxyRequest {
   userId: string
@@ -76,23 +137,24 @@ export async function POST(request: NextRequest) {
       headers["X-N8N-API-KEY"] = apiKey
     }
 
-    // Make the request to n8n
-    const fetchOptions: RequestInit = {
+    // Make the request to n8n using the custom fetch that handles self-signed certs
+    const response = await fetchWithSelfSignedCert(url, {
       method,
       headers,
-      // @ts-expect-error - agent is a valid option for node-fetch
-      agent: url.startsWith("https://") ? httpsAgent : undefined,
-    }
+      body: data && method !== "GET" ? JSON.stringify(data) : undefined,
+      timeout: 30000,
+    })
 
-    if (data && method !== "GET") {
-      fetchOptions.body = JSON.stringify(data)
-    }
-
-    const response = await fetch(url, fetchOptions)
-
-    // Handle non-JSON responses
-    const contentType = response.headers.get("content-type")
-    if (!contentType?.includes("application/json")) {
+    // Try to parse as JSON
+    try {
+      const responseData = await response.json()
+      return NextResponse.json({
+        ok: response.ok,
+        status: response.status,
+        data: responseData,
+      })
+    } catch {
+      // Not JSON, return as text
       const text = await response.text()
       return NextResponse.json({
         ok: response.ok,
@@ -100,14 +162,6 @@ export async function POST(request: NextRequest) {
         data: text,
       })
     }
-
-    const responseData = await response.json()
-
-    return NextResponse.json({
-      ok: response.ok,
-      status: response.status,
-      data: responseData,
-    })
   } catch (error) {
     console.error("N8N proxy error:", error)
 
@@ -148,13 +202,11 @@ export async function GET(request: NextRequest) {
       headers["X-N8N-API-KEY"] = targetApiKey
     }
 
-    // Try to fetch workflows (limited to 1) as a health check
-    const response = await fetch(`${targetUrl}/api/v1/workflows?limit=1`, {
+    // Try to fetch workflows (limited to 1) as a health check using custom fetch
+    const response = await fetchWithSelfSignedCert(`${targetUrl}/api/v1/workflows?limit=1`, {
       method: "GET",
       headers,
-      // @ts-expect-error - agent is a valid option for node-fetch
-      agent: targetUrl.startsWith("https://") ? httpsAgent : undefined,
-      signal: AbortSignal.timeout(10000),
+      timeout: 10000,
     })
 
     const healthy = response.ok

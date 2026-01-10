@@ -88,7 +88,6 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode | null>(null) // Start as null to avoid hydration mismatch
-  const [isLoadingHyperHealth, setIsLoadingHyperHealth] = useState(false)
   const [isLoadingTaskFlow, setIsLoadingTaskFlow] = useState(false)
   const { isStarred, toggleStar, refresh: refreshStarred } = useStarredProjects()
 
@@ -171,64 +170,6 @@ export default function ProjectsPage() {
     e.stopPropagation()
     toggleStar(id)
     loadProjects() // Refresh to update the list order
-  }
-
-  const handleLoadHyperHealth = async () => {
-    setIsLoadingHyperHealth(true)
-    try {
-      const response = await fetch('/api/projects/load-hyperhealth')
-      const data = await response.json()
-
-      if (!data.success) {
-        alert(`Failed to load HyperHealth: ${data.error}`)
-        return
-      }
-
-      // Get existing data from localStorage
-      const existingProjects = JSON.parse(localStorage.getItem('claudia_projects') || '[]')
-      const existingBuildPlans = JSON.parse(localStorage.getItem('claudia_build_plans') || '[]')
-      const existingPackets = JSON.parse(localStorage.getItem('claudia_packets') || '{}')
-
-      // Filter out any existing HyperHealth project to avoid duplicates
-      const hyperHealthId = data.project?.id
-      const filteredProjects = existingProjects.filter((p: Project) => p.id !== hyperHealthId)
-      const filteredBuildPlans = existingBuildPlans.filter((bp: { projectId: string }) => bp.projectId !== hyperHealthId)
-
-      // Add the new HyperHealth project
-      if (data.project) {
-        filteredProjects.push(data.project)
-      }
-
-      // Add the build plan
-      if (data.buildPlan) {
-        filteredBuildPlans.push(data.buildPlan)
-      }
-
-      // Add packets to the packets object
-      const updatedPackets = { ...existingPackets }
-      if (data.packets && Array.isArray(data.packets)) {
-        for (const packet of data.packets) {
-          if (packet.id) {
-            updatedPackets[packet.id] = packet
-          }
-        }
-      }
-
-      // Save to localStorage
-      localStorage.setItem('claudia_projects', JSON.stringify(filteredProjects))
-      localStorage.setItem('claudia_build_plans', JSON.stringify(filteredBuildPlans))
-      localStorage.setItem('claudia_packets', JSON.stringify(updatedPackets))
-
-      // Refresh the projects list
-      loadProjects()
-
-      alert('HyperHealth demo project loaded successfully!')
-    } catch (error) {
-      console.error('Failed to load HyperHealth:', error)
-      alert(`Failed to load HyperHealth: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
-      setIsLoadingHyperHealth(false)
-    }
   }
 
   const handleLoadTaskFlow = async () => {
@@ -358,22 +299,6 @@ export default function ProjectsPage() {
                 </Badge>
               )}
             </Link>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleLoadHyperHealth}
-            disabled={isLoadingHyperHealth}
-            className="gap-2"
-          >
-            {isLoadingHyperHealth ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-            <span className="hidden sm:inline">
-              {isLoadingHyperHealth ? "Loading..." : "Load HyperHealth Demo"}
-            </span>
           </Button>
           <Button
             variant="outline"

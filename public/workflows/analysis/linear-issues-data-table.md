@@ -123,7 +123,6 @@ query Issues($first: Int!, $after: String) {
 **Whitelisted Project IDs:**
 | Project ID | Project Name |
 |------------|--------------|
-| `35708362-f541-46ae-b3b9-031e9beaf597` | HyperHealth |
 | `9d2d4d7a-5d56-43a9-964d-02e4bd132043` | Fresh Prints of La Mesa |
 | `84aa749f-504c-42a7-b017-4946ab14472f` | GoldenEye |
 | `61ac7f0f-9b39-49b0-86bf-6ff5e11a4a22` | LM Studio Agentic Dev Tools |

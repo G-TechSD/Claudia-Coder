@@ -64,13 +64,13 @@ const projectsItems: NavItem[] = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Projects", href: "/projects", icon: Layers },
   { title: "Business Ideas", href: "/business-ideas", icon: Lightbulb },
-  { title: "Business Dev", href: "/business-dev", icon: Briefcase },
   { title: "Voice", href: "/voice", icon: Mic },
 ]
 
 // Tools category items
 const toolsItems: NavItem[] = [
   { title: "Claude Code", href: "/claude-code", icon: Terminal },
+  { title: "Business Dev", href: "/business-dev", icon: Briefcase },
   { title: "Research", href: "/research", icon: Search },
   { title: "Patents", href: "/patents", icon: FileCheck },
   { title: "GitLab", href: "https://gitlab.com", icon: GitBranch, external: true },

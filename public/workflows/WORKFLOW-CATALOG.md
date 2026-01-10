@@ -178,7 +178,6 @@ Tasks              Tasks                Task
 - Parent issue tracking
 
 **Projects Tracked:**
-- HyperHealth
 - Fresh Prints of La Mesa
 - GoldenEye
 - LM Studio Agentic Dev Tools

@@ -33,15 +33,6 @@
       "description": "Test workflow"
     },
     {
-      "id": "2cRLcRpAMpKCbZNf",
-      "name": "HyperHealth",
-      "active": false,
-      "isArchived": true,
-      "file": "2cRLcRpAMpKCbZNf.json",
-      "category": "project",
-      "description": "Empty project placeholder"
-    },
-    {
       "id": "3ADvrOfL1E9KSeaw",
       "name": "Linear Testing",
       "active": false,
@@ -184,15 +175,6 @@
       "file": "GIIBAxWXuajs5a60.json",
       "category": "agentic",
       "description": "Archived working version of LMStudio Dev Tools"
-    },
-    {
-      "id": "GgqnjjUrBSVIpezk",
-      "name": "HyperHealthCare-LinearGitLabOpenAI-DevOps",
-      "active": false,
-      "isArchived": true,
-      "file": "GgqnjjUrBSVIpezk.json",
-      "category": "devops",
-      "description": "HyperHealthCare DevOps integration workflow"
     },
     {
       "id": "H0BJNDq3HGJjqD82",

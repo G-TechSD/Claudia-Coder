@@ -1,7 +1,5 @@
 # Claudia Execution Output Spec: React Apps
 
-Reference implementation: HyperHealth (`/home/bill/projects/hyperhealth/`)
-
 ## 1. Complete App Structure
 
 A "Create React app" packet execution MUST produce:
@@ -81,7 +79,7 @@ body { @apply bg-gray-900 text-white; }
 
 ## 3. Minimum Viable Components by App Type
 
-### Dashboard App (like HyperHealth)
+### Dashboard App
 | File | Purpose |
 |------|---------|
 | `src/App.jsx` | State + page routing logic |

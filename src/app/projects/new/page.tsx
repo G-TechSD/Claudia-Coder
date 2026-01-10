@@ -86,7 +86,7 @@ interface LinearWorkPacket {
   phaseId: string
   title: string
   description: string
-  type: "feature" | "bugfix" | "refactor" | "test" | "docs" | "config" | "research"
+  type: "feature" | "bugfix" | "refactor" | "test" | "docs" | "config" | "research" | "vision"
   priority: "critical" | "high" | "medium" | "low"
   status: "queued" | "in_progress" | "completed" | "blocked"
   tasks: Array<{ id: string; description: string; completed: boolean; order: number }>
@@ -94,14 +94,24 @@ interface LinearWorkPacket {
   acceptanceCriteria: string[]
   estimatedTokens: number
   dependencies: string[]
+  blockedBy?: string[]
+  blocks?: string[]
   metadata: {
-    source: "linear"
-    linearId: string
-    linearIdentifier: string
-    linearState: string
-    linearLabels: string[]
+    source: "linear" | "vision-generation"
+    linearId?: string
+    linearIdentifier?: string
+    linearState?: string
+    linearLabels?: string[]
     linearAssignee?: string
     linearParentId?: string
+    isVisionPacket?: boolean
+    completionGate?: boolean
+    projectType?: string
+    storeDescription?: string
+    tagline?: string
+    keyFeatures?: string[]
+    targetAudience?: string
+    uniqueSellingPoints?: string[]
   }
 }
 
@@ -121,10 +131,31 @@ interface LinearImportData {
     description: string
     order: number
     status: "not_started"
+    isVisionPhase?: boolean
   }>
   packets: LinearWorkPacket[]
   summary: {
     totalIssues: number
+    totalComments: number
+    commentsImported: boolean
+    nuanceExtraction?: {
+      enabled: boolean
+      issuesWithComments?: number
+      processed?: number
+      failed?: number
+    }
+    gameDetection?: {
+      isGameOrCreative: boolean
+      confidence: number
+      projectType: string
+      suggestedCategory: string
+      matchedKeywords: string[]
+      visionPacket?: {
+        generated: boolean
+        packetId?: string
+        error?: string
+      }
+    }
     byPriority: Record<string, number>
     byStatus: Record<string, number>
     byType: Record<string, number>
@@ -307,7 +338,10 @@ function NewProjectContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectIds: Array.from(selectedLinearProjectIds),
-          syncComments: true  // Always import comments for full context
+          syncComments: true,       // Always import comments for full context
+          extractNuance: true,      // Extract key decisions/requirements from comments
+          generateVision: true,     // Generate vision packets for game/creative projects
+          saveToMarkdown: false     // Don't save markdown yet - we'll do it after project creation
         })
       })
 

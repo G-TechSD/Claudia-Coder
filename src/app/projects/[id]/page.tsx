@@ -6,7 +6,8 @@ import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent } from "@/components/ui/tabs"
+import { ProjectNavigation } from "@/components/project/project-navigation"
 import { cn } from "@/lib/utils"
 import {
   ArrowLeft,
@@ -77,6 +78,7 @@ import { ClaudiaSyncStatus } from "@/components/project/claudia-sync-status"
 import { BusinessDevSection } from "@/components/project/business-dev-section"
 import { PriorArtSection } from "@/components/project/prior-art-section"
 import { DocsBrowser } from "@/components/project/docs-browser"
+import { VisionDisplay } from "@/components/project/vision-display"
 import {
   Select,
   SelectContent,
@@ -170,6 +172,9 @@ export default function ProjectDetailPage() {
   const [claudeCodeLoading, setClaudeCodeLoading] = useState(false)
   const [claudeCodeError, setClaudeCodeError] = useState<string | null>(null)
   const [bypassPermissions, setBypassPermissions] = useState(false)
+
+  // Navigation state
+  const [activeTab, setActiveTab] = useState("overview")
 
   // Starred projects hook for sidebar sync
   const { toggleStar } = useStarredProjects()
@@ -806,69 +811,22 @@ export default function ProjectDetailPage() {
         </Card>
       )}
 
-      {/* Tabs */}
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="resources">
-            User Uploads
-            <Badge variant="secondary" className="ml-1 text-xs">
-              {resourceCount}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="plan">
-            Build Plan
-          </TabsTrigger>
-          <TabsTrigger value="repos">
-            Repos
-            <Badge variant="secondary" className="ml-1 text-xs">
-              {project.repos.length}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="packets">
-            Packets
-            <Badge variant="secondary" className="ml-1 text-xs">
-              {project.packetIds.length}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="models">
-            AI Models
-            <Brain className="h-3 w-3 ml-1" />
-          </TabsTrigger>
-          <TabsTrigger value="interview">
-            Interview
-            {project.creationInterview && (
-              <Sparkles className="h-3 w-3 ml-1 text-primary" />
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="security">
-            Security
-            <Shield className="h-3 w-3 ml-1 text-red-500" />
-          </TabsTrigger>
-          <TabsTrigger value="launch-test">
-            Launch & Test
-            <Zap className="h-3 w-3 ml-1 text-blue-500" />
-          </TabsTrigger>
-          <TabsTrigger value="claude-code">
-            Claude Code
-            <Terminal className="h-3 w-3 ml-1 text-purple-500" />
-          </TabsTrigger>
-          <TabsTrigger value="business-dev">
-            Business Dev
-            <DollarSign className="h-3 w-3 ml-1 text-green-500" />
-          </TabsTrigger>
-          <TabsTrigger value="prior-art">
-            Prior Art
-            <Search className="h-3 w-3 ml-1 text-cyan-500" />
-          </TabsTrigger>
-          <TabsTrigger value="docs">
-            Docs
-            <BookOpen className="h-3 w-3 ml-1 text-orange-500" />
-          </TabsTrigger>
-        </TabsList>
+      {/* Navigation */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <ProjectNavigation
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          resourceCount={resourceCount}
+          repoCount={project.repos.length}
+          packetCount={project.packetIds.length}
+          hasInterview={!!project.creationInterview}
+        />
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
+          {/* Vision Display - Shows game/creative vision prominently */}
+          <VisionDisplay projectId={project.id} />
+
           {/* Start Build Hero - Prominent CTA when ready to execute */}
           <StartBuildHero
             projectId={project.id}

@@ -104,14 +104,14 @@ Rules:
 - Output complete, working code
 - Do not explain - just write code`
 
-    const userPrompt = `PROJECT: HyperHealth
+    const userPrompt = `PROJECT: Example App
 TECH STACK: Next.js, TypeScript, Tailwind CSS
 
 FEATURE: Create a simple hello world page
-Create a basic Next.js page that displays "Welcome to HyperHealth".
+Create a basic Next.js page that displays "Welcome to Example App".
 
 ACCEPTANCE CRITERIA:
-- Page displays "Welcome to HyperHealth" heading
+- Page displays "Welcome to Example App" heading
 - Uses Tailwind CSS for styling
 - Located at /app/page.tsx
 
@@ -178,7 +178,7 @@ Rules:
 - Do not explain - just write code
 - Create all necessary files`
 
-    const userPrompt = `PROJECT: HyperHealth
+    const userPrompt = `PROJECT: Example App
 TECH STACK: Next.js 14, TypeScript, Tailwind CSS, React
 
 FEATURE: Encrypted SQLite Database Setup
@@ -252,14 +252,14 @@ Rules:
 - Check for bugs, security issues, edge cases
 - Rate confidence based on code quality`
 
-    const userPrompt = `PROJECT: HyperHealth
+    const userPrompt = `PROJECT: Example App
 TECH STACK: Next.js, TypeScript
 
 FEATURE: Hello World Page
-A simple page that displays "Welcome to HyperHealth"
+A simple page that displays "Welcome to Example App"
 
 ACCEPTANCE CRITERIA:
-- Page displays "Welcome to HyperHealth" heading
+- Page displays "Welcome to Example App" heading
 - Uses Tailwind CSS for styling
 
 GENERATED CODE:
@@ -267,7 +267,7 @@ GENERATED CODE:
 export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24">
-      <h1 className="text-4xl font-bold">Welcome to HyperHealth</h1>
+      <h1 className="text-4xl font-bold">Welcome to Example App</h1>
     </main>
   )
 }
@@ -308,7 +308,7 @@ Review this code and provide your analysis.`
 
   // Main test runner
   log('========================================')
-  log('HyperHealth Execution Pipeline Test')
+  log('Example App Execution Pipeline Test')
   log('========================================')
   log('')
 

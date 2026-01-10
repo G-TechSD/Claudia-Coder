@@ -280,6 +280,25 @@ export function PriorArtSection({
                 )}
                 {research ? "Re-Research" : "Research Now"}
               </Button>
+              {research && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (confirm("Clear this research? You can always re-research later.")) {
+                      setResearch(null)
+                      // Clear from localStorage
+                      if (typeof window !== "undefined") {
+                        localStorage.removeItem(getStorageKey(projectId))
+                      }
+                    }
+                  }}
+                  className="gap-2 text-muted-foreground hover:text-foreground"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Clear
+                </Button>
+              )}
               {researchStatus && (
                 <span className="text-sm text-muted-foreground">{researchStatus}</span>
               )}

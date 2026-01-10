@@ -12,12 +12,6 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
-import {
-  getBusinessDev,
-  updateBusinessDev
-} from "@/lib/data/business-dev"
-import { getProject } from "@/lib/data/projects"
-import { getBuildPlanForProject } from "@/lib/data/build-plans"
 import type {
   BusinessDevSectionType,
   BusinessDevExecutiveSummary,
@@ -184,6 +178,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const {
       projectId,
+      projectName,
+      projectDescription,
       section,
       preferredProvider,
       preferredModel,
@@ -194,21 +190,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "projectId is required" }, { status: 400 })
     }
 
-    const project = getProject(projectId)
-    if (!project) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 })
+    // Note: localStorage-based functions (getProject, getBuildPlanForProject, getBusinessDev)
+    // are not available server-side. We use the client-provided data instead.
+    // The client already validated the project exists before calling this API.
+
+    if (!projectName) {
+      return NextResponse.json({ error: "projectName is required" }, { status: 400 })
     }
 
-    const buildPlan = getBuildPlanForProject(projectId)
-    const existingBusinessDev = getBusinessDev(projectId)
+    // Build a minimal project object from client-provided data
+    const project = {
+      name: projectName,
+      description: projectDescription || "",
+      tags: [] as string[]
+    }
 
-    // Build context for generation
-    const projectContext = buildProjectContext(project, buildPlan, existingBusinessDev)
+    // Build context for generation (without buildPlan/existingBusinessDev since
+    // those require localStorage which isn't available server-side)
+    const projectContext = buildProjectContext(project, null, null)
 
     // If no specific section, do full generation (legacy behavior)
     if (!section) {
       return handleFullGeneration(
-        projectId,
+        projectName,
+        projectDescription || "",
         projectContext,
         preferredProvider,
         preferredModel,
@@ -242,24 +247,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: 500 })
     }
 
-    // Update the business dev document if it exists
-    if (existingBusinessDev && result.data) {
-      const updateData: Record<string, unknown> = {}
-      updateData[section] = result.data
-
-      const updated = updateBusinessDev(projectId, updateData)
-
-      return NextResponse.json({
-        success: true,
-        section,
-        data: result.data,
-        businessDev: updated,
-        source: result.source,
-        server: result.server,
-        model: result.model
-      })
-    }
-
+    // Note: updateBusinessDev uses localStorage which isn't available server-side.
+    // The client is responsible for saving the generated data to localStorage.
     return NextResponse.json({
       success: true,
       section,
@@ -404,7 +393,8 @@ Generate this section now. Return ONLY valid JSON.`
 }
 
 async function handleFullGeneration(
-  projectId: string,
+  projectName: string,
+  projectDescription: string,
   projectContext: string,
   preferredProvider?: string,
   preferredModel?: string,
@@ -505,11 +495,10 @@ Return ONLY valid JSON.`
     }
   }
 
-  // Return placeholder analysis
-  const project = getProject(projectId)
+  // Return placeholder analysis using the passed project data
   const placeholder = generatePlaceholderAnalysis(
-    project?.name || "Project",
-    project?.description || ""
+    projectName || "Project",
+    projectDescription || ""
   )
 
   return NextResponse.json({
