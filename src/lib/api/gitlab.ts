@@ -93,6 +93,12 @@ export interface GitLabPipeline {
   updated_at: string
 }
 
+// Get stored GitLab token from localStorage
+function getGitLabToken(): string | null {
+  if (typeof window === "undefined") return null
+  return localStorage.getItem("gitlab_token")
+}
+
 class GitLabApiService {
   private baseUrl: string
 
@@ -102,17 +108,49 @@ class GitLabApiService {
 
   private async request<T>(endpoint: string): Promise<T> {
     const url = `${this.baseUrl}/api/v4${endpoint}`
+    const token = getGitLabToken()
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    }
+
+    // Add authentication token if available
+    if (token) {
+      headers["PRIVATE-TOKEN"] = token
+    }
 
     const response = await fetch(url, {
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers,
       // Enable caching for 30 seconds for better UX
       next: { revalidate: 30 }
     })
 
     if (!response.ok) {
-      throw new Error(`GitLab API error: ${response.status} ${response.statusText}`)
+      // Provide more detailed error messages
+      let errorMessage = `GitLab API error: ${response.status} ${response.statusText}`
+
+      if (response.status === 401) {
+        errorMessage = "GitLab authentication failed. Please check your Personal Access Token."
+      } else if (response.status === 403) {
+        errorMessage = "GitLab access denied. Your token may lack the required permissions (api scope)."
+      } else if (response.status === 404) {
+        errorMessage = "GitLab resource not found. Check the URL or project access."
+      }
+
+      try {
+        const errorData = await response.json()
+        if (errorData.message) {
+          errorMessage = typeof errorData.message === "string"
+            ? errorData.message
+            : JSON.stringify(errorData.message)
+        } else if (errorData.error) {
+          errorMessage = errorData.error
+        }
+      } catch {
+        // Use default error message
+      }
+
+      throw new Error(errorMessage)
     }
 
     return response.json()

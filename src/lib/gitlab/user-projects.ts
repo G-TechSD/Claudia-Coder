@@ -152,6 +152,56 @@ export class UserProjectService {
   }
 
   /**
+   * Parse and enhance error messages for GitLab connection failures
+   */
+  private parseGitLabError(error: unknown): string {
+    if (!(error instanceof Error)) {
+      return "Connection failed"
+    }
+
+    const message = error.message.toLowerCase()
+    const baseUrl = this.credentials?.baseUrl || "GitLab server"
+
+    // SSL/Certificate errors
+    if (
+      message.includes("certificate") ||
+      message.includes("ssl") ||
+      message.includes("cert") ||
+      message.includes("self-signed") ||
+      message.includes("unable to verify")
+    ) {
+      return `SSL certificate error: The GitLab server uses a self-signed or invalid certificate. If this is a trusted internal server, you may need to configure your browser or system to trust it.`
+    }
+
+    // Network/DNS errors
+    if (
+      message.includes("network") ||
+      message.includes("enotfound") ||
+      message.includes("dns") ||
+      message.includes("getaddrinfo")
+    ) {
+      return `Network error: Cannot reach ${baseUrl}. Please check the URL and your network connection.`
+    }
+
+    // Connection refused
+    if (message.includes("econnrefused") || message.includes("connection refused")) {
+      return `Connection refused: GitLab server at ${baseUrl} is not responding.`
+    }
+
+    // Timeout
+    if (message.includes("timeout") || message.includes("etimedout")) {
+      return `Connection timeout: GitLab server took too long to respond.`
+    }
+
+    // CORS errors
+    if (message.includes("cors") || message.includes("blocked by")) {
+      return `CORS error: The GitLab server may not allow requests from this origin.`
+    }
+
+    return error.message
+  }
+
+  /**
    * Make a request to the user's GitLab instance
    */
   private async request<T>(
@@ -165,7 +215,13 @@ export class UserProjectService {
       throw new Error("GitLab not configured. Please add your GitLab token in settings.")
     }
 
-    const url = `${this.credentials.baseUrl}/api/v4${endpoint}`
+    if (!this.credentials.personalAccessToken) {
+      throw new Error("GitLab Personal Access Token is missing. Please configure it in settings.")
+    }
+
+    // Clean URL - remove trailing slashes
+    const baseUrl = this.credentials.baseUrl.replace(/\/+$/, "")
+    const url = `${baseUrl}/api/v4${endpoint}`
 
     const fetchOptions: RequestInit = {
       method: options.method || "GET",
@@ -179,9 +235,25 @@ export class UserProjectService {
       fetchOptions.body = JSON.stringify(options.body)
     }
 
-    const response = await fetch(url, fetchOptions)
+    let response: Response
+    try {
+      response = await fetch(url, fetchOptions)
+    } catch (error) {
+      throw new Error(this.parseGitLabError(error))
+    }
 
     if (!response.ok) {
+      // Provide specific error messages for common HTTP status codes
+      if (response.status === 401) {
+        throw new Error("GitLab authentication failed. Your Personal Access Token may be invalid or expired. Please generate a new token with 'api' scope.")
+      }
+      if (response.status === 403) {
+        throw new Error("GitLab access denied. Your token may lack required permissions. Ensure it has the 'api' scope.")
+      }
+      if (response.status === 404) {
+        throw new Error(`GitLab resource not found. The endpoint or project may not exist.`)
+      }
+
       let errorMessage = `GitLab API error: ${response.status}`
       try {
         const errorData = await response.json()

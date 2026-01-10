@@ -14,7 +14,8 @@ import { VoiceInput } from "@/components/voice/voice-input"
 import { createProject, updateProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
 import { savePackets, saveBuildPlan, type BuildPlan, type WorkPacket, type PacketSummary } from "@/lib/ai/build-plan"
 import { BuildPlanReview } from "@/components/project/build-plan-review"
-import { createGitLabRepo, hasGitLabToken, setGitLabToken, validateGitLabToken, listGitLabProjects } from "@/lib/gitlab/api"
+import { createGitLabRepo, setGitLabToken, validateGitLabToken, listGitLabProjects } from "@/lib/gitlab/api"
+import { getUserGitLabToken } from "@/lib/data/user-gitlab"
 import { useSettings } from "@/hooks/useSettings"
 import { useAuth } from "@/components/auth/auth-provider"
 import { LLMStatusBadge } from "@/components/llm/llm-status"
@@ -133,7 +134,7 @@ interface LinearImportData {
 function NewProjectContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isBetaTester, betaLimits, refreshBetaLimits } = useAuth()
+  const { user, isBetaTester, betaLimits, refreshBetaLimits } = useAuth()
   const [mode, setMode] = useState<Mode>("choose")
   const [interviewSession, setInterviewSession] = useState<InterviewSession | null>(null)
 
@@ -213,10 +214,15 @@ function NewProjectContent() {
   const [loadingRepos, setLoadingRepos] = useState(false)
   const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null)
 
-  // Check for GitLab token on mount
+  // Check for GitLab token on mount - use getUserGitLabToken which checks both personal and shared instance tokens
   useEffect(() => {
-    setHasToken(hasGitLabToken())
-  }, [])
+    if (user?.id) {
+      const token = getUserGitLabToken(user.id)
+      setHasToken(!!token)
+    } else {
+      setHasToken(false)
+    }
+  }, [user?.id])
 
   // Load voice recording if creating from voice
   useEffect(() => {

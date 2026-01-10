@@ -178,19 +178,77 @@ export async function deleteGitLabProject(projectId: number): Promise<void> {
 }
 
 /**
- * Validate GitLab token by attempting to get current user
+ * Parse error for better debugging messages
  */
-export async function validateGitLabToken(token: string): Promise<boolean> {
+function parseConnectionError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "Connection failed"
+  }
+
+  const message = error.message.toLowerCase()
+
+  if (
+    message.includes("certificate") ||
+    message.includes("ssl") ||
+    message.includes("self-signed")
+  ) {
+    return "SSL certificate error. The GitLab server may use a self-signed certificate."
+  }
+
+  if (message.includes("network") || message.includes("enotfound")) {
+    return "Network error. Cannot reach the GitLab server."
+  }
+
+  if (message.includes("econnrefused")) {
+    return "Connection refused. GitLab server may not be running."
+  }
+
+  return error.message
+}
+
+/**
+ * Validate GitLab token by attempting to get current user
+ * Returns detailed validation result
+ */
+export async function validateGitLabToken(token: string): Promise<{
+  valid: boolean
+  error?: string
+  user?: { id: number; username: string; name: string; email: string }
+}> {
+  if (!token) {
+    return { valid: false, error: "No token provided" }
+  }
+
   try {
     const response = await fetch(`${GITLAB_URL}/api/v4/user`, {
       headers: {
         "PRIVATE-TOKEN": token,
       },
     })
-    return response.ok
-  } catch {
-    return false
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        return { valid: false, error: "Invalid or expired token" }
+      }
+      if (response.status === 403) {
+        return { valid: false, error: "Token lacks required permissions (api scope)" }
+      }
+      return { valid: false, error: `GitLab returned HTTP ${response.status}` }
+    }
+
+    const user = await response.json()
+    return { valid: true, user }
+  } catch (error) {
+    return { valid: false, error: parseConnectionError(error) }
   }
+}
+
+/**
+ * Simple token validation (backwards compatible)
+ */
+export async function isTokenValid(token: string): Promise<boolean> {
+  const result = await validateGitLabToken(token)
+  return result.valid
 }
 
 /**
@@ -201,14 +259,8 @@ export async function getCurrentGitLabUser(): Promise<{ id: number; username: st
   if (!token) return null
 
   try {
-    const response = await fetch(`${GITLAB_URL}/api/v4/user`, {
-      headers: {
-        "PRIVATE-TOKEN": token,
-      },
-    })
-
-    if (!response.ok) return null
-    return response.json()
+    const result = await validateGitLabToken(token)
+    return result.valid && result.user ? result.user : null
   } catch {
     return null
   }

@@ -123,16 +123,39 @@ export default function GitLabSettingsPage() {
     const testUrl = mode === "personal" ? personalUrl : (process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1")
     const testToken = mode === "personal" ? personalToken : (typeof window !== "undefined" ? localStorage.getItem("gitlab_token") || "" : "")
 
+    // Validate URL format first
+    if (mode === "personal" && !personalUrl) {
+      setTestResult({
+        success: false,
+        message: "Please enter a GitLab URL",
+      })
+      setIsTesting(false)
+      return
+    }
+
     if (!testToken) {
       setTestResult({
         success: false,
-        message: "No token configured",
+        message: "No Personal Access Token configured. Please enter your token first.",
+      })
+      setIsTesting(false)
+      return
+    }
+
+    // Basic URL validation
+    try {
+      new URL(testUrl)
+    } catch {
+      setTestResult({
+        success: false,
+        message: "Invalid URL format. Please enter a valid GitLab URL (e.g., https://gitlab.com)",
       })
       setIsTesting(false)
       return
     }
 
     try {
+      console.log(`Testing GitLab connection to: ${testUrl}`)
       const result = await testGitLabConnection(testUrl, testToken)
 
       setTestResult({
@@ -140,10 +163,16 @@ export default function GitLabSettingsPage() {
         message: result.message,
         username: result.user?.username,
       })
+
+      if (!result.healthy) {
+        console.error("GitLab connection test failed:", result.message, result.details)
+      }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Connection test failed"
+      console.error("GitLab connection error:", errorMessage)
       setTestResult({
         success: false,
-        message: error instanceof Error ? error.message : "Connection test failed",
+        message: errorMessage,
       })
     } finally {
       setIsTesting(false)

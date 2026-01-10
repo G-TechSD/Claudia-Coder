@@ -299,14 +299,83 @@ export function isUserProject(userId: string, projectPath: string): boolean {
 // ============ Validation Functions ============
 
 /**
+ * Parse and enhance error messages for GitLab connection failures
+ */
+function parseGitLabError(error: unknown, baseUrl: string): string {
+  if (!(error instanceof Error)) {
+    return "Connection failed"
+  }
+
+  const message = error.message.toLowerCase()
+
+  // SSL/Certificate errors
+  if (
+    message.includes("certificate") ||
+    message.includes("ssl") ||
+    message.includes("cert") ||
+    message.includes("self-signed") ||
+    message.includes("unable to verify") ||
+    message.includes("depth zero self-signed")
+  ) {
+    return `SSL certificate error: The GitLab server at ${baseUrl} uses a self-signed or invalid certificate. If this is a trusted internal server, you may need to add it to your trusted certificates.`
+  }
+
+  // Network/DNS errors
+  if (
+    message.includes("network") ||
+    message.includes("enotfound") ||
+    message.includes("dns") ||
+    message.includes("getaddrinfo")
+  ) {
+    return `Network error: Cannot reach ${baseUrl}. Please check the URL and your network connection.`
+  }
+
+  // Connection refused
+  if (message.includes("econnrefused") || message.includes("connection refused")) {
+    return `Connection refused: GitLab server at ${baseUrl} is not responding. Check if the server is running and the port is correct.`
+  }
+
+  // Timeout
+  if (message.includes("timeout") || message.includes("etimedout")) {
+    return `Connection timeout: GitLab server at ${baseUrl} took too long to respond.`
+  }
+
+  // CORS errors (browser-specific)
+  if (message.includes("cors") || message.includes("blocked by")) {
+    return `CORS error: The GitLab server may not allow requests from this origin. This can happen with self-hosted instances.`
+  }
+
+  return error.message
+}
+
+/**
  * Validate a GitLab personal access token
  */
 export async function validateGitLabToken(
   baseUrl: string,
   token: string
 ): Promise<{ valid: boolean; user?: GitLabUser; error?: string }> {
+  // Validate inputs
+  if (!baseUrl) {
+    return { valid: false, error: "GitLab URL is required" }
+  }
+
+  if (!token) {
+    return { valid: false, error: "Personal Access Token is required" }
+  }
+
+  // Ensure URL doesn't have trailing slash
+  const cleanUrl = baseUrl.replace(/\/+$/, "")
+
+  // Validate URL format
   try {
-    const response = await fetch(`${baseUrl}/api/v4/user`, {
+    new URL(cleanUrl)
+  } catch {
+    return { valid: false, error: "Invalid GitLab URL format" }
+  }
+
+  try {
+    const response = await fetch(`${cleanUrl}/api/v4/user`, {
       headers: {
         "PRIVATE-TOKEN": token,
       },
@@ -314,9 +383,23 @@ export async function validateGitLabToken(
 
     if (!response.ok) {
       if (response.status === 401) {
-        return { valid: false, error: "Invalid or expired token" }
+        return { valid: false, error: "Invalid or expired token. Please generate a new Personal Access Token with 'api' scope." }
       }
-      return { valid: false, error: `GitLab returned ${response.status}` }
+      if (response.status === 403) {
+        return { valid: false, error: "Access denied. Your token may lack required permissions. Ensure it has the 'api' scope." }
+      }
+      if (response.status === 404) {
+        return { valid: false, error: `GitLab API not found at ${cleanUrl}. Please verify the URL is correct.` }
+      }
+
+      // Try to get error details from response
+      try {
+        const errorData = await response.json()
+        const errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`
+        return { valid: false, error: `GitLab error: ${errorMessage}` }
+      } catch {
+        return { valid: false, error: `GitLab returned HTTP ${response.status}` }
+      }
     }
 
     const user = await response.json() as GitLabUser
@@ -324,7 +407,7 @@ export async function validateGitLabToken(
   } catch (error) {
     return {
       valid: false,
-      error: error instanceof Error ? error.message : "Connection failed",
+      error: parseGitLabError(error, cleanUrl),
     }
   }
 }
@@ -340,6 +423,7 @@ export async function testGitLabConnection(
   latency?: number
   user?: GitLabUser
   message: string
+  details?: string
 }> {
   const startTime = Date.now()
 
@@ -353,6 +437,7 @@ export async function testGitLabConnection(
         latency,
         user: result.user,
         message: `Connected as ${result.user.username}`,
+        details: `Latency: ${latency}ms`,
       }
     }
 
@@ -360,11 +445,13 @@ export async function testGitLabConnection(
       healthy: false,
       latency,
       message: result.error || "Connection failed",
+      details: `URL: ${baseUrl}`,
     }
   } catch (error) {
     return {
       healthy: false,
-      message: error instanceof Error ? error.message : "Connection test failed",
+      message: parseGitLabError(error, baseUrl),
+      details: `URL: ${baseUrl}`,
     }
   }
 }

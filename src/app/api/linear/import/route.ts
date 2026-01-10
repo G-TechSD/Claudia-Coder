@@ -9,7 +9,8 @@ import {
   hasLinearToken,
   mapLinearPriority,
   mapLinearState,
-  LinearIssue
+  LinearIssue,
+  LinearComment
 } from "@/lib/linear/api"
 
 interface WorkPacket {
@@ -33,6 +34,13 @@ interface WorkPacket {
     linearLabels: string[]
     linearAssignee?: string
     linearParentId?: string
+    linearComments?: Array<{
+      id: string
+      body: string
+      createdAt: string
+      updatedAt: string
+      author?: string
+    }>
   }
 }
 
@@ -63,6 +71,19 @@ function inferPacketType(issue: LinearIssue): WorkPacket["type"] {
     return "research"
   }
   return "feature"
+}
+
+function formatCommentsForContext(comments: LinearComment[]): string {
+  if (!comments || comments.length === 0) return ""
+
+  return comments
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .map(c => {
+      const author = c.user?.name || "Unknown"
+      const date = new Date(c.createdAt).toLocaleDateString()
+      return `[${date}] ${author}: ${c.body}`
+    })
+    .join("\n\n")
 }
 
 function issueToPacket(issue: LinearIssue, phaseId: string): WorkPacket {
@@ -118,11 +139,27 @@ function issueToPacket(issue: LinearIssue, phaseId: string): WorkPacket {
     estimatedTokens = 4000
   }
 
+  // Build description with comments context if available
+  let description = issue.description || issue.title
+  const commentsContext = issue.comments ? formatCommentsForContext(issue.comments) : ""
+  if (commentsContext) {
+    description += `\n\n---\n## Discussion Notes\n${commentsContext}`
+  }
+
+  // Map comments to metadata format
+  const linearComments = issue.comments?.map(c => ({
+    id: c.id,
+    body: c.body,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    author: c.user?.name || c.user?.email
+  }))
+
   return {
     id: `packet-${generateId()}`,
     phaseId,
     title: issue.title,
-    description: issue.description || issue.title,
+    description,
     type: inferPacketType(issue),
     priority: mapLinearPriority(issue.priority),
     status: mapLinearState(issue.state.type),
@@ -138,7 +175,8 @@ function issueToPacket(issue: LinearIssue, phaseId: string): WorkPacket {
       linearState: issue.state.name,
       linearLabels: issue.labels.nodes.map(l => l.name),
       linearAssignee: issue.assignee?.email,
-      linearParentId: issue.parent?.id
+      linearParentId: issue.parent?.id,
+      linearComments
     }
   }
 }
@@ -153,7 +191,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { projectIds, projectId } = body
+    const { projectIds, projectId, syncComments = false } = body
 
     // Support both single projectId (legacy) and multiple projectIds
     const idsToImport: string[] = projectIds || (projectId ? [projectId] : [])
@@ -166,8 +204,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Import all selected projects in parallel
+    // Pass syncComments to fetch all comments with pagination
     const importResults = await Promise.all(
-      idsToImport.map(id => importProject(id))
+      idsToImport.map(id => importProject(id, { includeComments: syncComments }))
     )
 
     // Create a default phase for imported issues
@@ -204,6 +243,12 @@ export async function POST(request: NextRequest) {
       progress: result.project.progress
     }))
 
+    // Count total comments imported
+    const totalComments = allIssues.reduce(
+      (sum, issue) => sum + (issue.comments?.length || 0),
+      0
+    )
+
     // Build the import response
     return NextResponse.json({
       success: true,
@@ -212,6 +257,8 @@ export async function POST(request: NextRequest) {
       packets,
       summary: {
         totalIssues: allIssues.length,
+        totalComments: syncComments ? totalComments : 0,
+        commentsImported: syncComments,
         byPriority: {
           critical: packets.filter(p => p.priority === "critical").length,
           high: packets.filter(p => p.priority === "high").length,

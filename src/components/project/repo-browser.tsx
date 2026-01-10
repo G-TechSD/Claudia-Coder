@@ -24,8 +24,10 @@ import {
   FolderOpen
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { listGitLabProjects, hasGitLabToken, type GitLabProject } from "@/lib/gitlab/api"
+import { listGitLabProjects, type GitLabProject } from "@/lib/gitlab/api"
+import { getUserGitLabToken } from "@/lib/data/user-gitlab"
 import { linkRepoToProject } from "@/lib/data/projects"
+import { useAuth } from "@/components/auth/auth-provider"
 import type { LinkedRepo } from "@/lib/data/types"
 
 interface RepoBrowserProps {
@@ -45,6 +47,7 @@ export function RepoBrowser({
   onRepoLinked,
   workingDirectory
 }: RepoBrowserProps) {
+  const { user } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
   const [repos, setRepos] = useState<GitLabProject[]>([])
   const [loading, setLoading] = useState(false)
@@ -52,14 +55,19 @@ export function RepoBrowser({
   const [hasToken, setHasToken] = useState(false)
   const [linking, setLinking] = useState<number | null>(null)
 
-  // Check for token on mount
+  // Check for token on mount - use getUserGitLabToken which checks both personal and shared instance tokens
   useEffect(() => {
-    setHasToken(hasGitLabToken())
-  }, [open])
+    if (user?.id) {
+      const token = getUserGitLabToken(user.id)
+      setHasToken(!!token)
+    } else {
+      setHasToken(false)
+    }
+  }, [open, user?.id])
 
   // Debounced search
   const searchRepos = useCallback(async (query: string) => {
-    if (!hasGitLabToken()) {
+    if (!user?.id || !getUserGitLabToken(user.id)) {
       setError("GitLab token not configured")
       return
     }
@@ -80,7 +88,7 @@ export function RepoBrowser({
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [user?.id])
 
   // Initial load when dialog opens
   useEffect(() => {

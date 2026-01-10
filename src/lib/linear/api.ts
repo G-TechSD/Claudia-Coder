@@ -24,6 +24,18 @@ export interface LinearProject {
   teams: { nodes: LinearTeam[] }
 }
 
+export interface LinearComment {
+  id: string
+  body: string
+  createdAt: string
+  updatedAt: string
+  user?: {
+    id: string
+    name: string
+    email: string
+  }
+}
+
 export interface LinearIssue {
   id: string
   identifier: string
@@ -57,6 +69,7 @@ export interface LinearIssue {
   children?: {
     nodes: LinearIssue[]
   }
+  comments?: LinearComment[]
 }
 
 export interface LinearImportResult {
@@ -182,7 +195,15 @@ export async function getProject(projectId: string): Promise<LinearProject | nul
   }
 }
 
-export async function getProjectIssues(projectId: string): Promise<LinearIssue[]> {
+export interface GetProjectIssuesOptions {
+  includeComments?: boolean
+}
+
+export async function getProjectIssues(
+  projectId: string,
+  options: GetProjectIssuesOptions = {}
+): Promise<LinearIssue[]> {
+  const { includeComments = false } = options
   const allIssues: LinearIssue[] = []
   let hasMore = true
   let cursor: string | undefined
@@ -250,13 +271,82 @@ export async function getProjectIssues(projectId: string): Promise<LinearIssue[]
     cursor = data.project.issues.pageInfo.endCursor
   }
 
+  // Fetch comments for all issues if requested
+  if (includeComments) {
+    await Promise.all(
+      allIssues.map(async (issue) => {
+        issue.comments = await getIssueComments(issue.id)
+      })
+    )
+  }
+
   return allIssues
 }
 
-export async function importProject(projectId: string): Promise<LinearImportResult> {
+/**
+ * Fetch all comments for an issue with proper pagination
+ * Linear uses cursor-based pagination, so we need to fetch all pages
+ */
+export async function getIssueComments(issueId: string): Promise<LinearComment[]> {
+  const allComments: LinearComment[] = []
+  let hasMore = true
+  let cursor: string | undefined
+
+  while (hasMore) {
+    const query = `
+      query GetIssueComments($issueId: String!, $after: String) {
+        issue(id: $issueId) {
+          comments(first: 100, after: $after) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              id
+              body
+              createdAt
+              updatedAt
+              user {
+                id
+                name
+                email
+              }
+            }
+          }
+        }
+      }
+    `
+
+    const data = await linearQuery<{
+      issue: {
+        comments: {
+          pageInfo: { hasNextPage: boolean; endCursor: string }
+          nodes: LinearComment[]
+        }
+      }
+    }>(query, { issueId, after: cursor })
+
+    allComments.push(...data.issue.comments.nodes)
+    hasMore = data.issue.comments.pageInfo.hasNextPage
+    cursor = data.issue.comments.pageInfo.endCursor
+  }
+
+  return allComments
+}
+
+export interface ImportProjectOptions {
+  includeComments?: boolean
+}
+
+export async function importProject(
+  projectId: string,
+  options: ImportProjectOptions = {}
+): Promise<LinearImportResult> {
+  const { includeComments = false } = options
+
   const [project, issues] = await Promise.all([
     getProject(projectId),
-    getProjectIssues(projectId)
+    getProjectIssues(projectId, { includeComments })
   ])
 
   if (!project) {
