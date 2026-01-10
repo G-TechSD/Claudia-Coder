@@ -12,11 +12,17 @@
  * - Explicit success criteria
  * - Practical constraints
  * - Honest effort estimates
+ *
+ * Enhanced with game/creative project support:
+ * - Detects game, VR, and creative projects
+ * - Generates vision packets with store-style descriptions
+ * - Vision packets gate overall project completion
  */
 
 import type { AssignedModel } from "./project-models"
 import type { AIModel, ProviderName } from "./providers"
 import { TASK_TYPES } from "./providers"
+import type { GameProjectDetection, VisionPacket } from "./game-vision"
 
 export interface BuildPlan {
   id: string
@@ -92,6 +98,20 @@ export interface WorkPacket {
 
   // Existing packet tracking
   existing?: boolean // true if this packet existed before plan generation
+
+  // Optional metadata for extended packet types (e.g., vision packets)
+  metadata?: {
+    source?: string
+    isVisionPacket?: boolean
+    completionGate?: boolean
+    projectType?: string
+    storeDescription?: string
+    tagline?: string
+    keyFeatures?: string[]
+    targetAudience?: string
+    uniqueSellingPoints?: string[]
+    [key: string]: unknown
+  }
 }
 
 export interface PacketSummary {
@@ -113,6 +133,7 @@ export type PacketType =
   | "docs"
   | "config"
   | "research"
+  | "vision"  // Special type for game/creative project vision packets
 
 export interface PacketTask {
   id: string
@@ -146,6 +167,7 @@ export interface EffortEstimate {
 /**
  * System prompt for build plan generation
  * Enhanced for nuance awareness and smaller model compatibility
+ * Enhanced for game/creative project support with vision packets
  */
 export const BUILD_PLAN_SYSTEM_PROMPT = `You are a senior software architect creating a build plan. Your plans are:
 
@@ -160,6 +182,12 @@ CRITICAL: READ ALL CONTEXT CAREFULLY
 - Requirements from comments are JUST AS IMPORTANT as the main description
 - If someone raised a concern, address it in your plan
 
+GAME/CREATIVE PROJECTS:
+- If this is a game, VR, or creative project, recognize that it needs a VISION packet
+- Vision packets define the ultimate goal - what the finished product should be
+- The vision packet should NOT be marked complete until the project matches its description
+- Use type: "vision" for these special packets
+
 Structure your plan with:
 - Clear objectives (what success looks like)
 - Non-goals (what's explicitly out of scope)
@@ -171,7 +199,7 @@ Structure your plan with:
 For each work packet:
 - Title: Clear, action-oriented
 - Description: What and why, not how (INCLUDE relevant context from discussions)
-- Type: feature/bugfix/refactor/test/docs/config/research
+- Type: feature/bugfix/refactor/test/docs/config/research/vision
 - Priority: critical/high/medium/low
 - Tasks: 3-7 concrete steps (informed by any action items from discussions)
 - Acceptance criteria: How we know it's done (include requirements from comments)
@@ -196,7 +224,10 @@ export const BUILD_PLAN_SIMPLE_SYSTEM_PROMPT = `Create a software build plan as 
 Read ALL provided context including comments and discussions.
 Include decisions and requirements from comments in your packets.
 
+For game/creative projects, include a "vision" type packet that describes the final product.
+
 Each packet needs: title, description, type, priority, tasks, acceptanceCriteria.
+Types: feature, bugfix, refactor, test, docs, config, research, vision
 
 Return ONLY valid JSON:
 - Start with { end with }
@@ -1083,4 +1114,147 @@ export function mergeNuanceContexts(contexts: NuanceContext[]): NuanceContext {
     `${merged.concerns.length} concerns identified.`
 
   return merged
+}
+
+/**
+ * Check if a packet is a vision packet
+ */
+export function isVisionPacket(packet: WorkPacket): boolean {
+  return packet.type === "vision" || packet.metadata?.isVisionPacket === true
+}
+
+/**
+ * Check if a packet is a completion gate (blocks project completion)
+ */
+export function isCompletionGate(packet: WorkPacket): boolean {
+  return packet.metadata?.completionGate === true
+}
+
+/**
+ * Get the vision packet from a build plan (if any)
+ */
+export function getVisionPacket(plan: BuildPlan): WorkPacket | null {
+  return plan.packets.find(p => isVisionPacket(p)) || null
+}
+
+/**
+ * Check if a project is complete
+ * A project is complete when all packets are complete AND vision packet (if any) is complete
+ */
+export function isProjectComplete(plan: BuildPlan): boolean {
+  const allPacketsComplete = plan.packets.every(p => p.status === "completed")
+  const visionPacket = getVisionPacket(plan)
+
+  if (visionPacket) {
+    // If there's a vision packet, it must also be complete
+    return allPacketsComplete && visionPacket.status === "completed"
+  }
+
+  return allPacketsComplete
+}
+
+/**
+ * Get project completion status with vision packet awareness
+ */
+export function getProjectCompletionStatus(plan: BuildPlan): {
+  complete: boolean
+  totalPackets: number
+  completedPackets: number
+  hasVisionPacket: boolean
+  visionPacketComplete: boolean
+  blockedByVision: boolean
+  progress: number
+} {
+  const totalPackets = plan.packets.length
+  const completedPackets = plan.packets.filter(p => p.status === "completed").length
+  const visionPacket = getVisionPacket(plan)
+  const hasVisionPacket = visionPacket !== null
+  const visionPacketComplete = visionPacket ? visionPacket.status === "completed" : true
+
+  // Calculate progress, but don't count vision packet in progress since it's the final gate
+  const nonVisionPackets = plan.packets.filter(p => !isVisionPacket(p))
+  const completedNonVision = nonVisionPackets.filter(p => p.status === "completed").length
+  const progress = nonVisionPackets.length > 0
+    ? Math.round((completedNonVision / nonVisionPackets.length) * 100)
+    : 0
+
+  // Project is blocked by vision if all other packets are done but vision isn't
+  const allOthersComplete = nonVisionPackets.every(p => p.status === "completed")
+  const blockedByVision = hasVisionPacket && allOthersComplete && !visionPacketComplete
+
+  return {
+    complete: completedPackets === totalPackets,
+    totalPackets,
+    completedPackets,
+    hasVisionPacket,
+    visionPacketComplete,
+    blockedByVision,
+    progress
+  }
+}
+
+/**
+ * Context for game/creative project in build plan generation
+ */
+export interface GameProjectContext {
+  detection: GameProjectDetection
+  existingVisionPacket?: VisionPacket | null
+  storyElements?: string[]
+  uniqueFeatures?: string[]
+  technicalDetails?: string[]
+}
+
+/**
+ * Generate build plan prompt with game project awareness
+ */
+export function generateGameAwareBuildPlanPrompt(
+  projectName: string,
+  projectDescription: string,
+  availableModels: AssignedModel[],
+  constraints?: Partial<BuildConstraints>,
+  existingPackets?: ExistingPacketInfo[],
+  nuanceContext?: NuanceContext,
+  gameContext?: GameProjectContext
+): string {
+  // Start with the base prompt
+  let prompt = generateBuildPlanPrompt(
+    projectName,
+    projectDescription,
+    availableModels,
+    constraints,
+    existingPackets,
+    nuanceContext
+  )
+
+  // Add game project context if detected
+  if (gameContext?.detection.isGameOrCreative) {
+    const gameSection = `
+
+=== GAME/CREATIVE PROJECT DETECTED ===
+This project has been detected as a ${gameContext.detection.projectType} project.
+Category: ${gameContext.detection.suggestedCategory}
+Confidence: ${gameContext.detection.confidence}
+Matched keywords: ${gameContext.detection.matchedKeywords.slice(0, 10).join(", ")}
+
+IMPORTANT FOR GAME PROJECTS:
+1. ${gameContext.existingVisionPacket
+    ? `A vision packet already exists: "${gameContext.existingVisionPacket.title}". Reference it but do not duplicate it.`
+    : "Consider creating a vision packet that describes the final product as it would appear on a store page."}
+2. Vision packets should have type: "vision" and priority: "critical"
+3. The vision packet is a COMPLETION GATE - it should only be marked complete when the project matches its description
+4. All other packets should work toward fulfilling the vision
+
+${gameContext.storyElements?.length ? `STORY ELEMENTS:\n${gameContext.storyElements.map(s => `- ${s}`).join("\n")}\n` : ""}
+${gameContext.uniqueFeatures?.length ? `UNIQUE FEATURES:\n${gameContext.uniqueFeatures.map(f => `- ${f}`).join("\n")}\n` : ""}
+${gameContext.technicalDetails?.length ? `TECHNICAL DETAILS:\n${gameContext.technicalDetails.map(t => `- ${t}`).join("\n")}\n` : ""}
+=== END GAME/CREATIVE PROJECT CONTEXT ===
+`
+    // Insert before the JSON structure
+    prompt = prompt.replace(
+      "Generate the build plan as JSON",
+      gameSection + "\nGenerate the build plan as JSON"
+    )
+  }
+
+  return prompt
 }

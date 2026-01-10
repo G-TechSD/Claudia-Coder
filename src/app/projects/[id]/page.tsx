@@ -48,7 +48,8 @@ import {
   AlertTriangle,
   RotateCcw,
   DollarSign,
-  Search
+  Search,
+  BookOpen
 } from "lucide-react"
 import { getProject, updateProject, trashProject, restoreProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar, getEffectiveWorkingDirectory } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
@@ -75,6 +76,7 @@ import { ClaudeCodeTerminal } from "@/components/claude-code/terminal"
 import { ClaudiaSyncStatus } from "@/components/project/claudia-sync-status"
 import { BusinessDevSection } from "@/components/project/business-dev-section"
 import { PriorArtSection } from "@/components/project/prior-art-section"
+import { DocsBrowser } from "@/components/project/docs-browser"
 import {
   Select,
   SelectContent,
@@ -858,6 +860,10 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="prior-art">
             Prior Art
             <Search className="h-3 w-3 ml-1 text-cyan-500" />
+          </TabsTrigger>
+          <TabsTrigger value="docs">
+            Docs
+            <BookOpen className="h-3 w-3 ml-1 text-orange-500" />
           </TabsTrigger>
         </TabsList>
 
@@ -1677,6 +1683,14 @@ export default function ProjectDetailPage() {
             projectDescription={project.description}
             buildPlanObjectives={currentBuildPlan?.originalPlan?.spec?.objectives}
             techStack={currentBuildPlan?.originalPlan?.spec?.techStack}
+          />
+        </TabsContent>
+
+        {/* Docs Tab */}
+        <TabsContent value="docs" className="space-y-4">
+          <DocsBrowser
+            projectId={project.id}
+            workingDirectory={getEffectiveWorkingDirectory(project) || ""}
           />
         </TabsContent>
       </Tabs>

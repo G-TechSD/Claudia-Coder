@@ -3,6 +3,8 @@
  * Imports a Linear project with all its issues as work packets
  *
  * Enhanced with nuance extraction for better context from comments
+ * Enhanced with game/creative project detection and vision packet generation
+ * Enhanced with markdown document saving for vision/story content
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -19,13 +21,27 @@ import {
   formatNuanceForPacketGeneration,
   type ExtractedNuance
 } from "@/lib/ai/nuance-extraction"
+import {
+  detectGameOrCreativeProject,
+  generateVisionContent,
+  createVisionPacket,
+  createDefaultVisionPacket,
+  extractCreativeContext,
+  type GameProjectDetection,
+  type VisionPacket
+} from "@/lib/ai/game-vision"
+import {
+  createVisionFromLinearExtraction,
+  createStoryFromLinearExtraction,
+  type ProjectDoc
+} from "@/lib/data/project-docs"
 
 interface WorkPacket {
   id: string
   phaseId: string
   title: string
   description: string
-  type: "feature" | "bugfix" | "refactor" | "test" | "docs" | "config" | "research"
+  type: "feature" | "bugfix" | "refactor" | "test" | "docs" | "config" | "research" | "vision"
   priority: "critical" | "high" | "medium" | "low"
   status: "queued" | "in_progress" | "completed" | "blocked"
   tasks: Array<{ id: string; description: string; completed: boolean; order: number }>
@@ -34,11 +50,11 @@ interface WorkPacket {
   estimatedTokens: number
   dependencies: string[]
   metadata: {
-    source: "linear"
-    linearId: string
-    linearIdentifier: string
-    linearState: string
-    linearLabels: string[]
+    source: "linear" | "vision-generator"
+    linearId?: string
+    linearIdentifier?: string
+    linearState?: string
+    linearLabels?: string[]
     linearAssignee?: string
     linearParentId?: string
     linearComments?: Array<{
@@ -50,6 +66,15 @@ interface WorkPacket {
     }>
     // Extracted nuance from comments (if nuance extraction was enabled)
     extractedNuance?: ExtractedNuance
+    // Vision packet specific metadata
+    isVisionPacket?: boolean
+    completionGate?: boolean
+    projectType?: string
+    storeDescription?: string
+    tagline?: string
+    keyFeatures?: string[]
+    targetAudience?: string
+    uniqueSellingPoints?: string[]
   }
 }
 
@@ -255,11 +280,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     // Default syncComments to TRUE - always import comments for maximum context
     // extractNuance - when true, uses AI to extract key decisions/requirements from comments
+    // generateVision - when true, generates a vision packet for game/creative projects
+    // saveToMarkdown - when true, saves vision/story content to markdown files
     const {
       projectIds,
       projectId,
+      claudiaProjectId,  // The Claudia project ID where markdown docs will be saved
       syncComments = true,
       extractNuance = false,
+      generateVision = true,  // Auto-generate vision packets for game/creative projects
+      saveToMarkdown = true,  // Save vision/story as markdown documents
       preferredServer,  // For nuance extraction LLM
       preferredModel    // For nuance extraction LLM
     } = body
@@ -276,16 +306,32 @@ export async function POST(request: NextRequest) {
 
     // Import all selected projects in parallel
     // Pass syncComments to fetch all comments with pagination
-    console.log(`[Linear Import] Starting import of ${idsToImport.length} project(s), syncComments: ${syncComments}, extractNuance: ${extractNuance}`)
+    console.log(`[Linear Import] Starting import of ${idsToImport.length} project(s), syncComments: ${syncComments}, extractNuance: ${extractNuance}, generateVision: ${generateVision}`)
     const importResults = await Promise.all(
       idsToImport.map(id => importProject(id, { includeComments: syncComments }))
     )
 
     // Create a default phase for imported issues
     const defaultPhaseId = `phase-${generateId()}`
+    // Create a vision phase that comes before the default phase
+    const visionPhaseId = `phase-vision-${generateId()}`
 
     // Combine all issues from all projects
     const allIssues = importResults.flatMap(result => result.issues)
+
+    // Build project names and descriptions for detection
+    const projectNames = importResults.map(r => r.project.name).join(", ")
+    const projectDescriptions = importResults.map(r => r.project.description || "").join("\n")
+    const issueContent = allIssues.map(i => `${i.title} ${i.description || ""}`).join("\n")
+
+    // Detect if this is a game/creative project
+    const gameDetection = detectGameOrCreativeProject(
+      projectNames,
+      projectDescriptions,
+      [issueContent]
+    )
+
+    console.log(`[Linear Import] Game/creative detection: isGameOrCreative=${gameDetection.isGameOrCreative}, confidence=${gameDetection.confidence}, type=${gameDetection.projectType}, matchedKeywords=${gameDetection.matchedKeywords.length}`)
 
     // Extract nuance from comments if enabled
     let nuanceMap: Map<string, ExtractedNuance> = new Map()
@@ -332,23 +378,162 @@ export async function POST(request: NextRequest) {
     }
 
     // Convert issues to work packets (with nuance if available)
-    const packets = allIssues.map(issue =>
+    const packets: WorkPacket[] = allIssues.map(issue =>
       issueToPacket(issue, defaultPhaseId, nuanceMap.get(issue.id))
     )
 
-    // Build project names for the phase description
-    const projectNames = importResults.map(r => r.project.name).join(", ")
+    // Generate vision packet for game/creative projects
+    let visionPacket: VisionPacket | null = null
+    let visionStats = { detected: false, generated: false, error: undefined as string | undefined }
 
-    // Group packets by their inferred type for phase organization
-    const phases = [
-      {
-        id: defaultPhaseId,
-        name: "Imported from Linear",
-        description: `${packets.length} issues imported from ${projectNames}`,
-        order: 0,
-        status: "not_started" as const
+    if (gameDetection.isGameOrCreative && generateVision) {
+      visionStats.detected = true
+      console.log(`[Linear Import] Detected ${gameDetection.projectType} project. Generating vision packet...`)
+
+      // Extract creative context from nuances if available
+      const nuanceArray = Array.from(nuanceMap.values())
+      const creativeContext = nuanceArray.length > 0
+        ? extractCreativeContext(nuanceArray)
+        : undefined
+
+      try {
+        // Generate vision content using AI
+        const visionContent = await generateVisionContent(
+          projectNames,
+          projectDescriptions,
+          gameDetection,
+          {
+            preferredServer,
+            preferredModel,
+            nuanceContext: creativeContext,
+            maxRetries: 2
+          }
+        )
+
+        if (visionContent) {
+          visionPacket = createVisionPacket(
+            visionPhaseId,
+            projectNames,
+            gameDetection,
+            visionContent
+          )
+          visionStats.generated = true
+          console.log(`[Linear Import] Vision packet generated: ${visionPacket.title}`)
+        } else {
+          // Fall back to default vision packet if AI generation fails
+          console.log(`[Linear Import] AI vision generation failed, using default vision packet`)
+          visionPacket = createDefaultVisionPacket(
+            visionPhaseId,
+            projectNames,
+            projectDescriptions,
+            gameDetection
+          )
+          visionStats.generated = true
+          visionStats.error = "AI generation failed, used default template"
+        }
+      } catch (error) {
+        console.error(`[Linear Import] Vision generation error:`, error)
+        // Create default vision packet on error
+        visionPacket = createDefaultVisionPacket(
+          visionPhaseId,
+          projectNames,
+          projectDescriptions,
+          gameDetection
+        )
+        visionStats.generated = true
+        visionStats.error = error instanceof Error ? error.message : "Vision generation failed"
       }
-    ]
+    }
+
+    // Save vision and stories as markdown documents if enabled
+    const savedDocs: ProjectDoc[] = []
+    let markdownStats = { visionDoc: false, storyDocs: 0, error: undefined as string | undefined }
+
+    if (saveToMarkdown && claudiaProjectId) {
+      console.log(`[Linear Import] Saving documents to project ${claudiaProjectId}...`)
+
+      try {
+        // Save vision document if we have a vision packet
+        if (visionPacket && visionPacket.metadata) {
+          const visionDoc = await createVisionFromLinearExtraction(claudiaProjectId, {
+            projectName: projectNames,
+            extractedVision: visionPacket.description,
+            decisions: nuanceMap.size > 0
+              ? Array.from(nuanceMap.values()).flatMap(n => n.decisions).slice(0, 10)
+              : undefined,
+            requirements: nuanceMap.size > 0
+              ? Array.from(nuanceMap.values()).flatMap(n => n.requirements).slice(0, 10)
+              : undefined,
+            constraints: nuanceMap.size > 0
+              ? Array.from(nuanceMap.values()).flatMap(n => n.constraints).slice(0, 5)
+              : undefined,
+            sourceIssueId: idsToImport[0]
+          })
+          savedDocs.push(visionDoc)
+          markdownStats.visionDoc = true
+          console.log(`[Linear Import] Saved vision document: ${visionDoc.id}`)
+        }
+
+        // Save story documents for issues with significant nuance
+        if (extractNuance && nuanceMap.size > 0) {
+          for (const [issueId, nuance] of nuanceMap.entries()) {
+            // Only create story docs for issues with meaningful extracted content
+            if (
+              nuance.requirements.length >= 2 ||
+              nuance.decisions.length >= 2 ||
+              (nuance.summary && nuance.summary.length > 100)
+            ) {
+              const issue = allIssues.find(i => i.id === issueId)
+              if (issue) {
+                try {
+                  const storyDoc = await createStoryFromLinearExtraction(claudiaProjectId, {
+                    title: issue.title,
+                    summary: nuance.summary || issue.description || "",
+                    requirements: nuance.requirements,
+                    acceptanceCriteria: nuance.actionItems,
+                    context: nuance.context,
+                    sourceIssueId: issue.identifier
+                  })
+                  savedDocs.push(storyDoc)
+                  markdownStats.storyDocs++
+                } catch (docError) {
+                  console.error(`[Linear Import] Failed to save story for ${issue.identifier}:`, docError)
+                }
+              }
+            }
+          }
+          console.log(`[Linear Import] Saved ${markdownStats.storyDocs} story documents`)
+        }
+      } catch (error) {
+        console.error(`[Linear Import] Error saving markdown documents:`, error)
+        markdownStats.error = error instanceof Error ? error.message : "Failed to save documents"
+      }
+    }
+
+    // Build phases - include vision phase if we have a vision packet
+    const phases = []
+
+    if (visionPacket) {
+      phases.push({
+        id: visionPhaseId,
+        name: "Project Vision",
+        description: `Vision and store description for ${projectNames}. This defines the ultimate goal of the project.`,
+        order: 0,
+        status: "not_started" as const,
+        isVisionPhase: true
+      })
+
+      // Add the vision packet to the beginning of packets array
+      packets.unshift(visionPacket as unknown as WorkPacket)
+    }
+
+    phases.push({
+      id: defaultPhaseId,
+      name: "Imported from Linear",
+      description: `${allIssues.length} issues imported from ${projectNames}`,
+      order: visionPacket ? 1 : 0,
+      status: "not_started" as const
+    })
 
     // Build the projects array for the response
     const projects = importResults.map(result => ({
@@ -356,7 +541,14 @@ export async function POST(request: NextRequest) {
       description: result.project.description || "",
       linearProjectId: result.project.id,
       teamIds: result.teams.map(t => t.id),
-      progress: result.project.progress
+      progress: result.project.progress,
+      // Add game detection info to project
+      gameDetection: gameDetection.isGameOrCreative ? {
+        isGameOrCreative: true,
+        projectType: gameDetection.projectType,
+        confidence: gameDetection.confidence,
+        suggestedCategory: gameDetection.suggestedCategory
+      } : undefined
     }))
 
     // Count total comments imported
@@ -365,6 +557,18 @@ export async function POST(request: NextRequest) {
       0
     )
     console.log(`[Linear Import] Imported ${allIssues.length} issues with ${totalComments} total comments`)
+
+    // Build type counts including vision
+    const typeCounts = {
+      feature: packets.filter(p => p.type === "feature").length,
+      bugfix: packets.filter(p => p.type === "bugfix").length,
+      refactor: packets.filter(p => p.type === "refactor").length,
+      test: packets.filter(p => p.type === "test").length,
+      docs: packets.filter(p => p.type === "docs").length,
+      config: packets.filter(p => p.type === "config").length,
+      research: packets.filter(p => p.type === "research").length,
+      vision: packets.filter(p => p.type === "vision").length
+    }
 
     // Build the import response
     return NextResponse.json({
@@ -382,6 +586,29 @@ export async function POST(request: NextRequest) {
           processed: nuanceStats.processed,
           failed: nuanceStats.failed
         } : { enabled: false },
+        // Game/creative project detection results
+        gameDetection: {
+          isGameOrCreative: gameDetection.isGameOrCreative,
+          confidence: gameDetection.confidence,
+          projectType: gameDetection.projectType,
+          suggestedCategory: gameDetection.suggestedCategory,
+          matchedKeywords: gameDetection.matchedKeywords.slice(0, 20), // Limit for response size
+          visionPacket: visionStats.detected ? {
+            generated: visionStats.generated,
+            packetId: visionPacket?.id,
+            error: visionStats.error
+          } : undefined
+        },
+        // Markdown document saving results
+        markdownDocs: saveToMarkdown && claudiaProjectId ? {
+          enabled: true,
+          projectId: claudiaProjectId,
+          visionDoc: markdownStats.visionDoc,
+          storyDocs: markdownStats.storyDocs,
+          totalDocs: savedDocs.length,
+          docIds: savedDocs.map(d => d.id),
+          error: markdownStats.error
+        } : { enabled: false },
         byPriority: {
           critical: packets.filter(p => p.priority === "critical").length,
           high: packets.filter(p => p.priority === "high").length,
@@ -393,15 +620,7 @@ export async function POST(request: NextRequest) {
           in_progress: packets.filter(p => p.status === "in_progress").length,
           completed: packets.filter(p => p.status === "completed").length
         },
-        byType: {
-          feature: packets.filter(p => p.type === "feature").length,
-          bugfix: packets.filter(p => p.type === "bugfix").length,
-          refactor: packets.filter(p => p.type === "refactor").length,
-          test: packets.filter(p => p.type === "test").length,
-          docs: packets.filter(p => p.type === "docs").length,
-          config: packets.filter(p => p.type === "config").length,
-          research: packets.filter(p => p.type === "research").length
-        }
+        byType: typeCounts
       }
     })
 
