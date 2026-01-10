@@ -41,7 +41,8 @@ import {
   Package,
   Rocket,
   Terminal,
-  Search
+  Search,
+  Code
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { BuildPlan, ExistingPacketInfo } from "@/lib/ai/build-plan"
@@ -101,16 +102,24 @@ interface PacketFeedback {
 }
 
 // Model options for regeneration - matching .env.local providers
+// Each option can specify both a server (provider) and a specific model
 const REGENERATION_MODEL_OPTIONS = [
+  // Auto - let system decide
+  { value: "auto", label: "Auto (let system decide)", type: "auto", icon: "sparkles", server: null, model: null },
   // Claudia Coder (special paid option)
-  { value: "paid_claudecode", label: "Claudia Coder (Paid)", type: "paid", icon: "terminal" },
+  { value: "paid_claudecode", label: "Claudia Coder (Paid)", type: "paid", icon: "terminal", server: "paid_claudecode", model: null },
   // Paid cloud models
-  { value: "chatgpt", label: "ChatGPT (OpenAI)", type: "paid", icon: "cloud" },
-  { value: "gemini", label: "Gemini (Google)", type: "paid", icon: "cloud" },
-  { value: "anthropic", label: "Anthropic Claude", type: "paid", icon: "cloud" },
-  // Local LM Studio models
-  { value: "Beast", label: "Beast (192.168.245.155:1234)", type: "local", icon: "server" },
-  { value: "Bedroom", label: "Bedroom (192.168.27.182:1234)", type: "local", icon: "server" },
+  { value: "chatgpt", label: "ChatGPT (OpenAI)", type: "paid", icon: "cloud", server: "chatgpt", model: null },
+  { value: "gemini", label: "Gemini (Google)", type: "paid", icon: "cloud", server: "gemini", model: null },
+  { value: "anthropic", label: "Anthropic Claude", type: "paid", icon: "cloud", server: "anthropic", model: null },
+  // Specific local models - Beast server
+  { value: "Beast:gpt-oss-20b", label: "gpt-oss-20b (Beast - larger, better structure)", type: "local-model", icon: "brain", server: "Beast", model: "gpt-oss-20b" },
+  { value: "Beast:phind-codellama-34b-v2", label: "phind-codellama-34b-v2 (Beast - code focused)", type: "local-model", icon: "code", server: "Beast", model: "phind-codellama-34b-v2" },
+  // Specific local models - Bedroom server
+  { value: "Bedroom:ministral-3-3b", label: "ministral-3-3b (Bedroom - smaller, faster)", type: "local-model", icon: "zap", server: "Bedroom", model: "ministral-3-3b" },
+  // Generic server selection (uses whatever model is loaded)
+  { value: "Beast", label: "Beast (use loaded model)", type: "local", icon: "server", server: "Beast", model: null },
+  { value: "Bedroom", label: "Bedroom (use loaded model)", type: "local", icon: "server", server: "Bedroom", model: null },
 ] as const
 
 export function BuildPlanEditor({
@@ -145,8 +154,8 @@ export function BuildPlanEditor({
   const [sectionComments, setSectionComments] = useState<Record<string, string>>({})
   const [expandedPackets, setExpandedPackets] = useState<Set<string>>(new Set())
 
-  // Regeneration model selection - load user's default model if available
-  const [regenerationModel, setRegenerationModel] = useState<string>("")
+  // Regeneration model selection - default to "auto" (let system decide)
+  const [regenerationModel, setRegenerationModel] = useState<string>("auto")
   const [isGeneratingPackets, setIsGeneratingPackets] = useState(false)
   const [packetGenerationStatus, setPacketGenerationStatus] = useState("")
   const [userDefaultModel, setUserDefaultModel] = useState<EnabledInstance | null>(null)
@@ -162,6 +171,7 @@ export function BuildPlanEditor({
     projectStatus === "archived"
 
   // Load user's default model from model assignment on mount
+  // If user has a default model set, use it; otherwise keep "auto"
   useEffect(() => {
     const defaultModel = getProjectDefaultModel(projectId)
     setUserDefaultModel(defaultModel)
@@ -183,16 +193,14 @@ export function BuildPlanEditor({
       } else if (serverName.includes("bedroom") || defaultModel.baseUrl?.includes("192.168.27.182")) {
         setRegenerationModel("Bedroom")
       } else if (defaultModel.type === "local" && defaultModel.baseUrl) {
-        // For other local servers, try to use the server name or default to Beast
-        setRegenerationModel(defaultModel.serverName || "Beast")
+        // For other local servers, try to use the server name or default to auto
+        setRegenerationModel(defaultModel.serverName || "auto")
       } else {
-        // Default fallback
-        setRegenerationModel("Beast")
+        // Default fallback - use auto (let system decide)
+        setRegenerationModel("auto")
       }
-    } else {
-      // No user default, use Beast as fallback
-      setRegenerationModel("Beast")
     }
+    // If no user default, keep the initial "auto" value - don't override it
   }, [projectId])
 
   // Load existing plan on mount
@@ -745,8 +753,19 @@ export function BuildPlanEditor({
 
       console.log(`[build-plan-editor] Regenerating with ${existingPackets.length} existing packets for project ${projectId}`)
 
+      // Find the selected model option to get server and model info
       const modelOption = REGENERATION_MODEL_OPTIONS.find(m => m.value === regenerationModel)
       setGenerationStatus(`Regenerating with ${modelOption?.label || regenerationModel}...`)
+
+      // Determine the provider and model to use
+      // For "auto", let the system decide (pass null for both)
+      // For specific models like "Beast:gpt-oss-20b", extract server and model
+      const preferredServer = modelOption?.server || null
+      const preferredModelId = modelOption?.model || null
+      const isPaidModel = modelOption?.type === "paid" || regenerationModel.startsWith("paid_") ||
+        ["chatgpt", "gemini", "anthropic"].includes(regenerationModel)
+
+      console.log(`[build-plan-editor] Selected: ${regenerationModel}, Server: ${preferredServer}, Model: ${preferredModelId}`)
 
       const response = await fetch("/api/build-plan", {
         method: "POST",
@@ -755,13 +774,12 @@ export function BuildPlanEditor({
           projectId,
           projectName,
           projectDescription,
-          preferredProvider: regenerationModel,
-          preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
+          preferredProvider: preferredServer,  // The server/provider to use
+          preferredModel: preferredModelId,     // The specific model ID to use
           existingPackets,  // Pass existing packets so they're included in the build plan
-          allowPaidFallback: regenerationModel.startsWith("paid_") ||
-            ["chatgpt", "gemini", "anthropic"].includes(regenerationModel),
+          allowPaidFallback: isPaidModel,
           constraints: {
-            requireLocalFirst: false,
+            requireLocalFirst: regenerationModel === "auto",
             requireHumanApproval: ["planning", "deployment"]
           }
         })
@@ -1113,11 +1131,21 @@ export function BuildPlanEditor({
                   {/* Left side: Model Selector + Regenerate */}
                   <div className="flex items-center gap-2">
                     <Select value={regenerationModel} onValueChange={setRegenerationModel}>
-                      <SelectTrigger className="w-[200px]">
+                      <SelectTrigger className="w-[280px]">
                         <SelectValue placeholder="Select model..." />
                       </SelectTrigger>
                       <SelectContent className="bg-popover border border-border z-50">
-                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Paid Models</div>
+                        {/* Auto option */}
+                        {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "auto").map(model => (
+                          <SelectItem key={model.value} value={model.value}>
+                            <div className="flex items-center gap-2">
+                              <Sparkles className="h-3 w-3 text-yellow-500" />
+                              <span>{model.label}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                        {/* Paid Models */}
+                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Paid Models</div>
                         {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "paid").map(model => (
                           <SelectItem key={model.value} value={model.value}>
                             <div className="flex items-center gap-2">
@@ -1130,7 +1158,24 @@ export function BuildPlanEditor({
                             </div>
                           </SelectItem>
                         ))}
-                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Models</div>
+                        {/* Specific Local Models */}
+                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Specific Local Models</div>
+                        {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local-model").map(model => (
+                          <SelectItem key={model.value} value={model.value}>
+                            <div className="flex items-center gap-2">
+                              {model.icon === "brain" ? (
+                                <Brain className="h-3 w-3 text-purple-400" />
+                              ) : model.icon === "code" ? (
+                                <Code className="h-3 w-3 text-cyan-500" />
+                              ) : (
+                                <Zap className="h-3 w-3 text-yellow-500" />
+                              )}
+                              <span>{model.label}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                        {/* Generic Local Servers */}
+                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Servers</div>
                         {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local").map(model => (
                           <SelectItem key={model.value} value={model.value}>
                             <div className="flex items-center gap-2">
@@ -1576,11 +1621,21 @@ export function BuildPlanEditor({
                     {/* Left side: Model Selector + Regenerate */}
                     <div className="flex items-center gap-2">
                       <Select value={regenerationModel} onValueChange={setRegenerationModel}>
-                        <SelectTrigger className="w-[200px]">
+                        <SelectTrigger className="w-[280px]">
                           <SelectValue placeholder="Select model..." />
                         </SelectTrigger>
                         <SelectContent className="bg-popover border border-border z-50">
-                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Paid Models</div>
+                          {/* Auto option */}
+                          {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "auto").map(model => (
+                            <SelectItem key={model.value} value={model.value}>
+                              <div className="flex items-center gap-2">
+                                <Sparkles className="h-3 w-3 text-yellow-500" />
+                                <span>{model.label}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                          {/* Paid Models */}
+                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Paid Models</div>
                           {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "paid").map(model => (
                             <SelectItem key={model.value} value={model.value}>
                               <div className="flex items-center gap-2">
@@ -1593,7 +1648,24 @@ export function BuildPlanEditor({
                               </div>
                             </SelectItem>
                           ))}
-                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Models</div>
+                          {/* Specific Local Models */}
+                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Specific Local Models</div>
+                          {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local-model").map(model => (
+                            <SelectItem key={model.value} value={model.value}>
+                              <div className="flex items-center gap-2">
+                                {model.icon === "brain" ? (
+                                  <Brain className="h-3 w-3 text-purple-400" />
+                                ) : model.icon === "code" ? (
+                                  <Code className="h-3 w-3 text-cyan-500" />
+                                ) : (
+                                  <Zap className="h-3 w-3 text-yellow-500" />
+                                )}
+                                <span>{model.label}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                          {/* Generic Local Servers */}
+                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Servers</div>
                           {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local").map(model => (
                             <SelectItem key={model.value} value={model.value}>
                               <div className="flex items-center gap-2">

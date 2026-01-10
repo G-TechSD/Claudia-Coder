@@ -145,6 +145,7 @@ export interface EffortEstimate {
 
 /**
  * System prompt for build plan generation
+ * Enhanced for nuance awareness and smaller model compatibility
  */
 export const BUILD_PLAN_SYSTEM_PROMPT = `You are a senior software architect creating a build plan. Your plans are:
 
@@ -152,6 +153,12 @@ export const BUILD_PLAN_SYSTEM_PROMPT = `You are a senior software architect cre
 2. STRICT - Clear boundaries, explicit scope
 3. REALISTIC - Honest estimates, acknowledged risks
 4. ACTIONABLE - Every item can be executed
+
+CRITICAL: READ ALL CONTEXT CAREFULLY
+- If discussion notes or extracted context is provided, READ EVERY POINT
+- Decisions made in discussions MUST be reflected in your plan
+- Requirements from comments are JUST AS IMPORTANT as the main description
+- If someone raised a concern, address it in your plan
 
 Structure your plan with:
 - Clear objectives (what success looks like)
@@ -163,17 +170,39 @@ Structure your plan with:
 
 For each work packet:
 - Title: Clear, action-oriented
-- Description: What and why, not how
+- Description: What and why, not how (INCLUDE relevant context from discussions)
 - Type: feature/bugfix/refactor/test/docs/config/research
 - Priority: critical/high/medium/low
-- Tasks: 3-7 concrete steps
-- Acceptance criteria: How we know it's done
+- Tasks: 3-7 concrete steps (informed by any action items from discussions)
+- Acceptance criteria: How we know it's done (include requirements from comments)
 - Dependencies: What must come first
 - Suggested model type: planning/coding/testing/documentation
 
 Be honest about effort. If something is complex, say so. If there are unknowns, flag them as research packets.
 
-Respond with valid JSON only, no markdown.`
+OUTPUT FORMAT: Return valid JSON only.
+- No markdown code blocks
+- No text before or after the JSON
+- Start with { and end with }
+- Use double quotes for all strings
+- No trailing commas`
+
+/**
+ * Simplified system prompt for smaller models
+ * More explicit JSON instructions, shorter context
+ */
+export const BUILD_PLAN_SIMPLE_SYSTEM_PROMPT = `Create a software build plan as JSON.
+
+Read ALL provided context including comments and discussions.
+Include decisions and requirements from comments in your packets.
+
+Each packet needs: title, description, type, priority, tasks, acceptanceCriteria.
+
+Return ONLY valid JSON:
+- Start with { end with }
+- Double quotes for strings
+- No markdown, no extra text
+- No trailing commas`
 
 /**
  * Existing packet info for build plan integration
@@ -185,17 +214,35 @@ export interface ExistingPacketInfo {
   type?: string
   status?: string
   source?: string // e.g., "linear", "manual", "build-plan"
+  // Extracted nuance from comments (if available)
+  extractedNuance?: string
+}
+
+/**
+ * Nuance context for build plan generation
+ * Aggregated from comment extraction
+ */
+export interface NuanceContext {
+  decisions: string[]
+  requirements: string[]
+  constraints: string[]
+  concerns: string[]
+  actionItems: string[]
+  context: string[]
+  summary?: string
 }
 
 /**
  * Generate build plan user prompt
+ * Enhanced to include nuance context from comments
  */
 export function generateBuildPlanPrompt(
   projectName: string,
   projectDescription: string,
   availableModels: AssignedModel[],
   constraints?: Partial<BuildConstraints>,
-  existingPackets?: ExistingPacketInfo[]
+  existingPackets?: ExistingPacketInfo[],
+  nuanceContext?: NuanceContext
 ): string {
   const modelList = availableModels
     .map(m => `- ${m.name} (${m.provider})`)
@@ -242,10 +289,58 @@ ${packetList}
 `
   }
 
+  // Build nuance context section from extracted comments
+  let nuanceSection = ""
+  if (nuanceContext) {
+    const sections: string[] = []
+
+    if (nuanceContext.summary) {
+      sections.push(`SUMMARY: ${nuanceContext.summary}`)
+    }
+
+    if (nuanceContext.decisions.length > 0) {
+      sections.push(`KEY DECISIONS (MUST be reflected in your plan):\n${nuanceContext.decisions.map(d => `  - ${d}`).join("\n")}`)
+    }
+
+    if (nuanceContext.requirements.length > 0) {
+      sections.push(`REQUIREMENTS FROM DISCUSSIONS (MUST be in acceptance criteria):\n${nuanceContext.requirements.map(r => `  - ${r}`).join("\n")}`)
+    }
+
+    if (nuanceContext.constraints.length > 0) {
+      sections.push(`CONSTRAINTS MENTIONED:\n${nuanceContext.constraints.map(c => `  - ${c}`).join("\n")}`)
+    }
+
+    if (nuanceContext.concerns.length > 0) {
+      sections.push(`CONCERNS TO ADDRESS (consider as risks or blockers):\n${nuanceContext.concerns.map(c => `  - ${c}`).join("\n")}`)
+    }
+
+    if (nuanceContext.actionItems.length > 0) {
+      sections.push(`ACTION ITEMS (should become tasks in packets):\n${nuanceContext.actionItems.map(a => `  - ${a}`).join("\n")}`)
+    }
+
+    if (nuanceContext.context.length > 0) {
+      sections.push(`IMPORTANT CONTEXT:\n${nuanceContext.context.map(c => `  - ${c}`).join("\n")}`)
+    }
+
+    if (sections.length > 0) {
+      nuanceSection = `
+
+=== EXTRACTED CONTEXT FROM DISCUSSIONS ===
+READ CAREFULLY - This context was extracted from team discussions and comments.
+These decisions, requirements, and concerns MUST be reflected in your build plan.
+
+${sections.join("\n\n")}
+
+=== END EXTRACTED CONTEXT ===
+`
+    }
+  }
+
   return `Generate a build plan for:
 
 PROJECT: ${projectName}
 DESCRIPTION: ${projectDescription}
+${nuanceSection}
 
 AVAILABLE AI MODELS:
 ${modelList || "- Local LLM (general purpose)"}
@@ -318,6 +413,57 @@ Generate the build plan as JSON with this structure:
     }
   ]
 }`
+}
+
+/**
+ * Generate a simplified prompt for smaller/less capable models
+ * Shorter context, clearer structure, minimal complexity
+ */
+export function generateSimplifiedBuildPlanPrompt(
+  projectName: string,
+  projectDescription: string,
+  nuanceContext?: NuanceContext
+): string {
+  // Build a condensed nuance section
+  let contextSection = ""
+  if (nuanceContext) {
+    const items: string[] = []
+
+    if (nuanceContext.decisions.length > 0) {
+      items.push(`Decisions: ${nuanceContext.decisions.slice(0, 5).join("; ")}`)
+    }
+    if (nuanceContext.requirements.length > 0) {
+      items.push(`Requirements: ${nuanceContext.requirements.slice(0, 5).join("; ")}`)
+    }
+    if (nuanceContext.concerns.length > 0) {
+      items.push(`Concerns: ${nuanceContext.concerns.slice(0, 3).join("; ")}`)
+    }
+
+    if (items.length > 0) {
+      contextSection = `\nContext from discussions:\n${items.join("\n")}\n`
+    }
+  }
+
+  return `Project: ${projectName}
+Description: ${projectDescription}
+${contextSection}
+Create packets for this project. Return JSON:
+{
+  "spec": {"name": "string", "objectives": ["string"]},
+  "packets": [
+    {
+      "id": "pkt-1",
+      "title": "string",
+      "description": "string",
+      "type": "feature",
+      "priority": "high",
+      "tasks": [{"id": "t1", "description": "string", "completed": false, "order": 1}],
+      "acceptanceCriteria": ["string"]
+    }
+  ]
+}
+
+Return ONLY the JSON.`
 }
 
 /**
@@ -784,4 +930,157 @@ export function saveBuildPlan(projectId: string, plan: BuildPlan): void {
 export function getBuildPlanRaw(projectId: string): BuildPlan | null {
   const allPlans = getStoredBuildPlansRaw()
   return allPlans[projectId] || null
+}
+
+/**
+ * Robust build plan generation with retry logic
+ * Handles different model capabilities with progressive simplification
+ */
+export interface RobustGenerationOptions {
+  projectId: string
+  projectName: string
+  projectDescription: string
+  availableModels?: AssignedModel[]
+  constraints?: Partial<BuildConstraints>
+  existingPackets?: ExistingPacketInfo[]
+  nuanceContext?: NuanceContext
+  maxRetries?: number
+  onProgress?: (status: string, attempt: number) => void
+}
+
+export interface RobustGenerationResult {
+  plan: BuildPlan | null
+  packetSummary: PacketSummary | null
+  attempts: number
+  usedSimplifiedPrompt: boolean
+  error?: string
+}
+
+/**
+ * Generate a build plan with automatic retry and prompt simplification
+ * This function tries the full prompt first, then falls back to simplified prompts
+ * for smaller models that may struggle with complex instructions
+ */
+export async function generateBuildPlanWithRetry(
+  options: RobustGenerationOptions,
+  generateFn: (systemPrompt: string, userPrompt: string) => Promise<{ content: string; error?: string }>
+): Promise<RobustGenerationResult> {
+  const maxRetries = options.maxRetries ?? 3
+  let attempts = 0
+  let usedSimplifiedPrompt = false
+  let lastError: string | undefined
+
+  while (attempts < maxRetries) {
+    attempts++
+    options.onProgress?.(`Attempt ${attempts}/${maxRetries}`, attempts)
+
+    // Use full prompt on first attempt, simplified on retries
+    const useSimplified = attempts > 1
+    usedSimplifiedPrompt = useSimplified
+
+    const systemPrompt = useSimplified
+      ? BUILD_PLAN_SIMPLE_SYSTEM_PROMPT
+      : BUILD_PLAN_SYSTEM_PROMPT
+
+    const userPrompt = useSimplified
+      ? generateSimplifiedBuildPlanPrompt(
+          options.projectName,
+          options.projectDescription,
+          options.nuanceContext
+        )
+      : generateBuildPlanPrompt(
+          options.projectName,
+          options.projectDescription,
+          options.availableModels || [],
+          options.constraints,
+          options.existingPackets,
+          options.nuanceContext
+        )
+
+    console.log(`[Build Plan] Attempt ${attempts}/${maxRetries}, using ${useSimplified ? "simplified" : "full"} prompt`)
+
+    try {
+      const response = await generateFn(systemPrompt, userPrompt)
+
+      if (response.error) {
+        console.error(`[Build Plan] Attempt ${attempts} failed with error:`, response.error)
+        lastError = response.error
+        continue
+      }
+
+      // Try to parse the response
+      const result = parseBuildPlanResponse(
+        response.content,
+        options.projectId,
+        `retry-gen-attempt-${attempts}`
+      )
+
+      if (result) {
+        console.log(`[Build Plan] Successfully generated plan on attempt ${attempts}`)
+        return {
+          plan: result.plan,
+          packetSummary: result.packetSummary,
+          attempts,
+          usedSimplifiedPrompt
+        }
+      }
+
+      console.warn(`[Build Plan] Attempt ${attempts}: Failed to parse response, trying next attempt`)
+      lastError = "Failed to parse LLM response as valid JSON"
+    } catch (error) {
+      console.error(`[Build Plan] Attempt ${attempts} threw error:`, error)
+      lastError = error instanceof Error ? error.message : "Unknown error"
+    }
+  }
+
+  // All attempts failed
+  console.error(`[Build Plan] All ${maxRetries} attempts failed. Last error: ${lastError}`)
+
+  return {
+    plan: null,
+    packetSummary: null,
+    attempts,
+    usedSimplifiedPrompt,
+    error: lastError || "Failed to generate build plan after all retries"
+  }
+}
+
+/**
+ * Merge multiple nuance contexts into one
+ * Useful when aggregating context from multiple Linear issues
+ */
+export function mergeNuanceContexts(contexts: NuanceContext[]): NuanceContext {
+  const merged: NuanceContext = {
+    decisions: [],
+    requirements: [],
+    constraints: [],
+    concerns: [],
+    actionItems: [],
+    context: []
+  }
+
+  for (const ctx of contexts) {
+    merged.decisions.push(...ctx.decisions)
+    merged.requirements.push(...ctx.requirements)
+    merged.constraints.push(...ctx.constraints)
+    merged.concerns.push(...ctx.concerns)
+    merged.actionItems.push(...ctx.actionItems)
+    merged.context.push(...ctx.context)
+  }
+
+  // Deduplicate (simple string comparison)
+  merged.decisions = [...new Set(merged.decisions)]
+  merged.requirements = [...new Set(merged.requirements)]
+  merged.constraints = [...new Set(merged.constraints)]
+  merged.concerns = [...new Set(merged.concerns)]
+  merged.actionItems = [...new Set(merged.actionItems)]
+  merged.context = [...new Set(merged.context)]
+
+  // Generate summary
+  merged.summary = `Aggregated from ${contexts.length} discussions: ` +
+    `${merged.decisions.length} decisions, ` +
+    `${merged.requirements.length} requirements, ` +
+    `${merged.concerns.length} concerns identified.`
+
+  return merged
 }

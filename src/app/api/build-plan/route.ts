@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
-import { generateWithLocalLLM } from "@/lib/llm/local-llm"
+import { generateWithLocalLLM, getAllServersWithStatus } from "@/lib/llm/local-llm"
 import {
   BUILD_PLAN_SYSTEM_PROMPT,
+  BUILD_PLAN_SIMPLE_SYSTEM_PROMPT,
   generateBuildPlanPrompt,
+  generateSimplifiedBuildPlanPrompt,
   parseBuildPlanResponse,
   validateBuildPlan,
+  generateBuildPlanWithRetry,
   type ExistingPacketInfo,
-  type PacketSummary
+  type PacketSummary,
+  type NuanceContext
 } from "@/lib/ai/build-plan"
 import {
   BUSINESS_DEV_SYSTEM_PROMPT,
@@ -173,12 +177,22 @@ async function generateBusinessDevAnalysis(
  * Build Plan Generation API
  * Uses local LLM first, falls back to paid only if explicitly allowed
  *
+ * Enhanced with nuance-aware generation:
+ * - Accepts nuanceContext extracted from Linear comments or other sources
+ * - Uses retry logic with simplified prompts for smaller models
+ * - Preserves key decisions, requirements, and concerns in generated packets
+ *
+ * Model Selection:
+ * - Accept `model` or `preferredModel` parameter to specify which model to use
+ * - Response includes: requestedModel (what was asked for), model (what was used), availableModels
+ *
  * Supported providers:
  * - Local: "Beast", "Bedroom" (LM Studio servers)
  * - Paid: "anthropic", "chatgpt", "gemini", "paid_claudecode"
  */
 export async function POST(request: NextRequest) {
   try {
+    const body = await request.json()
     const {
       projectId,
       projectName,
@@ -187,10 +201,16 @@ export async function POST(request: NextRequest) {
       constraints = {},
       allowPaidFallback = false,
       preferredProvider = null,  // e.g., "Beast", "Bedroom", "anthropic", "chatgpt", "gemini", "paid_claudecode"
-      preferredModel = null,     // Specific model ID to use (e.g., "gpt-oss-20b") - fixes random model selection bug
       existingPackets = [] as ExistingPacketInfo[],  // Existing packets to integrate with (avoid duplicates)
-      monetization = false  // When true, also generate business dev analysis
-    } = await request.json()
+      monetization = false,  // When true, also generate business dev analysis
+      nuanceContext = null as NuanceContext | null,  // Extracted context from comments/discussions
+      useRetryLogic = false  // When true, uses retry with simplified prompts for smaller models
+    } = body
+
+    // Support both `model` and `preferredModel` parameters for model selection
+    // `model` is the simpler API, `preferredModel` is kept for backwards compatibility
+    const requestedModel: string | null = body.model || body.preferredModel || null
+    const preferredModel = requestedModel  // Internal variable for backwards compatibility
 
     if (!projectName || !projectDescription) {
       return NextResponse.json(
@@ -199,12 +219,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Log if nuance context is provided
+    if (nuanceContext) {
+      console.log(`[build-plan] Received nuance context: ${nuanceContext.decisions?.length || 0} decisions, ${nuanceContext.requirements?.length || 0} requirements, ${nuanceContext.concerns?.length || 0} concerns`)
+    }
+
     const userPrompt = generateBuildPlanPrompt(
       projectName,
       projectDescription,
       availableModels,
       constraints,
-      existingPackets
+      existingPackets,
+      nuanceContext || undefined
     )
 
     // Handle ChatGPT / OpenAI
@@ -256,6 +282,8 @@ export async function POST(request: NextRequest) {
               source: "openai",
               server: "OpenAI",
               model: "gpt-4o",
+              requestedModel: requestedModel || "gpt-4o",
+              availableModels: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
               packetSummary: result.packetSummary,
               ...(businessDev && { businessDev })
             })
@@ -321,6 +349,8 @@ export async function POST(request: NextRequest) {
               source: "google",
               server: "Google Gemini",
               model: "gemini-1.5-pro",
+              requestedModel: requestedModel || "gemini-1.5-pro",
+              availableModels: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash"],
               packetSummary: result.packetSummary,
               ...(businessDev && { businessDev })
             })
@@ -379,6 +409,8 @@ export async function POST(request: NextRequest) {
             source: "anthropic",
             server: "Claude Code",
             model: "claude-opus-4",
+            requestedModel: requestedModel || "claude-opus-4",
+            availableModels: ["claude-opus-4", "claude-sonnet-4", "claude-haiku-3"],
             packetSummary: result.packetSummary,
             ...(businessDev && { businessDev })
           })
@@ -440,6 +472,8 @@ export async function POST(request: NextRequest) {
             source: "anthropic",
             server: "Anthropic",
             model: "claude-sonnet-4",
+            requestedModel: requestedModel || "claude-sonnet-4",
+            availableModels: ["claude-sonnet-4", "claude-opus-4", "claude-haiku-3"],
             packetSummary: result.packetSummary,
             ...(businessDev && { businessDev })
           })
@@ -464,10 +498,19 @@ export async function POST(request: NextRequest) {
     console.log(`[build-plan] ========================================`)
     console.log(`[build-plan] REGENERATION REQUEST:`)
     console.log(`[build-plan]   preferredProvider from request: "${preferredProvider}"`)
-    console.log(`[build-plan]   preferredModel from request: "${preferredModel}"`)
+    console.log(`[build-plan]   preferredModel (requestedModel) from request: "${requestedModel}"`)
     console.log(`[build-plan]   localPreferredServer to use: "${localPreferredServer}"`)
     console.log(`[build-plan]   Is explicit local server: ${localPreferredServer !== undefined}`)
     console.log(`[build-plan] ========================================`)
+
+    // Fetch available models from local servers for the response
+    const localServers = await getAllServersWithStatus()
+    const localAvailableModels: string[] = []
+    for (const server of localServers) {
+      if (server.status === "online" && server.availableModels) {
+        localAvailableModels.push(...server.availableModels.map(m => `${server.name}:${m}`))
+      }
+    }
 
     const localResponse = await generateWithLocalLLM(
       BUILD_PLAN_SYSTEM_PROMPT,
@@ -518,10 +561,77 @@ export async function POST(request: NextRequest) {
           source: "local",
           server: localResponse.server,
           model: localResponse.model,
+          requestedModel: requestedModel || null,
+          availableModels: localAvailableModels,
           packetSummary: result.packetSummary,
+          nuanceContextProvided: !!nuanceContext,
           ...(businessDev && { businessDev })
         })
       }
+    }
+
+    // If useRetryLogic is enabled and first attempt failed, try with simplified prompt
+    if (useRetryLogic && (localResponse.error || !parseBuildPlanResponse(localResponse.content, projectId, "test"))) {
+      console.log(`[build-plan] First attempt failed, trying with simplified prompt...`)
+
+      const simplifiedPrompt = generateSimplifiedBuildPlanPrompt(
+        projectName,
+        projectDescription,
+        nuanceContext || undefined
+      )
+
+      const retryResponse = await generateWithLocalLLM(
+        BUILD_PLAN_SIMPLE_SYSTEM_PROMPT,
+        simplifiedPrompt,
+        {
+          temperature: 0.5, // Lower temperature for more consistent output
+          max_tokens: 2048,
+          preferredServer: localPreferredServer,
+          preferredModel: preferredModel || undefined
+        }
+      )
+
+      if (!retryResponse.error) {
+        const retryResult = parseBuildPlanResponse(
+          retryResponse.content,
+          projectId,
+          `local:${retryResponse.server}:${retryResponse.model}:simplified`
+        )
+
+        if (retryResult) {
+          const validation = validateBuildPlan(retryResult.plan)
+
+          // Generate business dev if monetization is enabled
+          let businessDev: BusinessDev | null = null
+          if (monetization) {
+            businessDev = await generateBusinessDevAnalysis(
+              projectId,
+              projectName,
+              projectDescription,
+              retryResult.plan.spec,
+              preferredProvider,
+              preferredModel,
+              allowPaidFallback
+            )
+          }
+
+          return NextResponse.json({
+            plan: retryResult.plan,
+            validation,
+            source: "local",
+            server: retryResponse.server,
+            model: retryResponse.model,
+            requestedModel: requestedModel || null,
+            availableModels: localAvailableModels,
+            packetSummary: retryResult.packetSummary,
+            usedSimplifiedPrompt: true,
+            nuanceContextProvided: !!nuanceContext,
+            ...(businessDev && { businessDev })
+          })
+        }
+      }
+
+      console.log(`[build-plan] Simplified prompt also failed: ${retryResponse.error || "parse error"}`)
     }
 
     // Local failed or returned invalid plan - try Anthropic if allowed
@@ -570,7 +680,10 @@ export async function POST(request: NextRequest) {
             plan: result.plan,
             validation,
             source: "anthropic",
+            server: "Anthropic (fallback)",
             model: "claude-sonnet-4",
+            requestedModel: requestedModel || null,
+            availableModels: ["claude-sonnet-4", "claude-opus-4", "claude-haiku-3"],
             warning: "Using paid API - local LLM unavailable",
             packetSummary: result.packetSummary,
             ...(businessDev && { businessDev })

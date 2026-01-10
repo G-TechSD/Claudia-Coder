@@ -1,6 +1,8 @@
 /**
  * Linear Project Import API
  * Imports a Linear project with all its issues as work packets
+ *
+ * Enhanced with nuance extraction for better context from comments
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -12,6 +14,11 @@ import {
   LinearIssue,
   LinearComment
 } from "@/lib/linear/api"
+import {
+  extractNuanceFromComments,
+  formatNuanceForPacketGeneration,
+  type ExtractedNuance
+} from "@/lib/ai/nuance-extraction"
 
 interface WorkPacket {
   id: string
@@ -41,6 +48,8 @@ interface WorkPacket {
       updatedAt: string
       author?: string
     }>
+    // Extracted nuance from comments (if nuance extraction was enabled)
+    extractedNuance?: ExtractedNuance
   }
 }
 
@@ -86,7 +95,11 @@ function formatCommentsForContext(comments: LinearComment[]): string {
     .join("\n\n")
 }
 
-function issueToPacket(issue: LinearIssue, phaseId: string): WorkPacket {
+function issueToPacket(
+  issue: LinearIssue,
+  phaseId: string,
+  extractedNuance?: ExtractedNuance
+): WorkPacket {
   // Parse description for task list items
   const tasks: WorkPacket["tasks"] = []
   if (issue.description) {
@@ -99,6 +112,25 @@ function issueToPacket(issue: LinearIssue, phaseId: string): WorkPacket {
           id: `task-${generateId()}`,
           description: checkboxMatch[2].trim(),
           completed: checkboxMatch[1].toLowerCase() === "x",
+          order: order++
+        })
+      }
+    }
+  }
+
+  // Add action items from nuance extraction as tasks
+  if (extractedNuance?.actionItems && extractedNuance.actionItems.length > 0) {
+    let order = tasks.length
+    for (const action of extractedNuance.actionItems) {
+      // Only add if not already present (simple string check)
+      const exists = tasks.some(t =>
+        t.description.toLowerCase().includes(action.toLowerCase().substring(0, 20))
+      )
+      if (!exists) {
+        tasks.push({
+          id: `task-${generateId()}`,
+          description: `[From discussion] ${action}`,
+          completed: false,
           order: order++
         })
       }
@@ -127,6 +159,19 @@ function issueToPacket(issue: LinearIssue, phaseId: string): WorkPacket {
     }
   }
 
+  // Add requirements from nuance extraction as acceptance criteria
+  if (extractedNuance?.requirements && extractedNuance.requirements.length > 0) {
+    for (const req of extractedNuance.requirements) {
+      // Only add if not already present
+      const exists = acceptanceCriteria.some(ac =>
+        ac.toLowerCase().includes(req.toLowerCase().substring(0, 20))
+      )
+      if (!exists) {
+        acceptanceCriteria.push(`[From discussion] ${req}`)
+      }
+    }
+  }
+
   if (acceptanceCriteria.length === 0) {
     acceptanceCriteria.push(`Complete: ${issue.title}`)
   }
@@ -138,12 +183,28 @@ function issueToPacket(issue: LinearIssue, phaseId: string): WorkPacket {
   } else if (issue.description && issue.description.length > 500) {
     estimatedTokens = 4000
   }
+  // Add more tokens if there's extracted nuance (more context to process)
+  if (extractedNuance && (
+    extractedNuance.decisions.length > 0 ||
+    extractedNuance.requirements.length > 0 ||
+    extractedNuance.concerns.length > 0
+  )) {
+    estimatedTokens += 1000
+  }
 
   // Build description with comments context if available
   let description = issue.description || issue.title
   const commentsContext = issue.comments ? formatCommentsForContext(issue.comments) : ""
   if (commentsContext) {
     description += `\n\n---\n## Discussion Notes\n${commentsContext}`
+  }
+
+  // Add extracted nuance summary to description
+  if (extractedNuance) {
+    const nuanceFormatted = formatNuanceForPacketGeneration(extractedNuance)
+    if (nuanceFormatted) {
+      description += `\n\n---\n## Extracted Context\n${nuanceFormatted}`
+    }
   }
 
   // Map comments to metadata format
@@ -176,7 +237,8 @@ function issueToPacket(issue: LinearIssue, phaseId: string): WorkPacket {
       linearLabels: issue.labels.nodes.map(l => l.name),
       linearAssignee: issue.assignee?.email,
       linearParentId: issue.parent?.id,
-      linearComments
+      linearComments,
+      extractedNuance
     }
   }
 }
@@ -192,7 +254,15 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     // Default syncComments to TRUE - always import comments for maximum context
-    const { projectIds, projectId, syncComments = true } = body
+    // extractNuance - when true, uses AI to extract key decisions/requirements from comments
+    const {
+      projectIds,
+      projectId,
+      syncComments = true,
+      extractNuance = false,
+      preferredServer,  // For nuance extraction LLM
+      preferredModel    // For nuance extraction LLM
+    } = body
 
     // Support both single projectId (legacy) and multiple projectIds
     const idsToImport: string[] = projectIds || (projectId ? [projectId] : [])
@@ -206,7 +276,7 @@ export async function POST(request: NextRequest) {
 
     // Import all selected projects in parallel
     // Pass syncComments to fetch all comments with pagination
-    console.log(`[Linear Import] Starting import of ${idsToImport.length} project(s), syncComments: ${syncComments}`)
+    console.log(`[Linear Import] Starting import of ${idsToImport.length} project(s), syncComments: ${syncComments}, extractNuance: ${extractNuance}`)
     const importResults = await Promise.all(
       idsToImport.map(id => importProject(id, { includeComments: syncComments }))
     )
@@ -217,9 +287,53 @@ export async function POST(request: NextRequest) {
     // Combine all issues from all projects
     const allIssues = importResults.flatMap(result => result.issues)
 
-    // Convert issues to work packets
+    // Extract nuance from comments if enabled
+    let nuanceMap: Map<string, ExtractedNuance> = new Map()
+    let nuanceStats = { processed: 0, withComments: 0, failed: 0 }
+
+    if (extractNuance && syncComments) {
+      console.log(`[Linear Import] Starting nuance extraction for ${allIssues.length} issues...`)
+
+      // Filter issues with comments
+      const issuesWithComments = allIssues.filter(i => i.comments && i.comments.length > 0)
+      nuanceStats.withComments = issuesWithComments.length
+
+      // Process in batches of 2 to avoid overwhelming the LLM
+      for (let i = 0; i < issuesWithComments.length; i += 2) {
+        const batch = issuesWithComments.slice(i, i + 2)
+
+        const results = await Promise.all(
+          batch.map(async (issue) => {
+            try {
+              const nuance = await extractNuanceFromComments(
+                issue.title,
+                issue.description || "",
+                issue.comments || [],
+                { preferredServer, preferredModel, maxRetries: 2 }
+              )
+              nuanceStats.processed++
+              return { id: issue.id, nuance }
+            } catch (error) {
+              console.error(`[Linear Import] Nuance extraction failed for ${issue.identifier}:`, error)
+              nuanceStats.failed++
+              return null
+            }
+          })
+        )
+
+        for (const result of results) {
+          if (result) {
+            nuanceMap.set(result.id, result.nuance)
+          }
+        }
+      }
+
+      console.log(`[Linear Import] Nuance extraction complete: ${nuanceStats.processed} processed, ${nuanceStats.failed} failed`)
+    }
+
+    // Convert issues to work packets (with nuance if available)
     const packets = allIssues.map(issue =>
-      issueToPacket(issue, defaultPhaseId)
+      issueToPacket(issue, defaultPhaseId, nuanceMap.get(issue.id))
     )
 
     // Build project names for the phase description
@@ -262,6 +376,12 @@ export async function POST(request: NextRequest) {
         totalIssues: allIssues.length,
         totalComments: syncComments ? totalComments : 0,
         commentsImported: syncComments,
+        nuanceExtraction: extractNuance ? {
+          enabled: true,
+          issuesWithComments: nuanceStats.withComments,
+          processed: nuanceStats.processed,
+          failed: nuanceStats.failed
+        } : { enabled: false },
         byPriority: {
           critical: packets.filter(p => p.priority === "critical").length,
           high: packets.filter(p => p.priority === "high").length,

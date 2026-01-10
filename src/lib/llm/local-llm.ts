@@ -321,7 +321,7 @@ export async function chatCompletion(
 }
 
 // High-level function: Generate with local LLM, with automatic server selection
-// Default preferred server is "beast" since it has the 34B code model (phind-codellama-34b-v2)
+// Default preferred server is "beast" with gpt-oss-20b model
 // compared to bedroom which only has the 3B model (ministral-3-3b)
 export async function generateWithLocalLLM(
   systemPrompt: string,
@@ -335,13 +335,17 @@ export async function generateWithLocalLLM(
 ): Promise<{ content: string; server?: string; model?: string; error?: string }> {
   const servers = getConfiguredServers()
 
-  // Default to Beast server which has the better code model (34B vs 3B)
+  // Default to Beast server which has the better code model
   const preferredServer = options?.preferredServer ?? "beast"
+
+  // Default to gpt-oss-20b when using Beast server (unless explicitly overridden)
+  const preferredModel = options?.preferredModel ??
+    (preferredServer.toLowerCase() === "beast" ? "gpt-oss-20b" : undefined)
 
   // Track if we've explicitly requested a server (not using default)
   const hasExplicitPreference = options?.preferredServer !== undefined
 
-  console.log(`[LLM] generateWithLocalLLM called with preferredServer: "${options?.preferredServer}", preferredModel: "${options?.preferredModel}", hasExplicitPreference: ${hasExplicitPreference}`)
+  console.log(`[LLM] generateWithLocalLLM called with preferredServer: "${options?.preferredServer}", preferredModel: "${preferredModel}" (raw: "${options?.preferredModel}"), hasExplicitPreference: ${hasExplicitPreference}`)
 
   // Case-insensitive comparison (API uses lowercase, servers use capitalized)
   const preferredLower = preferredServer.toLowerCase()
@@ -363,7 +367,7 @@ export async function generateWithLocalLLM(
     // Use longer timeout for explicitly preferred servers (20s)
     // This gives Beast's larger model time to respond
     // Pass preferredModel to use specific model instead of first available
-    const status = await checkServerStatus(preferredServerObj, false, 20000, options?.preferredModel)
+    const status = await checkServerStatus(preferredServerObj, false, 20000, preferredModel)
 
     console.log(`[LLM] Explicitly selected server ${preferredServerObj.name} status: ${status.status}, model: ${status.currentModel}`)
 
@@ -414,7 +418,7 @@ export async function generateWithLocalLLM(
     console.log(`[LLM] Trying server: ${server.name} (url: ${server.url})`)
 
     // Pass preferredModel if specified (though typically used with explicit server selection)
-    const status = await checkServerStatus(server, true, 5000, options?.preferredModel)
+    const status = await checkServerStatus(server, true, 5000, preferredModel)
 
     console.log(`[LLM] Server ${server.name} status: ${status.status}, model: ${status.currentModel}`)
 

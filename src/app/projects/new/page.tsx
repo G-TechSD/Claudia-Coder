@@ -472,7 +472,7 @@ function NewProjectContent() {
     name: string,
     description: string,
     includeBusinessDev: boolean = false,
-    preferredModel?: string
+    preferredModelString?: string
   ) => {
     setIsGeneratingBuildPlan(true)
     setBuildPlanError("")
@@ -484,6 +484,21 @@ function NewProjectContent() {
         enhancedDescription += "\n\nBusiness Requirements: This app will be monetized. Include business development tasks such as revenue model research, payment integration planning, analytics setup, and legal documentation (terms of service, privacy policy)."
       }
 
+      // Parse the model string to extract server and model
+      // Format can be "server:model" or just "server" or undefined (auto)
+      let preferredProvider: string | null = null
+      let preferredModel: string | null = null
+
+      if (preferredModelString) {
+        if (preferredModelString.includes(":")) {
+          const [server, model] = preferredModelString.split(":")
+          preferredProvider = server
+          preferredModel = model
+        } else {
+          preferredProvider = preferredModelString
+        }
+      }
+
       const response = await fetch("/api/build-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -491,10 +506,11 @@ function NewProjectContent() {
           projectId: `temp-${Date.now()}`,
           projectName: name,
           projectDescription: enhancedDescription,
-          preferredProvider: preferredModel || "Beast",
+          preferredProvider,
+          preferredModel,
           allowPaidFallback: settings.allowPaidLLM,
           constraints: {
-            requireLocalFirst: true,
+            requireLocalFirst: !preferredProvider, // Auto mode uses local first
             requireHumanApproval: ["planning", "deployment"]
           }
         })

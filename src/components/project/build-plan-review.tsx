@@ -33,7 +33,10 @@ import {
   Cloud,
   Terminal,
   DollarSign,
-  Building2
+  Building2,
+  Brain,
+  Code,
+  Zap
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { BuildPlan, WorkPacket, PacketSummary } from "@/lib/ai/build-plan"
@@ -63,14 +66,25 @@ interface EditableObjective {
   isDeleted: boolean
 }
 
-// Model options for regeneration
+// Model options for regeneration - matching build-plan-editor.tsx
+// Each option can specify both a server (provider) and a specific model
 const REGENERATION_MODEL_OPTIONS = [
-  { value: "paid_claudecode", label: "Claudia Coder (Paid)", type: "paid", icon: "terminal" },
-  { value: "chatgpt", label: "ChatGPT (OpenAI)", type: "paid", icon: "cloud" },
-  { value: "gemini", label: "Gemini (Google)", type: "paid", icon: "cloud" },
-  { value: "anthropic", label: "Anthropic Claude", type: "paid", icon: "cloud" },
-  { value: "Beast", label: "Beast (Local)", type: "local", icon: "server" },
-  { value: "Bedroom", label: "Bedroom (Local)", type: "local", icon: "server" },
+  // Auto - let system decide
+  { value: "auto", label: "Auto (let system decide)", type: "auto", icon: "sparkles", server: null, model: null },
+  // Claudia Coder (special paid option)
+  { value: "paid_claudecode", label: "Claudia Coder (Paid)", type: "paid", icon: "terminal", server: "paid_claudecode", model: null },
+  // Paid cloud models
+  { value: "chatgpt", label: "ChatGPT (OpenAI)", type: "paid", icon: "cloud", server: "chatgpt", model: null },
+  { value: "gemini", label: "Gemini (Google)", type: "paid", icon: "cloud", server: "gemini", model: null },
+  { value: "anthropic", label: "Anthropic Claude", type: "paid", icon: "cloud", server: "anthropic", model: null },
+  // Specific local models - Beast server
+  { value: "Beast:gpt-oss-20b", label: "gpt-oss-20b (Beast - larger, better structure)", type: "local-model", icon: "brain", server: "Beast", model: "gpt-oss-20b" },
+  { value: "Beast:phind-codellama-34b-v2", label: "phind-codellama-34b-v2 (Beast - code focused)", type: "local-model", icon: "code", server: "Beast", model: "phind-codellama-34b-v2" },
+  // Specific local models - Bedroom server
+  { value: "Bedroom:ministral-3-3b", label: "ministral-3-3b (Bedroom - smaller, faster)", type: "local-model", icon: "zap", server: "Bedroom", model: "ministral-3-3b" },
+  // Generic server selection (uses whatever model is loaded)
+  { value: "Beast", label: "Beast (use loaded model)", type: "local", icon: "server", server: "Beast", model: null },
+  { value: "Bedroom", label: "Bedroom (use loaded model)", type: "local", icon: "server", server: "Bedroom", model: null },
 ] as const
 
 export function BuildPlanReview({
@@ -94,7 +108,7 @@ export function BuildPlanReview({
   const [newObjective, setNewObjective] = useState("")
   const [expandedPackets, setExpandedPackets] = useState<Set<string>>(new Set())
   const [packetPriorities, setPacketPriorities] = useState<Record<string, string>>({})
-  const [regenerationModel, setRegenerationModel] = useState<string>("Beast")
+  const [regenerationModel, setRegenerationModel] = useState<string>("auto")
   const [isApproving, setIsApproving] = useState(false)
 
   // Initialize editable state from build plan
@@ -206,7 +220,17 @@ export function BuildPlanReview({
   }, [editedPlan, objectives, packetPriorities, projectId, onApproveAndStart])
 
   const handleRegenerate = () => {
-    onRegenerate(regenerationModel)
+    // Find the selected model option to get server and model info
+    const modelOption = REGENERATION_MODEL_OPTIONS.find(m => m.value === regenerationModel)
+    // For "auto", pass undefined to let parent decide
+    // For specific models, pass a formatted string "server:model" or just "server"
+    if (modelOption?.model) {
+      onRegenerate(`${modelOption.server}:${modelOption.model}`)
+    } else if (modelOption?.server) {
+      onRegenerate(modelOption.server)
+    } else {
+      onRegenerate(undefined) // Auto mode
+    }
   }
 
   const visibleObjectives = objectives.filter(o => !o.isDeleted)
@@ -508,11 +532,21 @@ export function BuildPlanReview({
             {/* Top row: Regenerate options */}
             <div className="flex items-center gap-2">
               <Select value={regenerationModel} onValueChange={setRegenerationModel}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-[280px]">
                   <SelectValue placeholder="Select model..." />
                 </SelectTrigger>
                 <SelectContent className="bg-popover border border-border z-50">
-                  <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Paid Models</div>
+                  {/* Auto option */}
+                  {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "auto").map(model => (
+                    <SelectItem key={model.value} value={model.value}>
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-3 w-3 text-yellow-500" />
+                        <span>{model.label}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                  {/* Paid Models */}
+                  <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Paid Models</div>
                   {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "paid").map(model => (
                     <SelectItem key={model.value} value={model.value}>
                       <div className="flex items-center gap-2">
@@ -525,7 +559,24 @@ export function BuildPlanReview({
                       </div>
                     </SelectItem>
                   ))}
-                  <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Models</div>
+                  {/* Specific Local Models */}
+                  <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Specific Local Models</div>
+                  {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local-model").map(model => (
+                    <SelectItem key={model.value} value={model.value}>
+                      <div className="flex items-center gap-2">
+                        {model.icon === "brain" ? (
+                          <Brain className="h-3 w-3 text-purple-400" />
+                        ) : model.icon === "code" ? (
+                          <Code className="h-3 w-3 text-cyan-500" />
+                        ) : (
+                          <Zap className="h-3 w-3 text-yellow-500" />
+                        )}
+                        <span>{model.label}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                  {/* Generic Local Servers */}
+                  <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Servers</div>
                   {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local").map(model => (
                     <SelectItem key={model.value} value={model.value}>
                       <div className="flex items-center gap-2">
