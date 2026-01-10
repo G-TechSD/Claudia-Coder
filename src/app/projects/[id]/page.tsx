@@ -79,6 +79,7 @@ import { BusinessDevSection } from "@/components/project/business-dev-section"
 import { PriorArtSection } from "@/components/project/prior-art-section"
 import { DocsBrowser } from "@/components/project/docs-browser"
 import { VisionDisplay } from "@/components/project/vision-display"
+import { FileBrowser } from "@/components/project/file-browser"
 import {
   Select,
   SelectContent,
@@ -1153,6 +1154,14 @@ export default function ProjectDetailPage() {
           )}
         </TabsContent>
 
+        {/* Files Tab */}
+        <TabsContent value="files" className="space-y-4">
+          <FileBrowser
+            projectId={project.id}
+            basePath={project.basePath || getEffectiveWorkingDirectory(project)}
+          />
+        </TabsContent>
+
         {/* Packets Tab */}
         <TabsContent value="packets" className="space-y-4">
           <div className="flex items-center justify-between">
@@ -1661,6 +1670,7 @@ export default function ProjectDetailPage() {
         linkedRepos={project.repos}
         onRepoLinked={() => refreshProject()}
         workingDirectory={getEffectiveWorkingDirectory(project)}
+        basePath={project.basePath || project.workingDirectory || getEffectiveWorkingDirectory(project)}
       />
     </div>
   )

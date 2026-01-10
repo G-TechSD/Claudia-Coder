@@ -41,6 +41,7 @@ import {
   ExternalLink,
   GitBranch,
   Video,
+  MessageSquare,
 } from "lucide-react"
 
 interface NavItem {
@@ -70,6 +71,7 @@ const projectsItems: NavItem[] = [
 // Tools category items
 const toolsItems: NavItem[] = [
   { title: "Claude Code", href: "/claude-code", icon: Terminal },
+  { title: "Open Web UI", href: "/openwebui", icon: MessageSquare },
   { title: "Business Dev", href: "/business-dev", icon: Briefcase },
   { title: "Research", href: "/research", icon: Search },
   { title: "Patents", href: "/patents", icon: FileCheck },

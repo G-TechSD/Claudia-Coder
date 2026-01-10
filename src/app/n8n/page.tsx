@@ -4,12 +4,14 @@ import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { useN8NHealth, useWorkflows, useUserWorkflows, useUserExecutions } from "@/lib/api/hooks"
-import { n8nApi, type N8NExecution } from "@/lib/api"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/components/auth/auth-provider"
 import Link from "next/link"
+import { N8NEmbed, N8NConnectionStatus } from "@/components/n8n/n8n-embed"
+import { WorkflowActivity, RunningWorkflows, WorkflowActivityBadge } from "@/components/n8n/workflow-activity"
 import {
   Workflow,
   ExternalLink,
@@ -34,6 +36,11 @@ import {
   Settings,
   User,
   Share2,
+  Monitor,
+  LayoutDashboard,
+  Wand2,
+  AlertCircle,
+  Plus,
 } from "lucide-react"
 
 // Use environment variable or fallback (local N8N with HTTPS)
@@ -63,6 +70,9 @@ const executionStatusConfig = {
 export default function N8NPlaygroundPage() {
   const { user, isAuthenticated } = useAuth()
   const userId = user?.id || null
+
+  // Active tab state
+  const [activeTab, setActiveTab] = useState("overview")
 
   // Use user-specific workflows if authenticated, otherwise fall back to global
   const {
@@ -265,7 +275,8 @@ Generate a complete, valid JSON workflow that can be imported directly into N8N.
     total: workflows.length,
     active: workflows.filter(w => w.active).length,
     inactive: workflows.filter(w => !w.active).length,
-    recentExecutions: executions.length
+    recentExecutions: executions.length,
+    runningExecutions: executions.filter(e => e.status === "running").length
   }
 
   const filteredExecutions = selectedWorkflow
@@ -288,6 +299,8 @@ Generate a complete, valid JSON workflow that can be imported directly into N8N.
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <N8NConnectionStatus />
+          <WorkflowActivityBadge />
           {isAuthenticated && (
             <Button
               variant="outline"
@@ -314,11 +327,14 @@ Generate a complete, valid JSON workflow that can be imported directly into N8N.
           <Button asChild className="gap-2">
             <a href={effectiveN8NUrl} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="h-4 w-4" />
-              Open N8N Editor
+              Open N8N
             </a>
           </Button>
         </div>
       </div>
+
+      {/* Running Workflows Alert */}
+      <RunningWorkflows />
 
       {/* User Context Banner */}
       {isAuthenticated && connectionStatus && (
@@ -351,426 +367,479 @@ Generate a complete, valid JSON workflow that can be imported directly into N8N.
         </div>
       )}
 
-      {/* Connection Status */}
-      <Card className={cn(
-        "border-2 transition-colors",
-        effectiveIsHealthy === true && "border-green-500/50 bg-green-500/5",
-        effectiveIsHealthy === false && "border-red-500/50 bg-red-500/5",
-        effectiveIsHealthy === null && "border-muted"
-      )}>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className={cn(
-                "flex h-12 w-12 items-center justify-center rounded-lg",
-                effectiveIsHealthy === true && "bg-green-500/20",
-                effectiveIsHealthy === false && "bg-red-500/20",
-                effectiveIsHealthy === null && "bg-muted"
-              )}>
-                {isConnectionChecking ? (
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                ) : effectiveIsHealthy ? (
-                  <Server className="h-6 w-6 text-green-400" />
-                ) : (
-                  <Server className="h-6 w-6 text-red-400" />
-                )}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="font-semibold">N8N Server</p>
-                  <Badge variant={effectiveIsHealthy ? "success" : effectiveIsHealthy === false ? "destructive" : "secondary"}>
-                    {isConnectionChecking ? "Checking..." : effectiveIsHealthy ? "Connected" : effectiveIsHealthy === false ? "Disconnected" : "Unknown"}
-                  </Badge>
-                </div>
-                <p className="text-sm text-muted-foreground font-mono">{effectiveN8NUrl}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-2xl font-bold">{stats.active}</p>
-                <p className="text-xs text-muted-foreground">Active Workflows</p>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold">{stats.recentExecutions}</p>
-                <p className="text-xs text-muted-foreground">Recent Runs</p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Main Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+        <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-flex">
+          <TabsTrigger value="overview" className="gap-2">
+            <LayoutDashboard className="h-4 w-4" />
+            <span className="hidden sm:inline">Overview</span>
+          </TabsTrigger>
+          <TabsTrigger value="editor" className="gap-2">
+            <Monitor className="h-4 w-4" />
+            <span className="hidden sm:inline">Editor</span>
+          </TabsTrigger>
+          <TabsTrigger value="activity" className="gap-2">
+            <Activity className="h-4 w-4" />
+            <span className="hidden sm:inline">Activity</span>
+            {stats.runningExecutions > 0 && (
+              <Badge variant="secondary" className="ml-1 h-5 w-5 rounded-full p-0 text-xs">
+                {stats.runningExecutions}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="create" className="gap-2">
+            <Wand2 className="h-4 w-4" />
+            <span className="hidden sm:inline">Create AI</span>
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Button
-          variant="outline"
-          className="h-auto p-4 flex flex-col items-start gap-2 hover:bg-accent/50"
-          asChild
-        >
-          <a href={effectiveN8NUrl} target="_blank" rel="noopener noreferrer">
-            <div className="flex items-center gap-2 w-full">
-              <Terminal className="h-5 w-5 text-orange-400" />
-              <span className="font-medium">Open N8N Editor</span>
-              <ExternalLink className="h-4 w-4 ml-auto text-muted-foreground" />
-            </div>
-            <p className="text-xs text-muted-foreground text-left">
-              Visual workflow editor at {effectiveN8NUrl}
-            </p>
-          </a>
-        </Button>
-
-        <Button
-          variant="outline"
-          className="h-auto p-4 flex flex-col items-start gap-2 hover:bg-accent/50"
-          onClick={() => document.getElementById("workflow-import")?.click()}
-        >
-          <div className="flex items-center gap-2 w-full">
-            <Upload className="h-5 w-5 text-blue-400" />
-            <span className="font-medium">Import Workflow</span>
-          </div>
-          <p className="text-xs text-muted-foreground text-left">
-            Import workflow from JSON file
-          </p>
-          <input
-            id="workflow-import"
-            type="file"
-            accept=".json"
-            className="hidden"
-            onChange={(e) => {
-              // Handle file import
-              const file = e.target.files?.[0]
-              if (file) {
-                console.log("Importing workflow:", file.name)
-              }
-            }}
-          />
-        </Button>
-
-        <Button
-          variant="outline"
-          className="h-auto p-4 flex flex-col items-start gap-2 hover:bg-accent/50"
-          onClick={() => setSelectedWorkflow(null)}
-        >
-          <div className="flex items-center gap-2 w-full">
-            <History className="h-5 w-5 text-purple-400" />
-            <span className="font-medium">Execution History</span>
-          </div>
-          <p className="text-xs text-muted-foreground text-left">
-            View all workflow execution logs
-          </p>
-        </Button>
-      </div>
-
-      {/* Workflow Generator */}
-      <Card className="border-2 border-dashed border-muted-foreground/20 hover:border-purple-500/50 transition-colors">
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20">
-              <Sparkles className="h-4 w-4 text-purple-400" />
-            </div>
-            <div>
-              <CardTitle className="text-base font-medium">AI Workflow Generator</CardTitle>
-              <p className="text-xs text-muted-foreground">Describe what you want and let AI create the workflow</p>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Textarea
-              placeholder="Describe your workflow... e.g., 'When a webhook is triggered, fetch data from an API, filter results where status is active, and send a Slack notification with the count'"
-              value={workflowDescription}
-              onChange={(e) => setWorkflowDescription(e.target.value)}
-              className="min-h-[100px] bg-muted/30 border-muted-foreground/20 focus:border-purple-500/50 resize-none"
-              disabled={isGenerating}
-            />
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                Tip: Be specific about triggers, data sources, conditions, and actions
-              </p>
-              <Button
-                onClick={generateWorkflow}
-                disabled={!workflowDescription.trim() || isGenerating}
-                className="gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4" />
-                    Generate Workflow
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {/* Error Display */}
-          {generateError && (
-            <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-4">
-              <div className="flex items-start gap-2">
-                <XCircle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-red-400">Generation Failed</p>
-                  <p className="text-xs text-red-400/80 mt-1">{generateError}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Generated Workflow Display */}
-          {generatedWorkflow && (
-            <div className="space-y-2">
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="flex-1 space-y-6 mt-4">
+          {/* Connection Status */}
+          <Card className={cn(
+            "border-2 transition-colors",
+            effectiveIsHealthy === true && "border-green-500/50 bg-green-500/5",
+            effectiveIsHealthy === false && "border-red-500/50 bg-red-500/5",
+            effectiveIsHealthy === null && "border-muted"
+          )}>
+            <CardContent className="pt-6">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-400" />
-                  <p className="text-sm font-medium text-green-400">Workflow Generated</p>
+                <div className="flex items-center gap-4">
+                  <div className={cn(
+                    "flex h-12 w-12 items-center justify-center rounded-lg",
+                    effectiveIsHealthy === true && "bg-green-500/20",
+                    effectiveIsHealthy === false && "bg-red-500/20",
+                    effectiveIsHealthy === null && "bg-muted"
+                  )}>
+                    {isConnectionChecking ? (
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    ) : effectiveIsHealthy ? (
+                      <Server className="h-6 w-6 text-green-400" />
+                    ) : (
+                      <Server className="h-6 w-6 text-red-400" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold">N8N Server</p>
+                      <Badge variant={effectiveIsHealthy ? "success" : effectiveIsHealthy === false ? "destructive" : "secondary"}>
+                        {isConnectionChecking ? "Checking..." : effectiveIsHealthy ? "Connected" : effectiveIsHealthy === false ? "Disconnected" : "Unknown"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground font-mono">{effectiveN8NUrl}</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="text-2xl font-bold">{stats.active}</p>
+                    <p className="text-xs text-muted-foreground">Active Workflows</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-bold">{stats.recentExecutions}</p>
+                    <p className="text-xs text-muted-foreground">Recent Runs</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2 hover:bg-accent/50"
+              onClick={() => setActiveTab("editor")}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <Monitor className="h-5 w-5 text-orange-400" />
+                <span className="font-medium">Open Editor</span>
+              </div>
+              <p className="text-xs text-muted-foreground text-left">
+                Embedded N8N editor
+              </p>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2 hover:bg-accent/50"
+              onClick={() => setActiveTab("create")}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <Sparkles className="h-5 w-5 text-purple-400" />
+                <span className="font-medium">Create with AI</span>
+              </div>
+              <p className="text-xs text-muted-foreground text-left">
+                Generate workflows using AI
+              </p>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2 hover:bg-accent/50"
+              onClick={() => document.getElementById("workflow-import")?.click()}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <Upload className="h-5 w-5 text-blue-400" />
+                <span className="font-medium">Import Workflow</span>
+              </div>
+              <p className="text-xs text-muted-foreground text-left">
+                Import from JSON file
+              </p>
+              <input
+                id="workflow-import"
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    console.log("Importing workflow:", file.name)
+                  }
+                }}
+              />
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2 hover:bg-accent/50"
+              onClick={() => setActiveTab("activity")}
+            >
+              <div className="flex items-center gap-2 w-full">
+                <History className="h-5 w-5 text-green-400" />
+                <span className="font-medium">View Activity</span>
+              </div>
+              <p className="text-xs text-muted-foreground text-left">
+                Execution history
+              </p>
+            </Button>
+          </div>
+
+          {/* Main Content Grid */}
+          <div className="grid gap-6 lg:grid-cols-5 flex-1 min-h-0">
+            {/* Workflows List */}
+            <Card className="lg:col-span-2 flex flex-col min-h-0">
+              <CardHeader className="pb-2 flex-none">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base font-medium">
+                    Available Workflows
+                  </CardTitle>
+                  <Badge variant="outline">{workflows.length} total</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="flex-1 overflow-auto p-0">
+                {workflowsLoading ? (
+                  <div className="flex items-center justify-center h-32">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : workflows.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+                    <Workflow className="h-8 w-8 mb-2 opacity-50" />
+                    <p className="text-sm">No workflows found</p>
+                    <p className="text-xs">Create workflows in the N8N editor</p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {workflows.map(workflow => (
+                      <div
+                        key={workflow.id}
+                        onClick={() => setSelectedWorkflow(workflow.id)}
+                        className={cn(
+                          "flex items-center gap-3 p-4 cursor-pointer transition-colors",
+                          selectedWorkflow === workflow.id ? "bg-accent" : "hover:bg-accent/50"
+                        )}
+                      >
+                        <div className={cn(
+                          "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
+                          workflow.active ? "bg-green-400/10" : "bg-muted"
+                        )}>
+                          <Workflow className={cn(
+                            "h-5 w-5",
+                            workflow.active ? "text-green-400" : "text-muted-foreground"
+                          )} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{workflow.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Updated {formatTimestamp(workflow.updatedAt)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleToggleWorkflow(workflow.id, workflow.active)
+                            }}
+                          >
+                            {workflow.active ? (
+                              <Power className="h-4 w-4 text-green-400" />
+                            ) : (
+                              <PowerOff className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </Button>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Recent Executions */}
+            <WorkflowActivity
+              className="lg:col-span-3"
+              maxItems={8}
+              workflowId={selectedWorkflow || undefined}
+            />
+          </div>
+
+          {/* Webhook Endpoints Info */}
+          <Card className="bg-muted/30">
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-2">
+                <FileJson className="h-5 w-5 text-muted-foreground" />
+                <CardTitle className="text-base font-medium">Webhook Endpoints</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="space-y-1">
+                  <p className="text-muted-foreground">Git Actions</p>
+                  <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
+                    {effectiveN8NUrl}/webhook/git-action
+                  </code>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-muted-foreground">Packet Actions</p>
+                  <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
+                    {effectiveN8NUrl}/webhook/packet-action
+                  </code>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-muted-foreground">Agent Control</p>
+                  <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
+                    {effectiveN8NUrl}/webhook/agent-action
+                  </code>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Editor Tab - Embedded N8N */}
+        <TabsContent value="editor" className="flex-1 mt-4">
+          <N8NEmbed showHeader={true} />
+        </TabsContent>
+
+        {/* Activity Tab */}
+        <TabsContent value="activity" className="flex-1 space-y-4 mt-4">
+          <div className="grid gap-4 lg:grid-cols-3">
+            {/* Stats Cards */}
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-500/10">
+                    <Activity className="h-6 w-6 text-blue-500" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{stats.recentExecutions}</p>
+                    <p className="text-sm text-muted-foreground">Total Executions</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-500/10">
+                    <CheckCircle className="h-6 w-6 text-green-500" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">
+                      {executions.filter(e => e.status === "success").length}
+                    </p>
+                    <p className="text-sm text-muted-foreground">Successful</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-red-500/10">
+                    <XCircle className="h-6 w-6 text-red-500" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">
+                      {executions.filter(e => e.status === "error").length}
+                    </p>
+                    <p className="text-sm text-muted-foreground">Failed</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <WorkflowActivity maxItems={25} autoRefresh={true} refreshInterval={5000} />
+        </TabsContent>
+
+        {/* Create AI Tab */}
+        <TabsContent value="create" className="flex-1 space-y-4 mt-4">
+          <Card className="border-2 border-dashed border-muted-foreground/20 hover:border-purple-500/50 transition-colors">
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-2">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20">
+                  <Sparkles className="h-5 w-5 text-purple-400" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-medium">AI Workflow Generator</CardTitle>
+                  <p className="text-sm text-muted-foreground">Describe what you want and let AI create the workflow</p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Textarea
+                  placeholder="Describe your workflow... e.g., 'When a webhook is triggered, fetch data from an API, filter results where status is active, and send a Slack notification with the count'"
+                  value={workflowDescription}
+                  onChange={(e) => setWorkflowDescription(e.target.value)}
+                  className="min-h-[150px] bg-muted/30 border-muted-foreground/20 focus:border-purple-500/50 resize-none"
+                  disabled={isGenerating}
+                />
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Tip: Be specific about triggers, data sources, conditions, and actions
+                  </p>
                   <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={copyToClipboard}
-                    className="gap-1.5 h-8"
+                    onClick={generateWorkflow}
+                    disabled={!workflowDescription.trim() || isGenerating}
+                    className="gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
                   >
-                    {copied ? (
+                    {isGenerating ? (
                       <>
-                        <Check className="h-3.5 w-3.5 text-green-400" />
-                        Copied!
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Generating...
                       </>
                     ) : (
                       <>
-                        <Copy className="h-3.5 w-3.5" />
-                        Copy
+                        <Sparkles className="h-4 w-4" />
+                        Generate Workflow
                       </>
                     )}
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={downloadWorkflow}
-                    className="gap-1.5 h-8"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Download JSON
-                  </Button>
                 </div>
               </div>
-              <div className="relative">
-                <pre className="rounded-lg bg-muted/50 border border-muted-foreground/20 p-4 overflow-auto max-h-[400px] text-xs font-mono">
-                  <code className="text-muted-foreground">{generatedWorkflow}</code>
-                </pre>
-                <div className="absolute top-2 right-2">
-                  <Badge variant="outline" className="text-xs bg-background/80 backdrop-blur-sm">
-                    <FileJson className="h-3 w-3 mr-1" />
-                    JSON
-                  </Badge>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Import this JSON into N8N using the Import Workflow button above, or paste it directly in the N8N editor.
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* Main Content Grid */}
-      <div className="grid gap-6 lg:grid-cols-5 flex-1 min-h-0">
-        {/* Workflows List */}
-        <Card className="lg:col-span-2 flex flex-col min-h-0">
-          <CardHeader className="pb-2 flex-none">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-medium">
-                Available Workflows
-              </CardTitle>
-              <Badge variant="outline">{workflows.length} total</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-auto p-0">
-            {workflowsLoading ? (
-              <div className="flex items-center justify-center h-32">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : workflows.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-                <Workflow className="h-8 w-8 mb-2 opacity-50" />
-                <p className="text-sm">No workflows found</p>
-                <p className="text-xs">Create workflows in the N8N editor</p>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {workflows.map(workflow => (
-                  <div
-                    key={workflow.id}
-                    onClick={() => setSelectedWorkflow(workflow.id)}
-                    className={cn(
-                      "flex items-center gap-3 p-4 cursor-pointer transition-colors",
-                      selectedWorkflow === workflow.id ? "bg-accent" : "hover:bg-accent/50"
-                    )}
-                  >
-                    <div className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
-                      workflow.active ? "bg-green-400/10" : "bg-muted"
-                    )}>
-                      <Workflow className={cn(
-                        "h-5 w-5",
-                        workflow.active ? "text-green-400" : "text-muted-foreground"
-                      )} />
+              {/* Error Display */}
+              {generateError && (
+                <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-4">
+                  <div className="flex items-start gap-2">
+                    <XCircle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-red-400">Generation Failed</p>
+                      <p className="text-xs text-red-400/80 mt-1">{generateError}</p>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{workflow.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Updated {formatTimestamp(workflow.updatedAt)}
-                      </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Generated Workflow Display */}
+              {generatedWorkflow && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-green-400" />
+                      <p className="text-sm font-medium text-green-400">Workflow Generated</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleToggleWorkflow(workflow.id, workflow.active)
-                        }}
+                        variant="outline"
+                        size="sm"
+                        onClick={copyToClipboard}
+                        className="gap-1.5 h-8"
                       >
-                        {workflow.active ? (
-                          <Power className="h-4 w-4 text-green-400" />
+                        {copied ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 text-green-400" />
+                            Copied!
+                          </>
                         ) : (
-                          <PowerOff className="h-4 w-4 text-muted-foreground" />
+                          <>
+                            <Copy className="h-3.5 w-3.5" />
+                            Copy
+                          </>
                         )}
                       </Button>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={downloadWorkflow}
+                        className="gap-1.5 h-8"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download JSON
+                      </Button>
                     </div>
                   </div>
+                  <div className="relative">
+                    <pre className="rounded-lg bg-muted/50 border border-muted-foreground/20 p-4 overflow-auto max-h-[400px] text-xs font-mono">
+                      <code className="text-muted-foreground">{generatedWorkflow}</code>
+                    </pre>
+                    <div className="absolute top-2 right-2">
+                      <Badge variant="outline" className="text-xs bg-background/80 backdrop-blur-sm">
+                        <FileJson className="h-3 w-3 mr-1" />
+                        JSON
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      Import this JSON into N8N using the Import Workflow button, or paste it directly in the N8N editor.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setActiveTab("editor")}
+                      className="gap-2"
+                    >
+                      <Monitor className="h-4 w-4" />
+                      Open Editor
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Example Prompts */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-medium">Example Prompts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {[
+                  "When a webhook receives a GitHub push event, post a summary to Slack",
+                  "Every day at 9am, fetch data from an API and save to Google Sheets",
+                  "When a form is submitted via webhook, validate the data and send a confirmation email",
+                  "Monitor a URL every 5 minutes and alert via Slack if it's down",
+                ].map((prompt, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setWorkflowDescription(prompt)}
+                    className="p-3 rounded-lg border text-left hover:bg-accent/50 transition-colors"
+                  >
+                    <p className="text-sm text-muted-foreground">{prompt}</p>
+                  </button>
                 ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Recent Executions */}
-        <Card className="lg:col-span-3 flex flex-col min-h-0">
-          <CardHeader className="pb-2 flex-none">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-base font-medium">
-                  {selectedWorkflow ? "Workflow Executions" : "Recent Executions"}
-                </CardTitle>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={fetchExecutions}
-                disabled={executionsLoading}
-                className="gap-1.5"
-              >
-                <RefreshCw className={cn("h-4 w-4", executionsLoading && "animate-spin")} />
-                Refresh
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-auto p-0">
-            {executionsLoading ? (
-              <div className="flex items-center justify-center h-32">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : filteredExecutions.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-                <History className="h-8 w-8 mb-2 opacity-50" />
-                <p className="text-sm">No executions found</p>
-                <p className="text-xs">Workflow runs will appear here</p>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {filteredExecutions.map(execution => {
-                  const config = executionStatusConfig[execution.status]
-                  const Icon = config.icon
-                  const workflowName = workflows.find(w => w.id === execution.workflowId)?.name || "Unknown Workflow"
-                  return (
-                    <div
-                      key={execution.id}
-                      className="flex items-center gap-3 p-4 hover:bg-accent/50 transition-colors"
-                    >
-                      <div className="relative flex h-2 w-2 shrink-0">
-                        <span
-                          className={cn(
-                            "absolute inline-flex h-full w-full rounded-full opacity-75",
-                            config.bg,
-                            config.animate && "animate-ping"
-                          )}
-                        />
-                        <span
-                          className={cn(
-                            "relative inline-flex h-2 w-2 rounded-full",
-                            config.bg
-                          )}
-                        />
-                      </div>
-                      <Icon className={cn(
-                        "h-4 w-4 shrink-0",
-                        config.color,
-                        config.animate && "animate-spin"
-                      )} />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{workflowName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          ID: {execution.id.slice(0, 8)}... | Mode: {execution.mode}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <Badge
-                          variant={execution.status === "success" ? "success" : execution.status === "error" ? "destructive" : "secondary"}
-                          className="text-xs"
-                        >
-                          {config.label}
-                        </Badge>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {formatTimestamp(execution.startedAt)}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Webhook Endpoints Info */}
-      <Card className="bg-muted/30">
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <FileJson className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base font-medium">Webhook Endpoints</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div className="space-y-1">
-              <p className="text-muted-foreground">Git Actions</p>
-              <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-                {effectiveN8NUrl}/webhook/git-action
-              </code>
-            </div>
-            <div className="space-y-1">
-              <p className="text-muted-foreground">Packet Actions</p>
-              <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-                {effectiveN8NUrl}/webhook/packet-action
-              </code>
-            </div>
-            <div className="space-y-1">
-              <p className="text-muted-foreground">Agent Control</p>
-              <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-                {effectiveN8NUrl}/webhook/agent-action
-              </code>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

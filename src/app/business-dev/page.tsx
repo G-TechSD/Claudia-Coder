@@ -65,6 +65,45 @@ import {
 import { getAllProjects, getProject } from "@/lib/data/projects"
 import type { BusinessDev, BusinessDevStatus, Project } from "@/lib/data/types"
 
+// Web Speech API types
+interface WebSpeechRecognitionEvent extends Event {
+  results: WebSpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface WebSpeechRecognitionResultList {
+  length: number;
+  item(index: number): WebSpeechRecognitionResult;
+  [index: number]: WebSpeechRecognitionResult;
+}
+
+interface WebSpeechRecognitionResult {
+  length: number;
+  item(index: number): WebSpeechRecognitionAlternative;
+  [index: number]: WebSpeechRecognitionAlternative;
+  isFinal: boolean;
+}
+
+interface WebSpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+interface WebSpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((event: WebSpeechRecognitionEvent) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+}
+
+// Type for getting SpeechRecognition constructor from window
+type WebSpeechRecognitionConstructor = new () => WebSpeechRecognition;
+
 // ============ Types ============
 
 type PageMode = "list" | "create" | "braindump" | "interview" | "analysis" | "chat"
@@ -167,7 +206,7 @@ export default function BusinessDevPage() {
   const [isListening, setIsListening] = useState(false)
   const [isVoiceSupported, setIsVoiceSupported] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const recognitionRef = useRef<WebSpeechRecognition | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const animationRef = useRef<number | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -192,20 +231,22 @@ export default function BusinessDevPage() {
 
   // Check voice support
   useEffect(() => {
-    const SpeechRecognitionAPI =
-      (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition })
-        .SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition
+    // Access SpeechRecognition from window with type assertion
+    const windowWithSpeech = window as typeof window & {
+      SpeechRecognition?: WebSpeechRecognitionConstructor;
+      webkitSpeechRecognition?: WebSpeechRecognitionConstructor;
+    }
+    const SpeechRecognitionAPI = windowWithSpeech.SpeechRecognition || windowWithSpeech.webkitSpeechRecognition
     setIsVoiceSupported(!!SpeechRecognitionAPI)
 
     if (SpeechRecognitionAPI) {
-      const recognition = new SpeechRecognitionAPI()
+      const recognition = new SpeechRecognitionAPI() as WebSpeechRecognition
       recognitionRef.current = recognition
       recognition.continuous = true
       recognition.interimResults = true
       recognition.lang = "en-US"
 
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
+      recognition.onresult = (event: WebSpeechRecognitionEvent) => {
         let finalText = ""
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const result = event.results[i]
@@ -259,7 +300,7 @@ export default function BusinessDevPage() {
     setBusinessDevs(enrichedDevs)
 
     // Load projects for dropdown
-    const allProjects = getAllProjects({ includeArchived: false })
+    const allProjects = getAllProjects({ includeTrashed: false })
     setProjects(allProjects.filter(p => p.status !== "completed"))
 
     setIsLoading(false)

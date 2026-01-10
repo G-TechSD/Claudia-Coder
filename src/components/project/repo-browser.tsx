@@ -21,7 +21,11 @@ import {
   Check,
   ExternalLink,
   Settings,
-  FolderOpen
+  FolderOpen,
+  ChevronDown,
+  ChevronUp,
+  MapPin,
+  Pencil
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { listGitLabProjects, type GitLabProject } from "@/lib/gitlab/api"
@@ -37,6 +41,18 @@ interface RepoBrowserProps {
   linkedRepos: LinkedRepo[]
   onRepoLinked?: (repo: LinkedRepo) => void
   workingDirectory?: string
+  basePath?: string // The project's base folder path (e.g., /home/bill/projects/my-app)
+}
+
+/**
+ * Generate the auto-mapped local path for a repo
+ * Format: <basePath>/repos/<repoName>
+ */
+function getAutoMappedPath(basePath: string | undefined, repoName: string): string {
+  if (!basePath) return ""
+  // Normalize: remove trailing slash, add /repos/<repoName>
+  const normalizedBase = basePath.replace(/\/+$/, "")
+  return `${normalizedBase}/repos/${repoName}`
 }
 
 export function RepoBrowser({
@@ -45,7 +61,8 @@ export function RepoBrowser({
   projectId,
   linkedRepos,
   onRepoLinked,
-  workingDirectory
+  workingDirectory,
+  basePath
 }: RepoBrowserProps) {
   const { user } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
@@ -54,6 +71,13 @@ export function RepoBrowser({
   const [error, setError] = useState<string | null>(null)
   const [hasToken, setHasToken] = useState(false)
   const [linking, setLinking] = useState<number | null>(null)
+
+  // Custom path state - tracks which repos have custom path enabled and their custom values
+  const [customPathEnabled, setCustomPathEnabled] = useState<Record<number, boolean>>({})
+  const [customPaths, setCustomPaths] = useState<Record<number, string>>({})
+
+  // Effective base path: prefer basePath prop, fall back to workingDirectory
+  const effectiveBasePath = basePath || workingDirectory
 
   // Check for token on mount - use getUserGitLabToken which checks both personal and shared instance tokens
   useEffect(() => {
@@ -116,14 +140,21 @@ export function RepoBrowser({
     setLinking(repo.id)
 
     try {
+      // Determine the local path: use custom path if enabled, otherwise use auto-mapped path
+      let localPath: string | undefined
+      if (customPathEnabled[repo.id] && customPaths[repo.id]) {
+        localPath = customPaths[repo.id]
+      } else if (effectiveBasePath) {
+        localPath = getAutoMappedPath(effectiveBasePath, repo.name)
+      }
+
       const linkedRepo: LinkedRepo = {
         provider: "gitlab",
         id: repo.id,
         name: repo.name,
         path: repo.path_with_namespace,
         url: repo.web_url,
-        // Auto-fill local path from project's working directory
-        localPath: workingDirectory || undefined
+        localPath
       }
 
       const updated = linkRepoToProject(projectId, linkedRepo)
@@ -135,6 +166,26 @@ export function RepoBrowser({
     } finally {
       setLinking(null)
     }
+  }
+
+  // Helper to toggle custom path for a repo
+  const toggleCustomPath = (repoId: number, repoName: string) => {
+    setCustomPathEnabled(prev => {
+      const newState = { ...prev, [repoId]: !prev[repoId] }
+      // Initialize custom path with auto-mapped path when enabling
+      if (newState[repoId] && !customPaths[repoId]) {
+        setCustomPaths(prevPaths => ({
+          ...prevPaths,
+          [repoId]: getAutoMappedPath(effectiveBasePath, repoName)
+        }))
+      }
+      return newState
+    })
+  }
+
+  // Helper to update custom path
+  const updateCustomPath = (repoId: number, path: string) => {
+    setCustomPaths(prev => ({ ...prev, [repoId]: path }))
   }
 
   return (
@@ -170,15 +221,39 @@ export function RepoBrowser({
           </Card>
         ) : (
           <>
-            {/* Working Directory Info */}
-            {workingDirectory && (
-              <Card className="bg-blue-500/10 border-blue-500/30">
-                <CardContent className="p-3 flex items-center gap-2 text-sm">
-                  <FolderOpen className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                  <span className="text-muted-foreground">Local path:</span>
-                  <code className="bg-muted px-2 py-0.5 rounded font-mono text-xs flex-1 truncate">
-                    {workingDirectory}
-                  </code>
+            {/* Auto-mapping Info */}
+            {effectiveBasePath && (
+              <Card className="bg-green-500/10 border-green-500/30">
+                <CardContent className="p-3 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <MapPin className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    <span className="font-medium text-green-600">Auto-mapping enabled</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-muted-foreground">Project folder:</span>
+                    <code className="bg-muted px-2 py-0.5 rounded font-mono text-xs flex-1 truncate">
+                      {effectiveBasePath}
+                    </code>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Repos will be mapped to: <code className="bg-muted px-1 py-0.5 rounded font-mono">{effectiveBasePath}/repos/&lt;repo-name&gt;</code>
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Warning if no base path configured */}
+            {!effectiveBasePath && (
+              <Card className="bg-yellow-500/10 border-yellow-500/30">
+                <CardContent className="p-3 flex items-start gap-2 text-sm">
+                  <AlertCircle className="h-4 w-4 text-yellow-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-yellow-600">No project folder configured</p>
+                    <p className="text-muted-foreground text-xs mt-1">
+                      Set a working directory in project settings to enable auto-mapping of repo paths.
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
             )}
@@ -218,78 +293,77 @@ export function RepoBrowser({
                 repos.map(repo => {
                   const isLinked = isRepoLinked(repo.id)
                   const isLinking = linking === repo.id
+                  const autoMappedPath = getAutoMappedPath(effectiveBasePath, repo.name)
+                  const isCustomPathMode = customPathEnabled[repo.id]
 
                   return (
                     <Card
                       key={repo.id}
                       className={cn(
-                        "cursor-pointer transition-colors",
+                        "transition-colors",
                         isLinked
                           ? "border-primary/50 bg-primary/5"
                           : "hover:border-primary/30"
                       )}
                     >
-                      <CardContent className="p-3 flex items-center gap-3">
-                        <GitBranch className={cn(
-                          "h-5 w-5",
-                          isLinked ? "text-primary" : "text-muted-foreground"
-                        )} />
+                      <CardContent className="p-3 space-y-3">
+                        {/* Repo Header */}
+                        <div className="flex items-center gap-3">
+                          <GitBranch className={cn(
+                            "h-5 w-5 flex-shrink-0",
+                            isLinked ? "text-primary" : "text-muted-foreground"
+                          )} />
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium truncate">{repo.name}</p>
-                            <Badge variant="outline" className="text-xs shrink-0">
-                              {repo.visibility}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {repo.path_with_namespace}
-                          </p>
-                          {repo.description && (
-                            <p className="text-sm text-muted-foreground line-clamp-1 mt-0.5">
-                              {repo.description}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium truncate">{repo.name}</p>
+                              <Badge variant="outline" className="text-xs shrink-0">
+                                {repo.visibility}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground truncate">
+                              {repo.path_with_namespace}
                             </p>
-                          )}
-                        </div>
+                          </div>
 
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            asChild
-                          >
-                            <a
-                              href={repo.web_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={e => e.stopPropagation()}
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </a>
-                          </Button>
-
-                          {isLinked ? (
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="ghost"
-                              size="sm"
-                              className="text-primary"
-                              disabled
+                              size="icon"
+                              className="h-8 w-8"
+                              asChild
                             >
-                              <Check className="h-4 w-4 mr-1" />
-                              Linked
+                              <a
+                                href={repo.web_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={e => e.stopPropagation()}
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </a>
                             </Button>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleLinkRepo(repo)}
-                              disabled={isLinking}
-                            >
-                              {isLinking ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>
+
+                            {isLinked ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-primary"
+                                disabled
+                              >
+                                <Check className="h-4 w-4 mr-1" />
+                                Linked
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleLinkRepo(repo)}
+                                disabled={isLinking}
+                              >
+                                {isLinking ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>
                                   <Link2 className="h-4 w-4 mr-1" />
                                   Link
                                 </>
@@ -297,6 +371,76 @@ export function RepoBrowser({
                             </Button>
                           )}
                         </div>
+                        </div>
+
+                        {/* Local Path Section - only show for repos that aren't linked yet */}
+                        {!isLinked && effectiveBasePath && (
+                          <div className="border-t pt-3 space-y-2">
+                            {/* Auto-mapped path display */}
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-green-500 flex-shrink-0" />
+                              <span className="text-xs text-muted-foreground">Maps to:</span>
+                              <code className="text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded font-mono flex-1 truncate">
+                                {isCustomPathMode ? customPaths[repo.id] || autoMappedPath : autoMappedPath}
+                              </code>
+                            </div>
+
+                            {/* Custom path toggle */}
+                            <div className="flex items-center justify-between">
+                              <button
+                                type="button"
+                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                onClick={() => toggleCustomPath(repo.id, repo.name)}
+                              >
+                                <Pencil className="h-3 w-3" />
+                                <span>Custom path</span>
+                                {isCustomPathMode ? (
+                                  <ChevronUp className="h-3 w-3" />
+                                ) : (
+                                  <ChevronDown className="h-3 w-3" />
+                                )}
+                              </button>
+
+                              {isCustomPathMode && (
+                                <button
+                                  type="button"
+                                  className="text-xs text-blue-500 hover:text-blue-600"
+                                  onClick={() => {
+                                    setCustomPathEnabled(prev => ({ ...prev, [repo.id]: false }))
+                                  }}
+                                >
+                                  Use auto-mapped
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Custom path input (collapsed by default) */}
+                            {isCustomPathMode && (
+                              <div className="space-y-1">
+                                <Input
+                                  value={customPaths[repo.id] || ""}
+                                  onChange={(e) => updateCustomPath(repo.id, e.target.value)}
+                                  placeholder="/path/to/local/repo"
+                                  className="h-8 text-sm font-mono"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                  Enter the full path where this repo exists locally
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Show mapped path for already linked repos */}
+                        {isLinked && linkedRepos.find(r => r.id === repo.id)?.localPath && (
+                          <div className="border-t pt-2 flex items-center gap-2">
+                            <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <span className="text-xs text-muted-foreground">Mapped to:</span>
+                            <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono flex-1 truncate">
+                              {linkedRepos.find(r => r.id === repo.id)?.localPath}
+                            </code>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   )
