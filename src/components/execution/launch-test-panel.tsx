@@ -26,8 +26,38 @@ import {
   Bug,
   Sparkles,
   Clock,
-  Terminal
+  Terminal,
+  AlertTriangle
 } from "lucide-react"
+
+// Reserved ports that should not be used (Claudia runs on port 3000)
+const RESERVED_PORTS: Record<number, string> = {
+  3000: "Claudia Coder"
+}
+
+// Alternative ports to suggest when default is reserved
+const ALTERNATIVE_PORTS = [3001, 8080, 5000, 5173, 4000, 4200, 8000, 9000]
+
+function isPortReserved(port: number): { reserved: boolean; usedBy?: string } {
+  const usedBy = RESERVED_PORTS[port]
+  return { reserved: !!usedBy, usedBy }
+}
+
+function getSuggestedPorts(excludePort?: number): number[] {
+  const reservedPorts = Object.keys(RESERVED_PORTS).map(Number)
+  return ALTERNATIVE_PORTS.filter(port =>
+    !reservedPorts.includes(port) && port !== excludePort
+  )
+}
+
+function getSafeDefaultPort(requestedPort: number): number {
+  const { reserved } = isPortReserved(requestedPort)
+  if (reserved) {
+    const suggestions = getSuggestedPorts(requestedPort)
+    return suggestions[0] || 8080
+  }
+  return requestedPort
+}
 
 // Project type configurations with run commands
 const PROJECT_TYPES = {
@@ -49,18 +79,18 @@ const PROJECT_TYPES = {
   },
   nextjs: {
     name: "Next.js",
-    runCommand: "npm run dev",
-    devCommand: "npm run dev",
+    runCommand: "npm run dev -- -p 3001",
+    devCommand: "npm run dev -- -p 3001",
     buildCommand: "npm run build",
-    defaultPort: 3000,
+    defaultPort: 3001, // Changed from 3000 - port 3000 is reserved for Claudia
     icon: "react"
   },
   nuxt: {
     name: "Nuxt",
-    runCommand: "npm run dev",
-    devCommand: "npm run dev",
+    runCommand: "npm run dev -- --port 3001",
+    devCommand: "npm run dev -- --port 3001",
     buildCommand: "npm run build",
-    defaultPort: 3000,
+    defaultPort: 3001, // Changed from 3000 - port 3000 is reserved for Claudia
     icon: "vue"
   },
   svelte: {
@@ -73,10 +103,10 @@ const PROJECT_TYPES = {
   },
   react: {
     name: "React",
-    runCommand: "npm start",
-    devCommand: "npm start",
+    runCommand: "PORT=3001 npm start",
+    devCommand: "PORT=3001 npm start",
     buildCommand: "npm run build",
-    defaultPort: 3000,
+    defaultPort: 3001, // Changed from 3000 - port 3000 is reserved for Claudia
     icon: "react"
   },
   vue: {
@@ -89,10 +119,10 @@ const PROJECT_TYPES = {
   },
   node: {
     name: "Node.js",
-    runCommand: "npm start",
-    devCommand: "npm run dev",
+    runCommand: "PORT=3001 npm start",
+    devCommand: "PORT=3001 npm run dev",
     buildCommand: "npm run build",
-    defaultPort: 3000,
+    defaultPort: 3001, // Changed from 3000 - port 3000 is reserved for Claudia
     icon: "node"
   },
   python: {
@@ -174,10 +204,12 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
   const [appStatus, setAppStatus] = React.useState<AppStatus>("idle")
   const [projectType, setProjectType] = React.useState<ProjectType | null>(null)
   const [appUrl, setAppUrl] = React.useState<string | null>(null)
-  const [appPort, setAppPort] = React.useState<number>(3000)
+  const [appPort, setAppPort] = React.useState<number>(3001) // Default to 3001 (3000 is reserved for Claudia)
   const [launchError, setLaunchError] = React.useState<string | null>(null)
   const [processId, setProcessId] = React.useState<string | null>(null)
   const [launchLogs, setLaunchLogs] = React.useState<string[]>([])
+  const [portWarning, setPortWarning] = React.useState<string | null>(null)
+  const [suggestedPorts, setSuggestedPorts] = React.useState<number[]>([])
 
   // Feedback state
   const [feedbackText, setFeedbackText] = React.useState("")
@@ -233,6 +265,18 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
     }
   }, [workingDirectory])
 
+  // Validate port whenever it changes
+  React.useEffect(() => {
+    const { reserved, usedBy } = isPortReserved(appPort)
+    if (reserved) {
+      setPortWarning(`Port ${appPort} is reserved for ${usedBy}`)
+      setSuggestedPorts(getSuggestedPorts(appPort))
+    } else {
+      setPortWarning(null)
+      setSuggestedPorts([])
+    }
+  }, [appPort])
+
   const addLog = (message: string) => {
     setLaunchLogs(prev => [...prev.slice(-50), `[${new Date().toLocaleTimeString()}] ${message}`])
   }
@@ -260,7 +304,10 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
 
       if (data.projectType && PROJECT_TYPES[data.projectType as ProjectType]) {
         setProjectType(data.projectType)
-        setAppPort(PROJECT_TYPES[data.projectType as ProjectType]?.defaultPort || 3000)
+        const defaultPort = PROJECT_TYPES[data.projectType as ProjectType]?.defaultPort || 3001
+        // Ensure we use a safe port (not reserved)
+        const safePort = getSafeDefaultPort(defaultPort)
+        setAppPort(safePort)
         const detectedBy = data.detectedBy ? ` (via ${data.detectedBy})` : ""
         addLog(`Detected: ${PROJECT_TYPES[data.projectType as ProjectType]?.name}${detectedBy}`)
       } else if (data.error) {
@@ -290,8 +337,18 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       return
     }
 
+    // Check if port is reserved before attempting to launch
+    const { reserved, usedBy } = isPortReserved(appPort)
+    if (reserved) {
+      setLaunchError(`Port ${appPort} is reserved for ${usedBy}. Please select a different port.`)
+      setSuggestedPorts(getSuggestedPorts(appPort))
+      addLog(`Cannot launch on port ${appPort} - reserved for ${usedBy}`)
+      return
+    }
+
     setAppStatus("launching")
     setLaunchError(null)
+    setPortWarning(null)
     addLog(`Launching ${PROJECT_TYPES[projectType].name} app in ${workingDirectory}...`)
 
     try {
@@ -318,6 +375,15 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
         setLaunchError(data.error || "Failed to launch app")
         setAppStatus("error")
         addLog(`Launch failed: ${data.error}`)
+
+        // Handle port conflict responses with suggested alternatives
+        if (data.isReserved || data.isInUse) {
+          if (data.suggestedPorts?.length) {
+            setSuggestedPorts(data.suggestedPorts)
+            addLog(`Suggested ports: ${data.suggestedPorts.slice(0, 3).join(", ")}`)
+          }
+        }
+
         if (data.stderr) {
           addLog(`stderr: ${data.stderr.substring(0, 200)}`)
         }
@@ -686,12 +752,43 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
               <input
                 type="number"
                 value={appPort}
-                onChange={(e) => setAppPort(parseInt(e.target.value) || 3000)}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                onChange={(e) => setAppPort(parseInt(e.target.value) || 3001)}
+                className={cn(
+                  "w-full h-10 rounded-md border bg-background px-3 py-2 text-sm",
+                  portWarning ? "border-yellow-500" : "border-input"
+                )}
                 disabled={appStatus === "running"}
               />
             </div>
           </div>
+
+          {/* Port Warning */}
+          {portWarning && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+              <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-yellow-400 font-medium">{portWarning}</p>
+                {suggestedPorts.length > 0 && (
+                  <div className="mt-2">
+                    <span className="text-xs text-yellow-400/70">Use an alternative port: </span>
+                    <div className="flex gap-2 mt-1">
+                      {suggestedPorts.slice(0, 4).map(port => (
+                        <Button
+                          key={port}
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/20"
+                          onClick={() => setAppPort(port)}
+                        >
+                          {port}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Launch Controls */}
           <div className="flex items-center gap-4">
@@ -704,7 +801,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
                   : "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500"
               )}
               onClick={appStatus === "running" ? handleStop : handleLaunch}
-              disabled={!workingDirectory || !projectType || appStatus === "launching" || appStatus === "building"}
+              disabled={!workingDirectory || !projectType || appStatus === "launching" || appStatus === "building" || (!!portWarning && appStatus !== "running")}
             >
               {appStatus === "running" ? (
                 <>
@@ -754,9 +851,30 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
           {launchError && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
               <AlertCircle className="h-4 w-4 text-red-500 mt-0.5" />
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-red-400 font-medium">Launch Error</p>
                 <p className="text-xs text-red-400/70">{launchError}</p>
+                {suggestedPorts.length > 0 && launchError.includes("reserved") && (
+                  <div className="mt-2">
+                    <span className="text-xs text-red-400/70">Try one of these ports: </span>
+                    <div className="flex gap-2 mt-1">
+                      {suggestedPorts.slice(0, 4).map(port => (
+                        <Button
+                          key={port}
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs border-red-500/50 text-red-400 hover:bg-red-500/20"
+                          onClick={() => {
+                            setAppPort(port)
+                            setLaunchError(null)
+                          }}
+                        >
+                          {port}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -944,7 +1062,8 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
             disabled={
               isFixing ||
               feedbackItems.filter(f => f.status === "pending").length === 0 ||
-              appStatus !== "running"
+              !workingDirectory ||
+              !projectType
             }
           >
             {isFixing ? (

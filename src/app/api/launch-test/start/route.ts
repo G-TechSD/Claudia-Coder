@@ -3,12 +3,14 @@
  * POST /api/launch-test/start
  *
  * Launches a development server for the project in the specified directory.
+ * Validates ports against reserved ports (e.g., port 3000 for Claudia).
  */
 
 import { NextRequest, NextResponse } from "next/server"
 import { spawn, ChildProcess, exec } from "child_process"
 import { promisify } from "util"
 import * as fs from "fs/promises"
+import { validatePort, getSuggestedPorts } from "@/lib/execution/port-config"
 
 const execAsync = promisify(exec)
 
@@ -74,12 +76,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check if port is in use
+    // Check if port is reserved by Claudia or other services
+    const portValidation = validatePort(port)
+    if (!portValidation.valid) {
+      console.log(`[Launch] Port ${port} is reserved: ${portValidation.error}`)
+      return NextResponse.json({
+        success: false,
+        error: portValidation.error,
+        isReserved: true,
+        suggestedPorts: portValidation.suggestedPorts || getSuggestedPorts(port)
+      })
+    }
+
+    // Check if port is in use by another process
     try {
       await execAsync(`lsof -i :${port}`, { timeout: 5000 })
       return NextResponse.json({
         success: false,
-        error: `Port ${port} is already in use`
+        error: `Port ${port} is already in use by another process`,
+        isInUse: true,
+        suggestedPorts: getSuggestedPorts(port)
       })
     } catch {
       // Port is free, continue

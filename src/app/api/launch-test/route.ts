@@ -7,6 +7,8 @@
  * - Screenshot capture
  * - Visual verification on remote VM
  * - Feedback to work packet conversion
+ *
+ * Note: Port 3000 is reserved for Claudia Coder and should not be used.
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -14,6 +16,7 @@ import { exec, spawn, ChildProcess } from "child_process"
 import { promisify } from "util"
 import * as fs from "fs/promises"
 import * as path from "path"
+import { validatePort, getSuggestedPorts } from "@/lib/execution/port-config"
 
 const execAsync = promisify(exec)
 
@@ -217,12 +220,25 @@ async function handleStart(body: {
       }
     }
 
-    // Check if port is in use
+    // Check if port is reserved by Claudia or other services
+    const portValidation = validatePort(port)
+    if (!portValidation.valid) {
+      return NextResponse.json({
+        success: false,
+        error: portValidation.error,
+        isReserved: true,
+        suggestedPorts: portValidation.suggestedPorts || getSuggestedPorts(port)
+      })
+    }
+
+    // Check if port is in use by another process
     try {
       await execAsync(`lsof -i :${port}`, { timeout: 5000 })
       return NextResponse.json({
         success: false,
-        error: `Port ${port} is already in use`
+        error: `Port ${port} is already in use by another process`,
+        isInUse: true,
+        suggestedPorts: getSuggestedPorts(port)
       })
     } catch {
       // Port is free, continue
