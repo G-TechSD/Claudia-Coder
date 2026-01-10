@@ -42,6 +42,7 @@ import {
   GitBranch,
   Video,
   MessageSquare,
+  Database,
 } from "lucide-react"
 
 interface NavItem {
@@ -86,6 +87,7 @@ const adminItems: NavItem[] = [
   { title: "Sessions", href: "/admin/sessions", icon: Video },
   { title: "Invites", href: "/admin/invites", icon: UserPlus },
   { title: "Referrals", href: "/admin/referrals", icon: Gift },
+  { title: "Migration", href: "/admin/migration", icon: Database },
   { title: "Settings", href: "/settings", icon: Settings },
   { title: "Security", href: "/settings/security", icon: Shield },
 ]
