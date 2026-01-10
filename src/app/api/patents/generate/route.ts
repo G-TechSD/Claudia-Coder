@@ -2,16 +2,21 @@
  * Patent Submission Generation API
  * Generates professional patent submission content following USPTO format
  * Sections: Abstract, Background, Summary, Detailed Description, Claims
+ *
+ * Uses local LLM (Beast server with gpt-oss-20b by default) for generation
  */
 
 import { NextRequest, NextResponse } from "next/server"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
+import { cleanLLMResponse, parseLLMJson } from "@/lib/llm"
 import type {
   PatentSubmission,
   PatentSection,
   PatentClaim,
-  PatentSectionType
+  PatentSectionType,
+  PatentResearch
 } from "@/lib/data/types"
+import { getPatent, updatePatent } from "@/lib/data/patents"
 
 const USPTO_FORMAT_SYSTEM_PROMPT = `You are an expert patent attorney and technical writer specializing in drafting USPTO patent applications.
 
@@ -223,32 +228,39 @@ interface ParsedClaims {
 }
 
 function parseSection(content: string): ParsedSection {
-  let jsonStr = content.trim()
+  // Use the centralized LLM response cleaning
+  const cleaned = cleanLLMResponse(content)
 
-  if (jsonStr.startsWith("```")) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "")
+  // Try to parse as JSON first
+  const parsed = parseLLMJson<ParsedSection>(cleaned)
+  if (parsed && parsed.content) {
+    return {
+      content: parsed.content,
+      wordCount: parsed.wordCount,
+      suggestions: parsed.suggestions || [],
+      warnings: parsed.warnings || []
+    }
   }
 
-  try {
-    return JSON.parse(jsonStr)
-  } catch {
-    // If JSON parsing fails, treat the whole content as the section content
-    return { content: jsonStr, suggestions: [], warnings: [] }
-  }
+  // If JSON parsing fails, treat the whole content as the section content
+  return { content: cleaned, suggestions: [], warnings: [] }
 }
 
 function parseClaims(content: string): ParsedClaims {
-  let jsonStr = content.trim()
+  // Use the centralized LLM response cleaning
+  const cleaned = cleanLLMResponse(content)
 
-  if (jsonStr.startsWith("```")) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "")
+  // Try to parse as JSON
+  const parsed = parseLLMJson<ParsedClaims>(cleaned)
+  if (parsed && Array.isArray(parsed.claims)) {
+    return {
+      claims: parsed.claims,
+      suggestions: parsed.suggestions || [],
+      warnings: parsed.warnings || []
+    }
   }
 
-  try {
-    return JSON.parse(jsonStr)
-  } catch {
-    return { claims: [], suggestions: [], warnings: ["Failed to parse claims"] }
-  }
+  return { claims: [], suggestions: [], warnings: ["Failed to parse claims from LLM response"] }
 }
 
 export async function POST(request: NextRequest) {
@@ -278,6 +290,10 @@ export async function POST(request: NextRequest) {
     const allSuggestions: string[] = []
     const allWarnings: string[] = []
 
+    // Track generation metadata
+    let generationServer = "local"
+    let generationModel = "unknown"
+
     // Determine which sections to generate
     const sectionsToGenerate: (PatentSectionType | "claims")[] =
       sectionToGenerate === "all"
@@ -290,22 +306,34 @@ export async function POST(request: NextRequest) {
     for (const section of sectionsToGenerate) {
       const prompt = generateSectionPrompt(section, body)
 
+      // Use Beast server with gpt-oss-20b by default for best quality
+      // Falls back to other servers if preferred is unavailable
       const llmResponse = await generateWithLocalLLM(
         USPTO_FORMAT_SYSTEM_PROMPT,
         prompt,
         {
           temperature: 0.4,
           max_tokens: 8192,
-          preferredServer: preferredProvider
+          preferredServer: preferredProvider || "beast",
+          preferredModel: "gpt-oss-20b"
         }
       )
 
       if (llmResponse.error) {
+        console.error(`[Patent Generation] Failed to generate ${section}:`, llmResponse.error)
         return NextResponse.json({
           error: `Failed to generate ${section}: ${llmResponse.error}`,
-          partialResult: { sections, claims }
+          partialResult: { sections, claims },
+          server: generationServer,
+          model: generationModel
         }, { status: 503 })
       }
+
+      // Capture generation metadata from the first successful response
+      if (llmResponse.server) generationServer = llmResponse.server
+      if (llmResponse.model) generationModel = llmResponse.model
+
+      console.log(`[Patent Generation] Generated ${section} using ${generationServer}/${generationModel}`)
 
       if (section === "claims") {
         const parsed = parseClaims(llmResponse.content)
@@ -359,8 +387,8 @@ export async function POST(request: NextRequest) {
         inventorInfoComplete: false
       },
       generatedBy: {
-        server: "local",
-        model: "unknown"
+        server: generationServer,
+        model: generationModel
       },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -400,15 +428,341 @@ function getSectionTitle(type: PatentSectionType): string {
   }
 }
 
+/**
+ * PATCH endpoint - Generate content for a specific patent section and save to database
+ * Accepts patentId and section to generate, uses invention description from the patent record
+ */
+export async function PATCH(request: NextRequest) {
+  const startTime = Date.now()
+
+  try {
+    const body = await request.json()
+    const {
+      patentId,
+      section,
+      preferredServer,
+      preferredModel
+    } = body as {
+      patentId: string
+      section: PatentSectionType | "claims" | "all"
+      preferredServer?: string
+      preferredModel?: string
+    }
+
+    // Validate required fields
+    if (!patentId) {
+      return NextResponse.json({
+        error: "patentId is required"
+      }, { status: 400 })
+    }
+
+    if (!section) {
+      return NextResponse.json({
+        error: "section is required (abstract, background, summary, detailedDescription, claims, or all)"
+      }, { status: 400 })
+    }
+
+    // Get the patent from storage
+    const patent = getPatent(patentId)
+    if (!patent) {
+      return NextResponse.json({
+        error: `Patent with ID ${patentId} not found`
+      }, { status: 404 })
+    }
+
+    // Build generation request from patent data
+    const generationRequest: GenerationRequest = {
+      inventionTitle: patent.title,
+      inventionDescription: patent.inventionDescription.summary || "",
+      technicalField: patent.inventionDescription.technicalField || "General Technology",
+      problemSolved: patent.inventionDescription.problemSolved || "",
+      keyFeatures: patent.inventionDescription.advantages || [],
+      embodiments: patent.inventionDescription.embodiments,
+      priorArtNotes: patent.priorArtSearchNotes,
+      sectionToGenerate: section,
+      preferredProvider: preferredServer
+    }
+
+    // Validate we have enough data to generate
+    if (!generationRequest.inventionDescription) {
+      return NextResponse.json({
+        error: "Patent invention description is required for generation"
+      }, { status: 400 })
+    }
+
+    if (!generationRequest.keyFeatures?.length) {
+      // Fall back to using embodiments or a generic description
+      generationRequest.keyFeatures = generationRequest.embodiments || ["Novel technical solution"]
+    }
+
+    if (!generationRequest.problemSolved) {
+      generationRequest.problemSolved = "Addresses technical limitations in the field"
+    }
+
+    // Track generation metadata
+    let generationServer = preferredServer || "beast"
+    let generationModel = preferredModel || "gpt-oss-20b"
+
+    // Determine which sections to generate
+    const sectionsToGenerate: (PatentSectionType | "claims")[] =
+      section === "all"
+        ? ["abstract", "background", "summary", "detailedDescription", "claims"]
+        : [section]
+
+    const generatedSections: Record<string, string> = {}
+    const generatedClaims: Array<{
+      number: number
+      type: "independent" | "dependent"
+      dependsOn?: number
+      text: string
+    }> = []
+    const allSuggestions: string[] = []
+    const allWarnings: string[] = []
+
+    // Generate each section
+    for (const sectionType of sectionsToGenerate) {
+      const prompt = generateSectionPrompt(sectionType, generationRequest)
+
+      console.log(`[Patent Generation] Generating ${sectionType} for patent ${patentId}...`)
+
+      const llmResponse = await generateWithLocalLLM(
+        USPTO_FORMAT_SYSTEM_PROMPT,
+        prompt,
+        {
+          temperature: 0.4,
+          max_tokens: 8192,
+          preferredServer: generationServer,
+          preferredModel: generationModel
+        }
+      )
+
+      if (llmResponse.error) {
+        console.error(`[Patent Generation] Failed to generate ${sectionType}:`, llmResponse.error)
+        return NextResponse.json({
+          error: `Failed to generate ${sectionType}: ${llmResponse.error}`,
+          generatedSections,
+          generatedClaims
+        }, { status: 503 })
+      }
+
+      // Capture generation metadata
+      if (llmResponse.server) generationServer = llmResponse.server
+      if (llmResponse.model) generationModel = llmResponse.model
+
+      console.log(`[Patent Generation] Generated ${sectionType} using ${generationServer}/${generationModel}`)
+
+      if (sectionType === "claims") {
+        const parsed = parseClaims(llmResponse.content)
+        for (const claim of parsed.claims) {
+          generatedClaims.push({
+            number: claim.number,
+            type: claim.type,
+            dependsOn: claim.dependsOn,
+            text: claim.content
+          })
+        }
+        if (parsed.suggestions) allSuggestions.push(...parsed.suggestions)
+        if (parsed.warnings) allWarnings.push(...parsed.warnings)
+      } else {
+        const parsed = parseSection(llmResponse.content)
+        generatedSections[sectionType] = parsed.content
+        if (parsed.suggestions) allSuggestions.push(...parsed.suggestions)
+        if (parsed.warnings) allWarnings.push(...parsed.warnings)
+      }
+    }
+
+    // Prepare updates to the patent
+    const updates: Partial<PatentResearch> = {}
+
+    // Update invention description with generated content
+    if (Object.keys(generatedSections).length > 0) {
+      updates.inventionDescription = {
+        ...patent.inventionDescription
+      }
+
+      // Map generated sections to patent fields
+      if (generatedSections.abstract) {
+        updates.inventionDescription.summary = generatedSections.abstract
+      }
+      if (generatedSections.background) {
+        updates.inventionDescription.background = generatedSections.background
+      }
+      if (generatedSections.detailedDescription) {
+        updates.inventionDescription.solutionDescription = generatedSections.detailedDescription
+      }
+    }
+
+    // Update claims if generated
+    if (generatedClaims.length > 0) {
+      const now = new Date().toISOString()
+      updates.claims = generatedClaims.map((claim, index) => ({
+        id: `claim-${Date.now()}-${index}`,
+        number: claim.number,
+        type: claim.type,
+        dependsOn: claim.dependsOn,
+        text: claim.text,
+        status: "draft" as const,
+        createdAt: now,
+        updatedAt: now
+      }))
+    }
+
+    // Save updates to the patent
+    const updatedPatent = updatePatent(patentId, updates)
+
+    if (!updatedPatent) {
+      return NextResponse.json({
+        error: "Failed to save generated content to patent"
+      }, { status: 500 })
+    }
+
+    console.log(`[Patent Generation] Successfully updated patent ${patentId}`)
+
+    return NextResponse.json({
+      success: true,
+      patentId,
+      generatedSections: Object.keys(generatedSections),
+      claimsCount: generatedClaims.length,
+      suggestions: allSuggestions,
+      warnings: allWarnings,
+      generatedBy: {
+        server: generationServer,
+        model: generationModel
+      },
+      generationDuration: (Date.now() - startTime) / 1000,
+      updatedPatent
+    })
+
+  } catch (error) {
+    console.error("[Patent Generation] PATCH error:", error)
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Patent generation failed"
+    }, { status: 500 })
+  }
+}
+
 // GET endpoint to export patent as formatted document
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
+  const patentId = searchParams.get("patentId")
   const format = searchParams.get("format") || "text"
 
-  // This would retrieve a stored patent and format it
-  // For now, return format options
+  if (!patentId) {
+    return NextResponse.json({
+      availableFormats: ["text", "markdown", "docx", "pdf"],
+      note: "Provide patentId query parameter to export a specific patent"
+    })
+  }
+
+  const patent = getPatent(patentId)
+  if (!patent) {
+    return NextResponse.json({
+      error: `Patent with ID ${patentId} not found`
+    }, { status: 404 })
+  }
+
+  // For now, return patent data in the requested format
+  if (format === "markdown") {
+    const markdown = formatPatentAsMarkdown(patent)
+    return new NextResponse(markdown, {
+      headers: {
+        "Content-Type": "text/markdown",
+        "Content-Disposition": `attachment; filename="${patent.title.replace(/[^a-z0-9]/gi, '_')}.md"`
+      }
+    })
+  }
+
   return NextResponse.json({
+    patent,
     availableFormats: ["text", "markdown", "docx", "pdf"],
-    note: "Export functionality requires a stored patent ID"
+    selectedFormat: format
   })
+}
+
+/**
+ * Format patent as Markdown for export
+ */
+function formatPatentAsMarkdown(patent: PatentResearch): string {
+  const lines: string[] = []
+
+  lines.push(`# ${patent.title}`)
+  lines.push("")
+  lines.push(`**Status:** ${patent.status}`)
+  lines.push(`**Technical Field:** ${patent.inventionDescription.technicalField || "N/A"}`)
+  lines.push("")
+
+  if (patent.inventionDescription.summary) {
+    lines.push("## Abstract")
+    lines.push("")
+    lines.push(patent.inventionDescription.summary)
+    lines.push("")
+  }
+
+  if (patent.inventionDescription.background) {
+    lines.push("## Background of the Invention")
+    lines.push("")
+    lines.push(patent.inventionDescription.background)
+    lines.push("")
+  }
+
+  if (patent.inventionDescription.problemSolved) {
+    lines.push("## Problem Solved")
+    lines.push("")
+    lines.push(patent.inventionDescription.problemSolved)
+    lines.push("")
+  }
+
+  if (patent.inventionDescription.solutionDescription) {
+    lines.push("## Detailed Description")
+    lines.push("")
+    lines.push(patent.inventionDescription.solutionDescription)
+    lines.push("")
+  }
+
+  if (patent.inventionDescription.advantages?.length) {
+    lines.push("## Advantages")
+    lines.push("")
+    for (const advantage of patent.inventionDescription.advantages) {
+      lines.push(`- ${advantage}`)
+    }
+    lines.push("")
+  }
+
+  if (patent.inventionDescription.embodiments?.length) {
+    lines.push("## Embodiments")
+    lines.push("")
+    for (const embodiment of patent.inventionDescription.embodiments) {
+      lines.push(`- ${embodiment}`)
+    }
+    lines.push("")
+  }
+
+  if (patent.claims.length > 0) {
+    lines.push("## Claims")
+    lines.push("")
+    for (const claim of patent.claims) {
+      const claimPrefix = claim.type === "dependent"
+        ? `${claim.number}. (Depends on claim ${claim.dependsOn})`
+        : `${claim.number}.`
+      lines.push(`${claimPrefix} ${claim.text}`)
+      lines.push("")
+    }
+  }
+
+  if (patent.priorArt.length > 0) {
+    lines.push("## Prior Art References")
+    lines.push("")
+    for (const art of patent.priorArt) {
+      lines.push(`- **${art.title}**${art.patentNumber ? ` (${art.patentNumber})` : ""}`)
+      if (art.abstract) {
+        lines.push(`  ${art.abstract.substring(0, 200)}${art.abstract.length > 200 ? "..." : ""}`)
+      }
+    }
+    lines.push("")
+  }
+
+  lines.push("---")
+  lines.push(`*Generated by Claudia Patent System on ${new Date().toISOString()}*`)
+
+  return lines.join("\n")
 }

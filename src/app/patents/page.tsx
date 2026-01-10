@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -22,16 +23,10 @@ import {
   XCircle,
   Scale,
   Lightbulb,
-  FolderOpen
+  FolderOpen,
+  AlertCircle
 } from "lucide-react"
-import {
-  getAllPatents,
-  getPatentStats,
-  deletePatent,
-  createEmptyPatent,
-  type PatentResearch
-} from "@/lib/data/patents"
-import type { PatentResearchStatus } from "@/lib/data/types"
+import type { PatentResearch, PatentResearchStatus } from "@/lib/data/types"
 
 const statusConfig: Record<PatentResearchStatus, {
   label: string
@@ -58,62 +53,139 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString()
 }
 
+interface PatentStats {
+  total: number
+  byStatus: Record<PatentResearchStatus, number>
+}
+
+const defaultStats: PatentStats = {
+  total: 0,
+  byStatus: {
+    research: 0,
+    drafting: 0,
+    review: 0,
+    filed: 0,
+    approved: 0,
+    rejected: 0
+  }
+}
+
 export default function PatentsPage() {
+  const router = useRouter()
   const [patents, setPatents] = useState<PatentResearch[]>([])
+  const [stats, setStats] = useState<PatentStats>(defaultStats)
   const [statusFilter, setStatusFilter] = useState<PatentResearchStatus | "all">("all")
   const [search, setSearch] = useState("")
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
 
-  // Load patents
+  // Load patents from API
+  const loadPatents = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const params = new URLSearchParams()
+      if (statusFilter !== "all") {
+        params.set("status", statusFilter)
+      }
+      params.set("includeStats", "true")
+
+      const response = await fetch(`/api/patents?${params.toString()}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch patents")
+      }
+
+      setPatents(data.patents || [])
+      if (data.stats) {
+        setStats(data.stats)
+      }
+    } catch (err) {
+      console.error("[Patents Page] Load error:", err)
+      setError(err instanceof Error ? err.message : "Failed to load patents")
+      setPatents([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [statusFilter])
+
+  // Load patents on mount and when filter changes
   useEffect(() => {
     loadPatents()
-  }, [])
+  }, [loadPatents])
 
-  const loadPatents = () => {
-    setIsLoading(true)
-    const allPatents = getAllPatents()
-    setPatents(allPatents)
-    setIsLoading(false)
-  }
-
-  // Filter patents
+  // Filter patents by search (already filtered by status on server)
   const filteredPatents = useMemo(() => {
-    let result = patents
+    if (!search) return patents
 
-    if (statusFilter !== "all") {
-      result = result.filter(p => p.status === statusFilter)
-    }
+    const lower = search.toLowerCase()
+    return patents.filter(p =>
+      p.title.toLowerCase().includes(lower) ||
+      p.inventionDescription?.summary?.toLowerCase().includes(lower) ||
+      p.tags?.some(t => t.toLowerCase().includes(lower)) ||
+      p.inventionDescription?.technicalField?.toLowerCase().includes(lower)
+    )
+  }, [patents, search])
 
-    if (search) {
-      const lower = search.toLowerCase()
-      result = result.filter(p =>
-        p.title.toLowerCase().includes(lower) ||
-        p.inventionDescription.summary.toLowerCase().includes(lower) ||
-        p.tags.some(t => t.toLowerCase().includes(lower)) ||
-        p.inventionDescription.technicalField?.toLowerCase().includes(lower)
-      )
-    }
-
-    // Sort by updated date
-    return result.sort((a, b) =>
+  // Sort by updated date
+  const sortedPatents = useMemo(() => {
+    return [...filteredPatents].sort((a, b) =>
       new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     )
-  }, [patents, statusFilter, search])
+  }, [filteredPatents])
 
-  // Stats
-  const stats = useMemo(() => getPatentStats(), [patents])
+  const handleDelete = async (id: string, title: string) => {
+    if (!confirm(`Permanently delete "${title}"? This cannot be undone.`)) {
+      return
+    }
 
-  const handleDelete = (id: string, title: string) => {
-    if (confirm(`Permanently delete "${title}"? This cannot be undone.`)) {
-      deletePatent(id)
+    try {
+      const response = await fetch(`/api/patents/${id}`, {
+        method: "DELETE"
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to delete patent")
+      }
+
+      // Reload patents
       loadPatents()
+    } catch (err) {
+      console.error("[Patents Page] Delete error:", err)
+      alert(err instanceof Error ? err.message : "Failed to delete patent")
     }
   }
 
-  const handleNewPatent = () => {
-    const newPatent = createEmptyPatent("New Patent Research")
-    // Navigate to the new patent
-    window.location.href = `/patents/${newPatent.id}`
+  const handleNewPatent = async () => {
+    setIsCreating(true)
+    try {
+      const response = await fetch("/api/patents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "New Patent Research",
+          status: "research",
+          inventionDescription: { summary: "" }
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create patent")
+      }
+
+      // Navigate to the new patent
+      router.push(`/patents/${data.patent.id}`)
+    } catch (err) {
+      console.error("[Patents Page] Create error:", err)
+      alert(err instanceof Error ? err.message : "Failed to create patent")
+      setIsCreating(false)
+    }
   }
 
   return (
@@ -150,12 +222,27 @@ export default function PatentsPage() {
         <div className="flex-1" />
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadPatents} className="gap-2">
-            <RefreshCw className="h-4 w-4" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadPatents}
+            disabled={isLoading}
+            className="gap-2"
+          >
+            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
             <span className="hidden sm:inline">Refresh</span>
           </Button>
-          <Button size="sm" className="gap-2" onClick={handleNewPatent}>
-            <Plus className="h-4 w-4" />
+          <Button
+            size="sm"
+            className="gap-2"
+            onClick={handleNewPatent}
+            disabled={isCreating}
+          >
+            {isCreating ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             <span className="hidden sm:inline">New Patent Research</span>
           </Button>
         </div>
@@ -206,25 +293,44 @@ export default function PatentsPage() {
         </div>
       </div>
 
+      {/* Error State */}
+      {error && (
+        <Card className="border-destructive/50 bg-destructive/10">
+          <CardContent className="p-4 flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 text-destructive" />
+            <div className="flex-1">
+              <p className="text-sm text-destructive">{error}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadPatents}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Patents Grid */}
       <div className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : filteredPatents.length === 0 ? (
+        ) : sortedPatents.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <FileCheck className="h-12 w-12 mb-4 opacity-50" />
             <p className="text-lg font-medium">No patent research projects yet</p>
             <p className="text-sm">Start researching your next invention</p>
-            <Button className="mt-4 gap-2" onClick={handleNewPatent}>
-              <Plus className="h-4 w-4" />
+            <Button className="mt-4 gap-2" onClick={handleNewPatent} disabled={isCreating}>
+              {isCreating ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
               New Patent Research
             </Button>
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {filteredPatents.map(patent => {
+            {sortedPatents.map(patent => {
               const statusConf = statusConfig[patent.status]
               const StatusIcon = statusConf.icon
 
@@ -240,7 +346,7 @@ export default function PatentsPage() {
                           {patent.title}
                         </Link>
                         <p className="text-sm text-muted-foreground line-clamp-2">
-                          {patent.inventionDescription.summary || "No description yet"}
+                          {patent.inventionDescription?.summary || "No description yet"}
                         </p>
                       </div>
                     </div>
@@ -252,7 +358,7 @@ export default function PatentsPage() {
                         <StatusIcon className="h-3 w-3" />
                         {statusConf.label}
                       </Badge>
-                      {patent.inventionDescription.technicalField && (
+                      {patent.inventionDescription?.technicalField && (
                         <Badge variant="outline" className="text-muted-foreground">
                           {patent.inventionDescription.technicalField}
                         </Badge>
@@ -263,11 +369,11 @@ export default function PatentsPage() {
                     <div className="flex items-center gap-3 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1" title="Prior Art References">
                         <Scale className="h-4 w-4" />
-                        <span>{patent.priorArt.length} prior art</span>
+                        <span>{patent.priorArt?.length || 0} prior art</span>
                       </div>
                       <div className="flex items-center gap-1" title="Claims">
                         <FileText className="h-4 w-4" />
-                        <span>{patent.claims.length} claims</span>
+                        <span>{patent.claims?.length || 0} claims</span>
                       </div>
                     </div>
 
@@ -298,7 +404,7 @@ export default function PatentsPage() {
                     </div>
 
                     {/* Tags */}
-                    {patent.tags.length > 0 && (
+                    {patent.tags && patent.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {patent.tags.slice(0, 3).map(tag => (
                           <Badge key={tag} variant="outline" className="text-xs">
@@ -362,7 +468,7 @@ export default function PatentsPage() {
       </div>
 
       {/* Empty State CTA */}
-      {patents.length === 0 && (
+      {!isLoading && patents.length === 0 && !error && (
         <Card className="border-dashed">
           <CardContent className="flex items-center justify-center py-8">
             <div className="text-center">
@@ -371,8 +477,12 @@ export default function PatentsPage() {
               <p className="text-sm text-muted-foreground mb-4">
                 Document your invention, research prior art, and prepare patent claims
               </p>
-              <Button className="gap-2" onClick={handleNewPatent}>
-                <Plus className="h-4 w-4" />
+              <Button className="gap-2" onClick={handleNewPatent} disabled={isCreating}>
+                {isCreating ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
                 New Patent Research
               </Button>
             </div>
