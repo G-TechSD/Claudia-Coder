@@ -74,10 +74,20 @@ export function InterviewPanel({
   const streamRef = useRef<MediaStream | null>(null)
   const isListeningRef = useRef(false)
 
+  // Track if agent is speaking to prevent echo (mic picking up TTS)
+  const isAgentSpeakingRef = useRef(false)
+
   const speech = useSpeechRecognition({
     continuous: true,
     interimResults: true,
     onResult: (transcript, isFinal) => {
+      // ECHO FIX: Ignore all input while agent is speaking
+      // The microphone picks up the TTS audio, so we must discard it
+      if (isAgentSpeakingRef.current) {
+        console.log("[Voice] Ignoring transcript while agent is speaking:", transcript.substring(0, 50))
+        return
+      }
+
       if (isFinal && transcript.trim()) {
         // Accumulate final transcripts
         setPendingVoiceInput(prev => (prev + " " + transcript).trim())
@@ -154,8 +164,18 @@ export function InterviewPanel({
   }, [])
 
   const tts = useSpeechSynthesis({
+    onStart: () => {
+      // ECHO FIX: Mark agent as speaking when TTS starts
+      isAgentSpeakingRef.current = true
+      console.log("[Voice] Agent started speaking - ignoring mic input")
+    },
     onEnd: () => {
-      // Could auto-start listening after speech ends
+      // ECHO FIX: Mark agent as done speaking when TTS ends
+      // Add a small delay to ensure any trailing audio doesn't get picked up
+      setTimeout(() => {
+        isAgentSpeakingRef.current = false
+        console.log("[Voice] Agent finished speaking - mic input enabled")
+      }, 300)
     }
   })
 
@@ -186,8 +206,9 @@ export function InterviewPanel({
   const handleSubmit = async (content: string, source: "voice" | "text" = "text") => {
     if (!content.trim() || interview.isProcessing) return
 
-    // Stop any ongoing TTS
+    // Stop any ongoing TTS and reset speaking flag
     tts.cancel()
+    isAgentSpeakingRef.current = false
 
     await interview.respond(content.trim(), source)
     setTextInput("")
@@ -206,6 +227,7 @@ export function InterviewPanel({
     } else {
       isListeningRef.current = true
       tts.cancel() // Stop speaking before listening
+      isAgentSpeakingRef.current = false // Reset speaking flag when user starts listening
       speech.startListening()
       startAudioVisualization()
     }

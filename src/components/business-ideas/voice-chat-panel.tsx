@@ -57,6 +57,10 @@ export function VoiceChatPanel({
   const [autoSpeak, setAutoSpeak] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // DOUBLE-SUBMIT FIX: Track processing state synchronously and last submitted content
+  const isProcessingRef = useRef(false)
+  const lastSubmittedContentRef = useRef<string | null>(null)
+
   // Voice state
   const [pendingVoiceInput, setPendingVoiceInput] = useState("")
   const [audioLevel, setAudioLevel] = useState(0)
@@ -67,10 +71,20 @@ export function VoiceChatPanel({
   const streamRef = useRef<MediaStream | null>(null)
   const isListeningRef = useRef(false)
 
+  // Track if agent is speaking to prevent echo (mic picking up TTS)
+  const isAgentSpeakingRef = useRef(false)
+
   const speech = useSpeechRecognition({
     continuous: true,
     interimResults: true,
     onResult: (transcript, isFinal) => {
+      // ECHO FIX: Ignore all input while agent is speaking
+      // The microphone picks up the TTS audio, so we must discard it
+      if (isAgentSpeakingRef.current) {
+        console.log("[Voice] Ignoring transcript while agent is speaking:", transcript.substring(0, 50))
+        return
+      }
+
       if (isFinal && transcript.trim()) {
         setPendingVoiceInput(prev => (prev + " " + transcript).trim())
 
@@ -93,11 +107,23 @@ export function VoiceChatPanel({
   })
 
   const tts = useSpeechSynthesis({
+    onStart: () => {
+      // ECHO FIX: Mark agent as speaking when TTS starts
+      isAgentSpeakingRef.current = true
+      console.log("[Voice] Agent started speaking - ignoring mic input")
+    },
     onEnd: () => {
-      // In call mode, automatically start listening after speaking
-      if (isCallActive && !speech.isListening && !isProcessing) {
-        startListening()
-      }
+      // ECHO FIX: Mark agent as done speaking when TTS ends
+      // Add a small delay to ensure any trailing audio doesn't get picked up
+      setTimeout(() => {
+        isAgentSpeakingRef.current = false
+        console.log("[Voice] Agent finished speaking - mic input enabled")
+
+        // In call mode, automatically start listening after speaking
+        if (isCallActive && !speech.isListening && !isProcessing) {
+          startListening()
+        }
+      }, 300)
     }
   })
 
@@ -155,6 +181,7 @@ export function VoiceChatPanel({
     if (!speech.isSupported) return
 
     isListeningRef.current = true
+    isAgentSpeakingRef.current = false // Reset speaking flag when user starts listening
     speech.startListening()
     startAudioVisualization()
   }, [speech, startAudioVisualization])
@@ -194,16 +221,41 @@ export function VoiceChatPanel({
   }, [messages, autoSpeak, tts])
 
   const handleSubmit = async (content: string, source: "voice" | "text" = "text") => {
-    if (!content.trim() || isProcessing) return
+    const normalizedContent = content.trim()
 
+    // DOUBLE-SUBMIT FIX: Use synchronous ref check to prevent race conditions
+    if (!normalizedContent || isProcessingRef.current) {
+      console.log("[VoiceChat] Ignoring submit - empty or already processing")
+      return
+    }
+
+    // DOUBLE-SUBMIT FIX: Check if this exact content was just submitted
+    if (lastSubmittedContentRef.current === normalizedContent) {
+      console.log("[VoiceChat] Ignoring duplicate submission:", normalizedContent.substring(0, 50))
+      return
+    }
+
+    // DOUBLE-SUBMIT FIX: Check if this message already exists in history
+    const lastUserMessage = messages.filter(m => m.role === "user").slice(-1)[0]
+    if (lastUserMessage && lastUserMessage.content === normalizedContent) {
+      console.log("[VoiceChat] Message already in history:", normalizedContent.substring(0, 50))
+      return
+    }
+
+    // Set synchronous flags immediately to block concurrent calls
+    isProcessingRef.current = true
+    lastSubmittedContentRef.current = normalizedContent
+
+    // Stop any ongoing TTS and reset speaking flag
     tts.cancel()
+    isAgentSpeakingRef.current = false
     setIsProcessing(true)
 
     // Add user message
     const userMessage: ChatMessage = {
       id: generateId(),
       role: "user",
-      content: content.trim(),
+      content: normalizedContent,
       timestamp: new Date().toISOString(),
       transcribedFrom: source
     }
@@ -291,6 +343,8 @@ export function VoiceChatPanel({
 
       setMessages(prev => [...prev, errorMessage])
     } finally {
+      // Reset synchronous processing flag
+      isProcessingRef.current = false
       setIsProcessing(false)
     }
   }
