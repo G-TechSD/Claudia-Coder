@@ -382,12 +382,17 @@ function NewProjectContent() {
   // Auto-save a Linear import project immediately
   const autoSaveLinearProject = async (repoToLink?: { id: number; name: string; path: string; url: string } | null) => {
     if (!linearImportData) return
+    if (!user?.id) {
+      setSubmitError("You must be logged in to create a project")
+      return
+    }
 
     setIsSubmitting(true)
     setSubmitError("")
 
     try {
       // Create the project immediately with imported data
+      // Pass userId to ensure project is saved to user-scoped storage
       const project = createProject({
         name: projectName || linearImportData.projects[0]?.name || "Linear Import",
         description: projectDescription || linearImportData.projects[0]?.description || `Imported from Linear with ${linearImportData.summary.totalIssues} issues`,
@@ -397,7 +402,7 @@ function NewProjectContent() {
         packetIds: [],
         tags: ["imported-from-linear"],
         basePath: projectFolderPath.trim() || localRepoPath.trim() || undefined
-      })
+      }, user.id)
 
       // Configure Linear sync
       if (linearImportData.projects.length > 0) {
@@ -463,7 +468,7 @@ function NewProjectContent() {
       // Update project with packet IDs
       updateProject(project.id, {
         packetIds: packetsToSave.map(p => p.id)
-      })
+      }, user.id)
 
       // Link repo if one was selected
       if (repoToLink) {
@@ -473,7 +478,7 @@ function NewProjectContent() {
           name: repoToLink.name,
           path: repoToLink.path,
           url: repoToLink.url
-        })
+        }, user.id)
       }
 
       setCreatedProject(project)
@@ -628,12 +633,17 @@ function NewProjectContent() {
     localPath?: string
   }>, basePath?: string) => {
     if (!linearImportData) return
+    if (!user?.id) {
+      setSubmitError("You must be logged in to create a project")
+      return
+    }
 
     setIsSubmitting(true)
     setSubmitError("")
 
     try {
       // Create the project immediately with imported data
+      // Pass userId to ensure project is saved to user-scoped storage
       const project = createProject({
         name: projectName || linearImportData.projects[0]?.name || "Linear Import",
         description: projectDescription || linearImportData.projects[0]?.description || `Imported from Linear with ${linearImportData.summary.totalIssues} issues`,
@@ -643,7 +653,7 @@ function NewProjectContent() {
         packetIds: [],
         tags: ["imported-from-linear"],
         basePath: basePath || projectFolderPath.trim() || localRepoPath.trim() || undefined
-      })
+      }, user.id)
 
       // Configure Linear sync
       if (linearImportData.projects.length > 0) {
@@ -709,7 +719,7 @@ function NewProjectContent() {
       // Update project with packet IDs
       updateProject(project.id, {
         packetIds: packetsToSave.map(p => p.id)
-      })
+      }, user.id)
 
       setCreatedProject(project)
       setMode("complete")
@@ -764,10 +774,16 @@ function NewProjectContent() {
 
   // Auto-save a project from "Feeling Lucky" quick creation
   const autoSaveQuickProject = async (plan: GeneratedPlan) => {
+    if (!user?.id) {
+      setSubmitError("You must be logged in to create a project")
+      return
+    }
+
     setIsSubmitting(true)
     setSubmitError("")
 
     try {
+      // Pass userId to ensure project is saved to user-scoped storage
       const project = createProject({
         name: plan.name,
         description: plan.description,
@@ -777,14 +793,14 @@ function NewProjectContent() {
         packetIds: [],
         tags: plan.techStack || [],
         basePath: projectFolderPath.trim() || localRepoPath.trim() || undefined
-      })
+      }, user.id)
 
       // Link voice recording if project was created from voice
       if (sourceVoiceRecording) {
         markProjectCreated(sourceVoiceRecording.id, project.id)
         updateProject(project.id, {
           tags: [...(project.tags || []), "created-from-voice"]
-        })
+        }, user.id)
       }
 
       setCreatedProject(project)
@@ -820,10 +836,16 @@ function NewProjectContent() {
     techStack: string[],
     session: InterviewSession
   ) => {
+    if (!user?.id) {
+      setSubmitError("You must be logged in to create a project")
+      return
+    }
+
     setIsSubmitting(true)
     setSubmitError("")
 
     try {
+      // Pass userId to ensure project is saved to user-scoped storage
       const project = createProject({
         name,
         description,
@@ -834,14 +856,14 @@ function NewProjectContent() {
         tags: techStack,
         basePath: projectFolderPath.trim() || localRepoPath.trim() || undefined,
         creationInterview: session
-      })
+      }, user.id)
 
       // Link voice recording if project was created from voice
       if (sourceVoiceRecording) {
         markProjectCreated(sourceVoiceRecording.id, project.id)
         updateProject(project.id, {
           tags: [...(project.tags || []), "created-from-voice"]
-        })
+        }, user.id)
       }
 
       setCreatedProject(project)
@@ -958,6 +980,11 @@ function NewProjectContent() {
 
   // Handle approving build plan and starting project
   const handleApproveBuildPlanAndStart = async (approvedPlan: BuildPlan, packets: WorkPacket[]) => {
+    if (!user?.id) {
+      setSubmitError("You must be logged in to create a project")
+      return
+    }
+
     setIsSubmitting(true)
     setSubmitError("")
 
@@ -976,6 +1003,7 @@ function NewProjectContent() {
       // Determine basePath: use explicitly set folder, or fall back to local repo path
       const basePath = projectFolderPath.trim() || localRepoPath.trim() || undefined
 
+      // Pass userId to ensure project is saved to user-scoped storage
       const project = createProject({
         name: projectName,
         description: projectDescription,
@@ -986,7 +1014,7 @@ function NewProjectContent() {
         tags,
         basePath,
         creationInterview: interviewSession || undefined
-      })
+      }, user.id)
 
       // Update plan with correct project ID and save
       const finalPlan: BuildPlan = {
@@ -1015,7 +1043,7 @@ function NewProjectContent() {
             name: repo.name,
             path: repo.path,
             url: repo.web_url
-          })
+          }, user.id)
         } catch (repoError) {
           console.error("Failed to create repo:", repoError)
           setSubmitError(`Project created, but repo creation failed: ${repoError instanceof Error ? repoError.message : "Unknown error"}`)
@@ -1028,7 +1056,7 @@ function NewProjectContent() {
         // Add "created-from-voice" tag
         updateProject(project.id, {
           tags: [...(project.tags || []), "created-from-voice"]
-        })
+        }, user.id)
       }
 
       setCreatedProject(project)
@@ -1068,6 +1096,11 @@ function NewProjectContent() {
   }
 
   const handleSubmit = async () => {
+    if (!user?.id) {
+      setSubmitError("You must be logged in to create a project")
+      return
+    }
+
     setIsSubmitting(true)
     setSubmitError("")
 
@@ -1091,6 +1124,7 @@ function NewProjectContent() {
       // Determine basePath: use explicitly set folder, or fall back to local repo path
       const basePath = projectFolderPath.trim() || localRepoPath.trim() || undefined
 
+      // Pass userId to ensure project is saved to user-scoped storage
       const project = createProject({
         name: projectName,
         description: projectDescription,
@@ -1101,7 +1135,7 @@ function NewProjectContent() {
         tags,
         basePath,
         creationInterview: interviewSession || undefined
-      })
+      }, user.id)
 
       // Handle Linear import data
       if (linearImportData && linearImportData.projects.length > 0) {
@@ -1167,7 +1201,7 @@ function NewProjectContent() {
         // Update project with packet IDs
         updateProject(project.id, {
           packetIds: packetsToSave.map(p => p.id)
-        })
+        }, user.id)
       }
 
       // Link existing repos if any were selected from the dialog
@@ -1181,7 +1215,7 @@ function NewProjectContent() {
               name: repoToLink.name,
               path: repoToLink.path,
               url: repoToLink.url
-            })
+            }, user.id)
           }
         }
       } else if (createRepo && hasToken) {
@@ -1200,7 +1234,7 @@ function NewProjectContent() {
             name: repo.name,
             path: repo.path,
             url: repo.web_url
-          })
+          }, user.id)
         } catch (repoError) {
           console.error("Failed to create repo:", repoError)
           setSubmitError(`Project created, but repo creation failed: ${repoError instanceof Error ? repoError.message : "Unknown error"}`)
@@ -1213,7 +1247,7 @@ function NewProjectContent() {
         // Add "created-from-voice" tag
         updateProject(project.id, {
           tags: [...(project.tags || []), "created-from-voice"]
-        })
+        }, user.id)
       }
 
       setCreatedProject(project)

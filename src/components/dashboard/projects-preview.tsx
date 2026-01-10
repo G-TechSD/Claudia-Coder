@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ArrowRight, FolderOpen, Layers } from "lucide-react"
 import Link from "next/link"
-import { Project, ProjectStatus } from "@/lib/data/types"
+import { ProjectStatus } from "@/lib/data/types"
+import { getAllProjects } from "@/lib/data/projects"
+import { useAuth } from "@/components/auth/auth-provider"
 
 interface ProjectPreviewItem {
   id: string
@@ -24,14 +26,12 @@ const statusColors: Record<ProjectStatus, string> = {
   trashed: "bg-red-400",
 }
 
-function loadActiveProjects(): ProjectPreviewItem[] {
-  if (typeof window === "undefined") return []
+function loadActiveProjects(userId: string | undefined): ProjectPreviewItem[] {
+  if (typeof window === "undefined" || !userId) return []
 
   try {
-    const projectsData = localStorage.getItem("claudia_projects")
-    if (!projectsData) return []
-
-    const projects: Project[] = JSON.parse(projectsData)
+    // Use user-scoped storage via getAllProjects
+    const projects = getAllProjects({ userId })
 
     // Filter for active and planning projects
     const activeProjects = projects.filter(
@@ -60,18 +60,24 @@ function loadActiveProjects(): ProjectPreviewItem[] {
 }
 
 export function ProjectsPreview() {
+  const { user } = useAuth()
+  const userId = user?.id
   const [projects, setProjects] = useState<ProjectPreviewItem[]>([])
 
   useEffect(() => {
-    setProjects(loadActiveProjects())
+    if (userId) {
+      setProjects(loadActiveProjects(userId))
+    }
 
     // Refresh periodically
     const interval = setInterval(() => {
-      setProjects(loadActiveProjects())
+      if (userId) {
+        setProjects(loadActiveProjects(userId))
+      }
     }, 5000)
 
     return () => clearInterval(interval)
-  }, [])
+  }, [userId])
 
   return (
     <Card className="flex flex-col">

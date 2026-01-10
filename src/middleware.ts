@@ -44,8 +44,22 @@ function isUserDataRoute(pathname: string): boolean {
 }
 
 /**
+ * Check if a session cookie exists (Better Auth session)
+ */
+function hasSessionCookie(request: NextRequest): boolean {
+  const sessionCookie = request.cookies.get("better-auth.session_token")
+  return !!sessionCookie?.value
+}
+
+/**
  * Verify user data access for API routes
  * Returns an error response if access should be denied
+ *
+ * This function is now more resilient:
+ * - If claudia-user-id cookie exists, it validates access
+ * - If claudia-user-id is missing but session cookie exists, it allows the request
+ *   to proceed so the route handler can do proper session verification
+ * - Only blocks if there's clearly no auth at all
  */
 function verifyUserDataAccess(
   request: NextRequest,
@@ -64,8 +78,18 @@ function verifyUserDataAccess(
     return null
   }
 
-  // If no user ID is available, deny access to user data routes
+  // If user ID cookie is missing, check if session cookie exists
+  // If session exists, let the request proceed - route handler will do full verification
+  // This handles the case where session is valid but custom cookies aren't set yet
   if (!currentUserId) {
+    if (hasSessionCookie(request)) {
+      // Session exists but user ID cookie is missing
+      // Let the request proceed - route handler will verify the session
+      // and can extract user ID from the session data
+      return null
+    }
+
+    // No user ID cookie AND no session cookie - deny access
     return NextResponse.json(
       {
         error: "User ID Required",

@@ -16,6 +16,7 @@ import {
   Loader2,
   Briefcase,
   Video,
+  Trash2,
 } from "lucide-react"
 
 interface NavItem {
@@ -31,6 +32,7 @@ const adminNavItems: NavItem[] = [
   { title: "Sessions", href: "/admin/sessions", icon: Video },
   { title: "Referrals", href: "/admin/referrals", icon: Briefcase },
   { title: "Security", href: "/admin/security", icon: ShieldAlert },
+  { title: "Cleanup", href: "/admin/cleanup", icon: Trash2 },
   { title: "Settings", href: "/admin/settings", icon: Settings },
 ]
 

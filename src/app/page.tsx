@@ -6,8 +6,9 @@ import { ActivityPreview } from "@/components/dashboard/activity-preview"
 import { ProjectsPreview } from "@/components/dashboard/projects-preview"
 import { AgentGrid } from "@/components/dashboard/agent-grid"
 import { SetupGuide } from "@/components/setup/setup-guide"
-import { Package, CheckCircle, AlertTriangle, DollarSign, Layers } from "lucide-react"
-import { seedSampleProjects } from "@/lib/data/projects"
+import { Package, CheckCircle, AlertTriangle, Layers } from "lucide-react"
+import { seedSampleProjects, getAllProjects } from "@/lib/data/projects"
+import { useAuth } from "@/components/auth/auth-provider"
 
 interface DashboardMetrics {
   activeProjects: number
@@ -18,8 +19,8 @@ interface DashboardMetrics {
   budgetPercent: number
 }
 
-function loadMetrics(): DashboardMetrics {
-  if (typeof window === "undefined") {
+function loadMetrics(userId: string | undefined): DashboardMetrics {
+  if (typeof window === "undefined" || !userId) {
     return {
       activeProjects: 0,
       activePackets: 0,
@@ -31,13 +32,12 @@ function loadMetrics(): DashboardMetrics {
   }
 
   // Ensure sample projects are seeded (if no projects exist yet)
-  seedSampleProjects()
+  seedSampleProjects(userId)
 
   try {
-    // Load projects
-    const projectsData = localStorage.getItem("claudia_projects")
-    const projects = projectsData ? JSON.parse(projectsData) : []
-    const activeProjects = projects.filter((p: { status: string }) =>
+    // Load projects using user-scoped storage
+    const projects = getAllProjects({ userId })
+    const activeProjects = projects.filter((p) =>
       p.status === "active" || p.status === "planning"
     ).length
 
@@ -81,6 +81,8 @@ function loadMetrics(): DashboardMetrics {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth()
+  const userId = user?.id
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     activeProjects: 0,
     activePackets: 0,
@@ -91,15 +93,19 @@ export default function Dashboard() {
   })
 
   useEffect(() => {
-    setMetrics(loadMetrics())
+    if (userId) {
+      setMetrics(loadMetrics(userId))
+    }
 
     // Refresh metrics periodically
     const interval = setInterval(() => {
-      setMetrics(loadMetrics())
+      if (userId) {
+        setMetrics(loadMetrics(userId))
+      }
     }, 5000)
 
     return () => clearInterval(interval)
-  }, [])
+  }, [userId])
 
   return (
     <div className="flex flex-col gap-6 p-6">
