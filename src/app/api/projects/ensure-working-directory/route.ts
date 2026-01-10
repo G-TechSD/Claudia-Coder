@@ -44,7 +44,7 @@ function generateWorkingDirectoryPath(projectName: string, projectId?: string): 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { projectId, projectName, existingWorkingDirectory, repoLocalPath } = body
+    const { projectId, projectName, existingWorkingDirectory, basePath, repoLocalPath } = body
 
     if (!projectId || !projectName) {
       return NextResponse.json(
@@ -56,12 +56,15 @@ export async function POST(request: NextRequest) {
     // Determine the working directory to use
     let workingDirectory: string
 
-    // Priority:
+    // Priority (consistent with getEffectiveWorkingDirectory):
     // 1. Existing project workingDirectory (if set and valid)
-    // 2. Repo's localPath (if set and valid)
-    // 3. Generate new one
+    // 2. basePath - the primary codebase location
+    // 3. Repo's localPath (if set and valid)
+    // 4. Generate new one
     if (existingWorkingDirectory) {
       workingDirectory = existingWorkingDirectory
+    } else if (basePath) {
+      workingDirectory = basePath
     } else if (repoLocalPath) {
       workingDirectory = repoLocalPath
     } else {

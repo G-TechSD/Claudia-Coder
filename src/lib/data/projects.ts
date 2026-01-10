@@ -75,12 +75,23 @@ export function generateWorkingDirectoryPath(projectName: string, projectId?: st
 /**
  * Get the effective working directory for a project
  * Priority:
- * 1. Project's workingDirectory field (if set)
- * 2. First repo with localPath
- * 3. Generate a new working directory path
+ * 1. Project's basePath field (if set) - the primary codebase location where actual code files live
+ * 2. Project's workingDirectory field (if set)
+ * 3. First repo with localPath
+ * 4. Generate a new working directory path
+ *
+ * NOTE: basePath takes priority because it represents where the actual code is located.
+ * workingDirectory might be an auto-generated empty directory that doesn't contain code yet.
+ * This is important for operations like "Launch & Test" that need to find package.json, etc.
  */
 export function getEffectiveWorkingDirectory(project: Project): string {
-  // First check project's own working directory
+  // First check basePath - the primary codebase location
+  // This is where the actual code files (package.json, etc.) are most likely to be
+  if (project.basePath) {
+    return project.basePath
+  }
+
+  // Then check project's own working directory
   if (project.workingDirectory) {
     return project.workingDirectory
   }

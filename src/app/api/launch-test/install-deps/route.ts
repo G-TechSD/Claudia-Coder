@@ -30,6 +30,99 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+/**
+ * Check if the project has actual code files based on project type
+ * Returns an object indicating if files were found and what was checked
+ */
+async function checkProjectFiles(repoPath: string, projectType?: string): Promise<{
+  hasFiles: boolean
+  checkedFiles: string[]
+  foundFiles: string[]
+  projectTypeDetected: string | null
+}> {
+  const checkedFiles: string[] = []
+  const foundFiles: string[] = []
+  let projectTypeDetected: string | null = null
+
+  // Node.js project files (Next.js, React, Vue, etc.)
+  const nodeFiles = ["package.json"]
+  // Python project files
+  const pythonFiles = ["main.py", "app.py", "requirements.txt", "pyproject.toml", "manage.py"]
+  // Rust project files
+  const rustFiles = ["Cargo.toml"]
+  // Flutter project files
+  const flutterFiles = ["pubspec.yaml"]
+
+  // Check based on project type if specified
+  if (projectType) {
+    if (["nextjs", "react", "vue", "svelte", "nuxt", "node"].includes(projectType)) {
+      for (const file of nodeFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = projectType
+        }
+      }
+    } else if (["python", "django", "fastapi", "flask"].includes(projectType)) {
+      for (const file of pythonFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = projectType
+        }
+      }
+    } else if (projectType === "rust") {
+      for (const file of rustFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = projectType
+        }
+      }
+    } else if (projectType === "flutter") {
+      for (const file of flutterFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = projectType
+        }
+      }
+    }
+  }
+
+  // If no project type specified or no files found, check all common files
+  if (!projectType || foundFiles.length === 0) {
+    const allFiles = [...nodeFiles, ...pythonFiles, ...rustFiles, ...flutterFiles]
+    for (const file of allFiles) {
+      if (!checkedFiles.includes(file)) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          // Detect project type from found file
+          if (!projectTypeDetected) {
+            if (nodeFiles.includes(file)) projectTypeDetected = "node"
+            else if (pythonFiles.includes(file)) projectTypeDetected = "python"
+            else if (rustFiles.includes(file)) projectTypeDetected = "rust"
+            else if (flutterFiles.includes(file)) projectTypeDetected = "flutter"
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    hasFiles: foundFiles.length > 0,
+    checkedFiles,
+    foundFiles,
+    projectTypeDetected
+  }
+}
+
 async function getFileModTime(filePath: string): Promise<number | null> {
   try {
     const stat = await fs.stat(filePath)
@@ -300,6 +393,39 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // Check if project has actual code files before attempting to install dependencies
+    const projectFilesCheck = await checkProjectFiles(repoPath, projectType)
+    if (!projectFilesCheck.hasFiles) {
+      console.log(`[install-deps] No project files found in: ${repoPath}`)
+      console.log(`[install-deps] Checked for: ${projectFilesCheck.checkedFiles.join(", ")}`)
+
+      // Determine what files were expected based on project type
+      let expectedFiles = "package.json, requirements.txt, Cargo.toml, or pubspec.yaml"
+      if (projectType) {
+        if (["nextjs", "react", "vue", "svelte", "nuxt", "node"].includes(projectType)) {
+          expectedFiles = "package.json"
+        } else if (["python", "django", "fastapi", "flask"].includes(projectType)) {
+          expectedFiles = "main.py, app.py, or requirements.txt"
+        } else if (projectType === "rust") {
+          expectedFiles = "Cargo.toml"
+        } else if (projectType === "flutter") {
+          expectedFiles = "pubspec.yaml"
+        }
+      }
+
+      return NextResponse.json({
+        success: false,
+        error: "No project files found. Generate code first or check the project folder.",
+        noProjectFiles: true,
+        checkedFiles: projectFilesCheck.checkedFiles,
+        expectedFiles,
+        suggestion: "Use 'Generate Code' to create project files, or verify the working directory contains your code.",
+        details: `Looked for ${expectedFiles} in ${repoPath}`
+      })
+    }
+
+    console.log(`[install-deps] Project files found: ${projectFilesCheck.foundFiles.join(", ")}`)
+
     // Check if dependencies need to be installed
     const check = await checkDependencies(repoPath, projectType || "")
 
@@ -389,6 +515,33 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         needsInstall: false,
         error: `Directory does not exist: ${repoPath}`
+      })
+    }
+
+    // Check if project has actual code files
+    const projectFilesCheck = await checkProjectFiles(repoPath, projectType)
+    if (!projectFilesCheck.hasFiles) {
+      // Determine what files were expected based on project type
+      let expectedFiles = "package.json, requirements.txt, Cargo.toml, or pubspec.yaml"
+      if (projectType) {
+        if (["nextjs", "react", "vue", "svelte", "nuxt", "node"].includes(projectType)) {
+          expectedFiles = "package.json"
+        } else if (["python", "django", "fastapi", "flask"].includes(projectType)) {
+          expectedFiles = "main.py, app.py, or requirements.txt"
+        } else if (projectType === "rust") {
+          expectedFiles = "Cargo.toml"
+        } else if (projectType === "flutter") {
+          expectedFiles = "pubspec.yaml"
+        }
+      }
+
+      return NextResponse.json({
+        needsInstall: false,
+        noProjectFiles: true,
+        error: "No project files found. Generate code first or check the project folder.",
+        checkedFiles: projectFilesCheck.checkedFiles,
+        expectedFiles,
+        suggestion: "Use 'Generate Code' to create project files, or verify the working directory contains your code."
       })
     }
 

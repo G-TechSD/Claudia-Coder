@@ -54,6 +54,7 @@ async function ensureWorkingDirectory(project: Project): Promise<string> {
       projectId: project.id,
       projectName: project.name,
       existingWorkingDirectory: project.workingDirectory,
+      basePath: project.basePath,
       repoLocalPath: repoWithPath?.localPath
     })
   })

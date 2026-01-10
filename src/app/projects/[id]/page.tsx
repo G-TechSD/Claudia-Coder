@@ -556,6 +556,7 @@ export default function ProjectDetailPage() {
           projectId: project.id,
           projectName: project.name,
           existingWorkingDirectory: project.workingDirectory,
+          basePath: project.basePath,
           repoLocalPath: project.repos.find(r => r.localPath)?.localPath
         })
       })

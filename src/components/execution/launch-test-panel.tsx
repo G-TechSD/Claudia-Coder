@@ -28,7 +28,9 @@ import {
   Clock,
   Terminal,
   AlertTriangle,
-  Package
+  Package,
+  FolderOpen,
+  Code2
 } from "lucide-react"
 
 // Reserved ports that should not be used (Claudia runs on port 3000)
@@ -207,6 +209,11 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
   const [appUrl, setAppUrl] = React.useState<string | null>(null)
   const [appPort, setAppPort] = React.useState<number>(3001) // Default to 3001 (3000 is reserved for Claudia)
   const [launchError, setLaunchError] = React.useState<string | null>(null)
+  const [noProjectFiles, setNoProjectFiles] = React.useState<{
+    detected: boolean
+    expectedFiles?: string
+    suggestion?: string
+  } | null>(null)
   const [processId, setProcessId] = React.useState<string | null>(null)
   const [launchLogs, setLaunchLogs] = React.useState<string[]>([])
   const [portWarning, setPortWarning] = React.useState<string | null>(null)
@@ -348,6 +355,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
     }
 
     setLaunchError(null)
+    setNoProjectFiles(null)
     setPortWarning(null)
 
     // Step 1: Check and install dependencies if needed
@@ -358,6 +366,20 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       // First, check if dependencies need to be installed
       const checkResponse = await fetch(`/api/launch-test/install-deps?repoPath=${encodeURIComponent(workingDirectory)}&projectType=${projectType}`)
       const checkData = await checkResponse.json()
+
+      // Handle no project files error - fail fast with a helpful message
+      if (checkData.noProjectFiles) {
+        setNoProjectFiles({
+          detected: true,
+          expectedFiles: checkData.expectedFiles,
+          suggestion: checkData.suggestion
+        })
+        setLaunchError(checkData.error)
+        setAppStatus("error")
+        addLog(`No project files found. Expected: ${checkData.expectedFiles}`)
+        addLog(checkData.suggestion || "Generate code first or check the project folder.")
+        return
+      }
 
       if (checkData.needsInstall) {
         addLog(`Installing dependencies (${checkData.reason})...`)
@@ -374,6 +396,20 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
         })
 
         const installData = await installResponse.json()
+
+        // Handle no project files error from install
+        if (installData.noProjectFiles) {
+          setNoProjectFiles({
+            detected: true,
+            expectedFiles: installData.expectedFiles,
+            suggestion: installData.suggestion
+          })
+          setLaunchError(installData.error)
+          setAppStatus("error")
+          addLog(`No project files found. Expected: ${installData.expectedFiles}`)
+          addLog(installData.suggestion || "Generate code first or check the project folder.")
+          return
+        }
 
         if (!installData.success) {
           setLaunchError(`Dependency installation failed: ${installData.error}`)
@@ -414,6 +450,17 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
         setAppUrl(data.url || `http://localhost:${appPort}`)
         setAppStatus("running")
         addLog(`App running at ${data.url || `http://localhost:${appPort}`}`)
+      } else if (data.noProjectFiles) {
+        // Handle no project files error from start API
+        setNoProjectFiles({
+          detected: true,
+          expectedFiles: data.expectedFiles,
+          suggestion: data.suggestion
+        })
+        setLaunchError(data.error)
+        setAppStatus("error")
+        addLog(`No project files found. Expected: ${data.expectedFiles}`)
+        addLog(data.suggestion || "Generate code first or check the project folder.")
       } else {
         setLaunchError(data.error || "Failed to launch app")
         setAppStatus("error")
@@ -899,8 +946,46 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
             </div>
           )}
 
+          {/* No Project Files Error - Special prominent display */}
+          {noProjectFiles?.detected && (
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              <FolderOpen className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm text-amber-400 font-medium">No Project Files Found</p>
+                <p className="text-xs text-amber-400/70 mt-1">
+                  The project folder appears to be empty or missing required files.
+                </p>
+                {noProjectFiles.expectedFiles && (
+                  <p className="text-xs text-amber-400/70 mt-1">
+                    Expected: <span className="font-mono">{noProjectFiles.expectedFiles}</span>
+                  </p>
+                )}
+                <div className="mt-3 flex items-center gap-2">
+                  <Code2 className="h-4 w-4 text-amber-400" />
+                  <span className="text-xs text-amber-300">
+                    {noProjectFiles.suggestion || "Use 'Generate Code' to create project files, or verify the working directory contains your code."}
+                  </span>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 text-xs border-amber-500/50 text-amber-400 hover:bg-amber-500/20"
+                    onClick={() => {
+                      setNoProjectFiles(null)
+                      setLaunchError(null)
+                      setAppStatus("idle")
+                    }}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Error Display */}
-          {launchError && (
+          {launchError && !noProjectFiles?.detected && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
               <AlertCircle className="h-4 w-4 text-red-500 mt-0.5" />
               <div className="flex-1">

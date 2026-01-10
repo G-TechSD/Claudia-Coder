@@ -25,12 +25,125 @@ async function directoryExists(dirPath: string): Promise<boolean> {
   }
 }
 
+/**
+ * List directories in the parent folder for debugging
+ */
+async function listParentDirectoryContents(dirPath: string): Promise<string[]> {
+  try {
+    const parentDir = path.dirname(dirPath)
+    const parentExists = await directoryExists(parentDir)
+    if (!parentExists) {
+      return []
+    }
+    const entries = await fs.readdir(parentDir, { withFileTypes: true })
+    return entries
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort()
+  } catch {
+    return []
+  }
+}
+
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath)
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * Check if the project has actual code files based on project type
+ * Returns an object indicating if files were found and what was checked
+ */
+async function checkProjectFiles(repoPath: string, projectType?: string): Promise<{
+  hasFiles: boolean
+  checkedFiles: string[]
+  foundFiles: string[]
+  projectTypeDetected: string | null
+}> {
+  const checkedFiles: string[] = []
+  const foundFiles: string[] = []
+  let projectTypeDetected: string | null = null
+
+  // Node.js project files (Next.js, React, Vue, etc.)
+  const nodeFiles = ["package.json"]
+  // Python project files
+  const pythonFiles = ["main.py", "app.py", "requirements.txt", "pyproject.toml", "manage.py"]
+  // Rust project files
+  const rustFiles = ["Cargo.toml"]
+  // Flutter project files
+  const flutterFiles = ["pubspec.yaml"]
+
+  // Check based on project type if specified
+  if (projectType) {
+    if (["nextjs", "react", "vue", "svelte", "nuxt", "node"].includes(projectType)) {
+      for (const file of nodeFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = projectType
+        }
+      }
+    } else if (["python", "django", "fastapi", "flask"].includes(projectType)) {
+      for (const file of pythonFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = projectType
+        }
+      }
+    } else if (projectType === "rust") {
+      for (const file of rustFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = projectType
+        }
+      }
+    } else if (projectType === "flutter") {
+      for (const file of flutterFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = projectType
+        }
+      }
+    }
+  }
+
+  // If no project type specified or no files found, check all common files
+  if (!projectType || foundFiles.length === 0) {
+    const allFiles = [...nodeFiles, ...pythonFiles, ...rustFiles, ...flutterFiles]
+    for (const file of allFiles) {
+      if (!checkedFiles.includes(file)) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          // Detect project type from found file
+          if (!projectTypeDetected) {
+            if (nodeFiles.includes(file)) projectTypeDetected = "node"
+            else if (pythonFiles.includes(file)) projectTypeDetected = "python"
+            else if (rustFiles.includes(file)) projectTypeDetected = "rust"
+            else if (flutterFiles.includes(file)) projectTypeDetected = "flutter"
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    hasFiles: foundFiles.length > 0,
+    checkedFiles,
+    foundFiles,
+    projectTypeDetected
   }
 }
 
@@ -294,18 +407,72 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Validate the directory exists
+    // Validate the directory exists BEFORE doing anything else
     const dirExists = await directoryExists(repoPath)
     if (!dirExists) {
       console.log(`[Launch] Directory does not exist: ${repoPath}`)
+
+      // List folders in parent directory to help debug
+      const parentDir = path.dirname(repoPath)
+      const availableFolders = await listParentDirectoryContents(repoPath)
+      const parentExists = await directoryExists(parentDir)
+
+      let debugInfo = ""
+      if (!parentExists) {
+        debugInfo = `Parent directory also does not exist: ${parentDir}`
+      } else if (availableFolders.length === 0) {
+        debugInfo = `Parent directory exists but contains no subdirectories: ${parentDir}`
+      } else {
+        debugInfo = `Available folders in ${parentDir}: ${availableFolders.join(", ")}`
+      }
+
+      console.log(`[Launch] Debug: ${debugInfo}`)
+
       return NextResponse.json({
         success: false,
-        error: `Working directory does not exist: ${repoPath}`,
-        suggestion: "Set the working directory in project settings or ensure the local path is correct"
+        error: `Project folder not found at: ${repoPath}`,
+        parentDirectory: parentDir,
+        parentExists,
+        availableFolders,
+        debugInfo,
+        suggestion: "Check that the working directory path is correct in project settings"
       })
     }
 
     console.log(`[Launch] Directory validated: ${repoPath}`)
+
+    // Check if project has actual code files before attempting to launch
+    const projectFilesCheck = await checkProjectFiles(repoPath, projectType)
+    if (!projectFilesCheck.hasFiles) {
+      console.log(`[Launch] No project files found in: ${repoPath}`)
+      console.log(`[Launch] Checked for: ${projectFilesCheck.checkedFiles.join(", ")}`)
+
+      // Determine what files were expected based on project type
+      let expectedFiles = "package.json, requirements.txt, Cargo.toml, or pubspec.yaml"
+      if (projectType) {
+        if (["nextjs", "react", "vue", "svelte", "nuxt", "node"].includes(projectType)) {
+          expectedFiles = "package.json"
+        } else if (["python", "django", "fastapi", "flask"].includes(projectType)) {
+          expectedFiles = "main.py, app.py, or requirements.txt"
+        } else if (projectType === "rust") {
+          expectedFiles = "Cargo.toml"
+        } else if (projectType === "flutter") {
+          expectedFiles = "pubspec.yaml"
+        }
+      }
+
+      return NextResponse.json({
+        success: false,
+        error: "No project files found. Generate code first or check the project folder.",
+        noProjectFiles: true,
+        checkedFiles: projectFilesCheck.checkedFiles,
+        expectedFiles,
+        suggestion: "Use 'Generate Code' to create project files, or verify the working directory contains your code.",
+        details: `Looked for ${expectedFiles} in ${repoPath}`
+      })
+    }
+
+    console.log(`[Launch] Project files found: ${projectFilesCheck.foundFiles.join(", ")}`)
 
     // Check if already running for this project
     const entries = Array.from(global.launchTestProcesses.entries())
