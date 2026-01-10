@@ -4,22 +4,266 @@
  *
  * Launches a development server for the project in the specified directory.
  * Validates ports against reserved ports (e.g., port 3000 for Claudia).
+ * Automatically installs dependencies if needed before launching.
  */
 
 import { NextRequest, NextResponse } from "next/server"
 import { spawn, ChildProcess, exec } from "child_process"
 import { promisify } from "util"
 import * as fs from "fs/promises"
+import * as path from "path"
 import { validatePort, getSuggestedPorts } from "@/lib/execution/port-config"
 
 const execAsync = promisify(exec)
 
-async function directoryExists(path: string): Promise<boolean> {
+async function directoryExists(dirPath: string): Promise<boolean> {
   try {
-    const stat = await fs.stat(path)
+    const stat = await fs.stat(dirPath)
     return stat.isDirectory()
   } catch {
     return false
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function getFileModTime(filePath: string): Promise<number | null> {
+  try {
+    const stat = await fs.stat(filePath)
+    return stat.mtimeMs
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Detect which package manager to use for Node.js projects
+ */
+async function detectNodePackageManager(repoPath: string): Promise<{
+  manager: "npm" | "yarn" | "pnpm"
+  lockFile: string
+  installCmd: string
+}> {
+  if (await fileExists(path.join(repoPath, "pnpm-lock.yaml"))) {
+    return { manager: "pnpm", lockFile: "pnpm-lock.yaml", installCmd: "pnpm install" }
+  }
+  if (await fileExists(path.join(repoPath, "yarn.lock"))) {
+    return { manager: "yarn", lockFile: "yarn.lock", installCmd: "yarn install" }
+  }
+  return { manager: "npm", lockFile: "package-lock.json", installCmd: "npm install" }
+}
+
+interface DependencyCheckResult {
+  needsInstall: boolean
+  reason?: string
+  installCommand?: string
+  packageManager?: string
+}
+
+/**
+ * Check if dependencies need to be installed based on project type
+ */
+async function checkDependencies(
+  repoPath: string,
+  projectType: string
+): Promise<DependencyCheckResult> {
+  // Node.js based projects
+  if (["nextjs", "react", "vue", "svelte", "nuxt", "node"].includes(projectType)) {
+    const packageJsonPath = path.join(repoPath, "package.json")
+    const nodeModulesPath = path.join(repoPath, "node_modules")
+
+    if (!(await fileExists(packageJsonPath))) {
+      return { needsInstall: false }
+    }
+
+    const pkgManager = await detectNodePackageManager(repoPath)
+
+    // Check if node_modules exists
+    if (!(await fileExists(nodeModulesPath))) {
+      return {
+        needsInstall: true,
+        reason: "node_modules not found",
+        installCommand: pkgManager.installCmd,
+        packageManager: pkgManager.manager
+      }
+    }
+
+    // Check if lock file is newer than node_modules
+    const lockFilePath = path.join(repoPath, pkgManager.lockFile)
+    const lockFileMtime = await getFileModTime(lockFilePath)
+    const nodeModulesMtime = await getFileModTime(nodeModulesPath)
+    const packageJsonMtime = await getFileModTime(packageJsonPath)
+
+    if (lockFileMtime && nodeModulesMtime && lockFileMtime > nodeModulesMtime) {
+      return {
+        needsInstall: true,
+        reason: `${pkgManager.lockFile} updated`,
+        installCommand: pkgManager.installCmd,
+        packageManager: pkgManager.manager
+      }
+    }
+
+    if (packageJsonMtime && nodeModulesMtime && packageJsonMtime > nodeModulesMtime) {
+      return {
+        needsInstall: true,
+        reason: "package.json updated",
+        installCommand: pkgManager.installCmd,
+        packageManager: pkgManager.manager
+      }
+    }
+
+    return { needsInstall: false, packageManager: pkgManager.manager }
+  }
+
+  // Python projects
+  if (["python", "django", "fastapi", "flask"].includes(projectType)) {
+    const requirementsPath = path.join(repoPath, "requirements.txt")
+    const pyprojectPath = path.join(repoPath, "pyproject.toml")
+
+    if (await fileExists(requirementsPath)) {
+      return {
+        needsInstall: true,
+        reason: "Python dependencies",
+        installCommand: "pip install -r requirements.txt",
+        packageManager: "pip"
+      }
+    }
+
+    if (await fileExists(pyprojectPath)) {
+      const content = await fs.readFile(pyprojectPath, "utf-8")
+      if (content.includes("[tool.poetry]")) {
+        return {
+          needsInstall: true,
+          reason: "Poetry dependencies",
+          installCommand: "poetry install",
+          packageManager: "poetry"
+        }
+      }
+      return {
+        needsInstall: true,
+        reason: "Python dependencies",
+        installCommand: "pip install -e .",
+        packageManager: "pip"
+      }
+    }
+
+    return { needsInstall: false }
+  }
+
+  // Rust projects
+  if (projectType === "rust") {
+    const cargoTomlPath = path.join(repoPath, "Cargo.toml")
+    const targetPath = path.join(repoPath, "target")
+
+    if (!(await fileExists(cargoTomlPath))) {
+      return { needsInstall: false }
+    }
+
+    if (!(await fileExists(targetPath))) {
+      return {
+        needsInstall: true,
+        reason: "Rust target not built",
+        installCommand: "cargo build",
+        packageManager: "cargo"
+      }
+    }
+
+    // Check if Cargo.toml is newer than target
+    const cargoTomlMtime = await getFileModTime(cargoTomlPath)
+    const targetMtime = await getFileModTime(targetPath)
+
+    if (cargoTomlMtime && targetMtime && cargoTomlMtime > targetMtime) {
+      return {
+        needsInstall: true,
+        reason: "Cargo.toml updated",
+        installCommand: "cargo build",
+        packageManager: "cargo"
+      }
+    }
+
+    return { needsInstall: false, packageManager: "cargo" }
+  }
+
+  // Flutter projects
+  if (projectType === "flutter") {
+    const pubspecPath = path.join(repoPath, "pubspec.yaml")
+    const dartToolPath = path.join(repoPath, ".dart_tool")
+    const pubspecLockPath = path.join(repoPath, "pubspec.lock")
+
+    if (!(await fileExists(pubspecPath))) {
+      return { needsInstall: false }
+    }
+
+    if (!(await fileExists(dartToolPath))) {
+      return {
+        needsInstall: true,
+        reason: "Flutter packages not fetched",
+        installCommand: "flutter pub get",
+        packageManager: "flutter"
+      }
+    }
+
+    // Check if pubspec.yaml is newer than pubspec.lock
+    const pubspecMtime = await getFileModTime(pubspecPath)
+    const pubspecLockMtime = await getFileModTime(pubspecLockPath)
+
+    if (pubspecMtime && pubspecLockMtime && pubspecMtime > pubspecLockMtime) {
+      return {
+        needsInstall: true,
+        reason: "pubspec.yaml updated",
+        installCommand: "flutter pub get",
+        packageManager: "flutter"
+      }
+    }
+
+    return { needsInstall: false, packageManager: "flutter" }
+  }
+
+  return { needsInstall: false }
+}
+
+/**
+ * Install dependencies for the project
+ */
+async function installDependencies(
+  repoPath: string,
+  installCommand: string,
+  timeoutMs: number = 300000
+): Promise<{ success: boolean; output?: string; error?: string }> {
+  try {
+    console.log(`[Launch] Installing dependencies: ${installCommand}`)
+    const { stdout, stderr } = await execAsync(installCommand, {
+      cwd: repoPath,
+      timeout: timeoutMs,
+      maxBuffer: 50 * 1024 * 1024,
+      env: {
+        ...process.env,
+        CI: "true",
+        FORCE_COLOR: "0"
+      }
+    })
+
+    console.log(`[Launch] Dependencies installed successfully`)
+    if (stderr && stderr.trim()) {
+      console.log(`[Launch] Install warnings: ${stderr.substring(0, 500)}`)
+    }
+
+    return { success: true, output: stdout }
+  } catch (error) {
+    const execError = error as { stdout?: string; stderr?: string; message?: string }
+    console.error(`[Launch] Dependency installation failed:`, execError.message)
+    return {
+      success: false,
+      error: execError.message || "Installation failed",
+      output: execError.stderr || execError.stdout
+    }
   }
 }
 
@@ -103,6 +347,35 @@ export async function POST(request: NextRequest) {
 
     // Generate process ID
     const processId = `launch-${projectId}-${Date.now()}`
+
+    // Check and install dependencies if needed (before launching)
+    const skipDependencyCheck = body.skipDependencyCheck === true
+    if (!skipDependencyCheck && projectType) {
+      console.log(`[Launch] Checking dependencies for ${projectType}...`)
+
+      const depCheck = await checkDependencies(repoPath, projectType)
+
+      if (depCheck.needsInstall && depCheck.installCommand) {
+        console.log(`[Launch] Dependencies need to be installed: ${depCheck.reason}`)
+
+        const installResult = await installDependencies(repoPath, depCheck.installCommand)
+
+        if (!installResult.success) {
+          console.error(`[Launch] Dependency installation failed`)
+          return NextResponse.json({
+            success: false,
+            error: `Dependency installation failed: ${installResult.error}`,
+            installOutput: installResult.output,
+            phase: "installing",
+            packageManager: depCheck.packageManager
+          })
+        }
+
+        console.log(`[Launch] Dependencies installed, proceeding with launch`)
+      } else {
+        console.log(`[Launch] Dependencies are up to date`)
+      }
+    }
 
     // Determine the actual command based on project type
     let finalCommand = command

@@ -27,7 +27,8 @@ import {
   Sparkles,
   Clock,
   Terminal,
-  AlertTriangle
+  AlertTriangle,
+  Package
 } from "lucide-react"
 
 // Reserved ports that should not be used (Claudia runs on port 3000)
@@ -188,7 +189,7 @@ interface LaunchTestPanelProps {
   className?: string
 }
 
-type AppStatus = "idle" | "detecting" | "building" | "launching" | "running" | "error" | "stopped"
+type AppStatus = "idle" | "detecting" | "installing" | "building" | "launching" | "running" | "error" | "stopped"
 type VerificationStatus = "idle" | "connecting" | "testing" | "passed" | "failed"
 
 /**
@@ -346,12 +347,53 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       return
     }
 
-    setAppStatus("launching")
     setLaunchError(null)
     setPortWarning(null)
-    addLog(`Launching ${PROJECT_TYPES[projectType].name} app in ${workingDirectory}...`)
+
+    // Step 1: Check and install dependencies if needed
+    setAppStatus("installing")
+    addLog(`Checking dependencies for ${PROJECT_TYPES[projectType].name}...`)
 
     try {
+      // First, check if dependencies need to be installed
+      const checkResponse = await fetch(`/api/launch-test/install-deps?repoPath=${encodeURIComponent(workingDirectory)}&projectType=${projectType}`)
+      const checkData = await checkResponse.json()
+
+      if (checkData.needsInstall) {
+        addLog(`Installing dependencies (${checkData.reason})...`)
+        addLog(`Running: ${checkData.installCommand}`)
+
+        // Install dependencies
+        const installResponse = await fetch("/api/launch-test/install-deps", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            repoPath: workingDirectory,
+            projectType
+          })
+        })
+
+        const installData = await installResponse.json()
+
+        if (!installData.success) {
+          setLaunchError(`Dependency installation failed: ${installData.error}`)
+          setAppStatus("error")
+          addLog(`Installation failed: ${installData.error}`)
+          if (installData.output) {
+            addLog(`Output: ${installData.output.substring(0, 300)}`)
+          }
+          return
+        }
+
+        addLog(`Dependencies installed successfully (${installData.duration || 0}ms)`)
+      } else {
+        addLog("Dependencies are up to date")
+      }
+
+      // Step 2: Launch the application
+      setAppStatus("launching")
+      addLog(`Launching ${PROJECT_TYPES[projectType].name} app...`)
+
       const response = await fetch("/api/launch-test/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -360,7 +402,8 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
           repoPath: workingDirectory,
           projectType,
           command: PROJECT_TYPES[projectType].runCommand,
-          port: appPort
+          port: appPort,
+          skipDependencyCheck: true // We already checked/installed
         })
       })
 
@@ -662,6 +705,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
     switch (appStatus) {
       case "running": return "text-green-500"
       case "launching": return "text-yellow-500"
+      case "installing": return "text-purple-500"
       case "building": return "text-blue-500"
       case "error": return "text-red-500"
       case "stopped": return "text-gray-500"
@@ -673,6 +717,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
     switch (appStatus) {
       case "running": return <CheckCircle className="h-5 w-5 text-green-500" />
       case "launching": return <Loader2 className="h-5 w-5 text-yellow-500 animate-spin" />
+      case "installing": return <Package className="h-5 w-5 text-purple-500 animate-pulse" />
       case "building": return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
       case "error": return <XCircle className="h-5 w-5 text-red-500" />
       case "stopped": return <Square className="h-5 w-5 text-gray-500" />
@@ -798,15 +843,22 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
                 "flex-1 h-14 text-lg font-bold",
                 appStatus === "running"
                   ? "bg-red-600 hover:bg-red-700"
+                  : appStatus === "installing"
+                  ? "bg-gradient-to-r from-purple-600 to-pink-600"
                   : "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500"
               )}
               onClick={appStatus === "running" ? handleStop : handleLaunch}
-              disabled={!workingDirectory || !projectType || appStatus === "launching" || appStatus === "building" || (!!portWarning && appStatus !== "running")}
+              disabled={!workingDirectory || !projectType || appStatus === "launching" || appStatus === "building" || appStatus === "installing" || (!!portWarning && appStatus !== "running")}
             >
               {appStatus === "running" ? (
                 <>
                   <Square className="h-5 w-5 mr-2" />
                   Stop App
+                </>
+              ) : appStatus === "installing" ? (
+                <>
+                  <Package className="h-5 w-5 mr-2 animate-pulse" />
+                  Installing Dependencies...
                 </>
               ) : appStatus === "launching" ? (
                 <>
