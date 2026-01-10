@@ -234,7 +234,7 @@ export interface ProjectResource {
 
 // ============ Transcription ============
 
-export type TranscriptionMethod = "whisper-local" | "browser-speech"
+export type TranscriptionMethod = "whisper-local" | "openai-whisper" | "browser-speech"
 
 export interface TranscriptionSegment {
   start: number   // seconds

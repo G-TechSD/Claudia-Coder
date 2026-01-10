@@ -1468,9 +1468,19 @@ export default function ProjectDetailPage() {
           {/* Resource List */}
           <ResourceList
             projectId={project.id}
-            onTranscribe={(resource) => {
-              // TODO: Open transcription flow
-              console.log("Transcribe:", resource.name)
+            onPacketCreate={(transcription, resource) => {
+              console.log("Packet created from transcription:", resource.name)
+              // Refresh packets list
+              const storedPackets = localStorage.getItem("claudia_packets")
+              if (storedPackets) {
+                try {
+                  const allPackets = JSON.parse(storedPackets)
+                  const projectPackets = allPackets[project.id] || []
+                  setPackets(projectPackets)
+                } catch {
+                  console.error("Failed to parse packets")
+                }
+              }
             }}
           />
         </TabsContent>

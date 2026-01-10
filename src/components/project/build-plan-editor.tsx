@@ -56,6 +56,7 @@ import {
 } from "@/lib/data/build-plans"
 import { savePackets, getPacketsForProject, type WorkPacket } from "@/lib/ai/build-plan"
 import { getProjectDefaultModel, type EnabledInstance } from "@/components/project/model-assignment"
+import { VisionPacketEditor, isVisionPacket } from "@/components/project/vision-packet-editor"
 
 interface ProviderOption {
   name: string
@@ -912,6 +913,58 @@ export function BuildPlanEditor({
     }))
   }
 
+  // Vision packet metadata save handler
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleVisionPacketSave = useCallback((packetId: string, updatedMetadata: any) => {
+    if (!buildPlan || isLocked) return
+
+    // Update the build plan's packet with new metadata
+    const updatedPackets = buildPlan.packets.map(packet => {
+      if (packet.id === packetId) {
+        return {
+          ...packet,
+          metadata: {
+            ...packet.metadata,
+            ...updatedMetadata
+          }
+        }
+      }
+      return packet
+    })
+
+    setBuildPlan({
+      ...buildPlan,
+      packets: updatedPackets
+    })
+
+    // Also save to localStorage (claudia_packets) for persistence
+    try {
+      const storedPackets = localStorage.getItem("claudia_packets")
+      if (storedPackets) {
+        const allPackets = JSON.parse(storedPackets)
+        const projectPackets = allPackets[projectId] || []
+
+        const packetIndex = projectPackets.findIndex((p: { id: string }) => p.id === packetId)
+        if (packetIndex !== -1) {
+          projectPackets[packetIndex] = {
+            ...projectPackets[packetIndex],
+            metadata: {
+              ...projectPackets[packetIndex].metadata,
+              ...updatedMetadata
+            }
+          }
+          allPackets[projectId] = projectPackets
+          localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+          console.log("[BuildPlanEditor] Vision packet saved to localStorage")
+        }
+      }
+    } catch (error) {
+      console.error("[BuildPlanEditor] Failed to save vision packet:", error)
+    }
+
+    setHasUnsavedChanges(true)
+  }, [buildPlan, isLocked, projectId])
+
   const togglePacketExpand = (packetId: string) => {
     setExpandedPackets(prev => {
       const next = new Set(prev)
@@ -1459,6 +1512,19 @@ export function BuildPlanEditor({
                   {buildPlan.packets.map((packet) => {
                     const feedback = packetFeedback[packet.id] || { approved: null, priority: "medium", comment: "" }
                     const isExpanded = expandedPackets.has(packet.id)
+
+                    // Use VisionPacketEditor for vision packets
+                    if (isVisionPacket(packet)) {
+                      return (
+                        <VisionPacketEditor
+                          key={packet.id}
+                          packet={packet}
+                          isLocked={isLocked}
+                          projectId={projectId}
+                          onSave={handleVisionPacketSave}
+                        />
+                      )
+                    }
 
                     return (
                       <div
