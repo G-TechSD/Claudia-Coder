@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -27,7 +28,9 @@ import {
   X,
   Package,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  Rocket
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -44,11 +47,16 @@ import {
   formatFileSize
 } from "@/lib/data/resources"
 import { useTranscription } from "@/hooks/useTranscription"
+import { PacketApprovalDialog } from "@/components/project/packet-approval-dialog"
+import type { ProposedPacket } from "@/app/api/brain-dump/packetize/route"
 
 interface ResourceListProps {
   projectId: string
+  projectName?: string
+  projectDescription?: string
   onTranscribe?: (resource: ProjectResource) => void
   onPacketCreate?: (transcription: TranscriptionData, resource: ProjectResource) => void
+  onMarkdownPacketsCreated?: (packets: ProposedPacket[]) => void
   className?: string
 }
 
@@ -75,10 +83,14 @@ const filterOptions: { value: ResourceType | "all"; label: string }[] = [
 
 export function ResourceList({
   projectId,
+  projectName,
+  projectDescription,
   onTranscribe,
   onPacketCreate,
+  onMarkdownPacketsCreated,
   className
 }: ResourceListProps) {
+  const router = useRouter()
   const [resources, setResources] = useState<ProjectResource[]>([])
   const [filter, setFilter] = useState<ResourceType | "all">("all")
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -90,6 +102,13 @@ export function ResourceList({
   const [transcriptionResult, setTranscriptionResult] = useState<TranscriptionData | null>(null)
   const [transcriptionResource, setTranscriptionResource] = useState<ProjectResource | null>(null)
   const [creatingPacket, setCreatingPacket] = useState(false)
+
+  // Markdown action state
+  const [processingMarkdownResourceId, setProcessingMarkdownResourceId] = useState<string | null>(null)
+  const [markdownAction, setMarkdownAction] = useState<"kickoff" | "packetize" | null>(null)
+  const [proposedPackets, setProposedPackets] = useState<ProposedPacket[]>([])
+  const [showPacketApproval, setShowPacketApproval] = useState(false)
+  const [packetizeError, setPacketizeError] = useState<string | null>(null)
 
   const {
     isTranscribing,
@@ -210,6 +229,162 @@ export function ResourceList({
     resetTranscription()
   }
 
+  /**
+   * Read markdown file content from IndexedDB
+   */
+  async function readMarkdownContent(resource: ProjectResource): Promise<string | null> {
+    if (!resource.indexedDbKey) {
+      console.error("Resource has no IndexedDB key")
+      return null
+    }
+
+    try {
+      const blob = await getResourceBlob(resource.indexedDbKey)
+      if (!blob) {
+        console.error("Could not load markdown blob")
+        return null
+      }
+
+      const text = await blob.text()
+      return text
+    } catch (err) {
+      console.error("Failed to read markdown content:", err)
+      return null
+    }
+  }
+
+  /**
+   * Handle "Use as Kickoff" action for markdown files
+   * Reads file content and navigates to build plan with content pre-filled
+   */
+  async function handleUseAsKickoff(resource: ProjectResource) {
+    setProcessingMarkdownResourceId(resource.id)
+    setMarkdownAction("kickoff")
+    setPacketizeError(null)
+
+    try {
+      const content = await readMarkdownContent(resource)
+      if (!content) {
+        setPacketizeError("Failed to read markdown file content")
+        return
+      }
+
+      // Store the markdown content in sessionStorage for the build plan page to pick up
+      sessionStorage.setItem("claudia_kickoff_content", JSON.stringify({
+        content,
+        sourceName: resource.name,
+        sourceResourceId: resource.id,
+        projectId
+      }))
+
+      // Navigate to the project's build plan tab with the content flag
+      router.push(`/projects/${projectId}?tab=plan&source=kickoff`)
+    } catch (err) {
+      console.error("Failed to use markdown as kickoff:", err)
+      setPacketizeError(err instanceof Error ? err.message : "Failed to process markdown file")
+    } finally {
+      setProcessingMarkdownResourceId(null)
+      setMarkdownAction(null)
+    }
+  }
+
+  /**
+   * Handle "Generate Packets" action for markdown files
+   * Reads file content and sends to LLM to extract work packets
+   */
+  async function handleGeneratePackets(resource: ProjectResource) {
+    setProcessingMarkdownResourceId(resource.id)
+    setMarkdownAction("packetize")
+    setPacketizeError(null)
+
+    try {
+      const content = await readMarkdownContent(resource)
+      if (!content) {
+        setPacketizeError("Failed to read markdown file content")
+        return
+      }
+
+      // Call the packetize API
+      const response = await fetch("/api/brain-dump/packetize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript: content, // The API expects "transcript" field
+          projectId,
+          projectName: projectName || "Unknown Project",
+          projectDescription: projectDescription || "",
+          existingContext: {
+            hasBuildPlan: false,
+            hasPackets: false
+          }
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      if (data.proposedPackets && data.proposedPackets.length > 0) {
+        setProposedPackets(data.proposedPackets)
+        setShowPacketApproval(true)
+      } else {
+        setPacketizeError("No actionable items were extracted from the markdown file.")
+      }
+    } catch (err) {
+      console.error("Failed to generate packets from markdown:", err)
+      setPacketizeError(err instanceof Error ? err.message : "Failed to extract packets")
+    } finally {
+      setProcessingMarkdownResourceId(null)
+      setMarkdownAction(null)
+    }
+  }
+
+  /**
+   * Handle packet approval from dialog
+   */
+  const handlePacketsApproved = useCallback((approvedPackets: Array<ProposedPacket & { approvedPriority: string }>) => {
+    setShowPacketApproval(false)
+
+    // Save packets to localStorage
+    const storedPackets = localStorage.getItem("claudia_packets")
+    const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
+    const projectPackets = allPackets[projectId] || []
+
+    // Convert ProposedPacket to the format expected by localStorage
+    const newPackets = approvedPackets.map(packet => ({
+      id: packet.id,
+      title: packet.title,
+      description: packet.description,
+      type: packet.type,
+      priority: packet.approvedPriority,
+      status: "pending",
+      tasks: packet.tasks,
+      acceptanceCriteria: packet.acceptanceCriteria,
+      createdAt: new Date().toISOString(),
+      sourceCategory: packet.category
+    }))
+
+    projectPackets.push(...newPackets)
+    allPackets[projectId] = projectPackets
+    localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+
+    // Notify parent
+    onMarkdownPacketsCreated?.(approvedPackets)
+
+    // Clear state
+    setProposedPackets([])
+  }, [projectId, onMarkdownPacketsCreated])
+
+  /**
+   * Handle dismissing all packets
+   */
+  const handleDismissPackets = useCallback(() => {
+    setShowPacketApproval(false)
+    setProposedPackets([])
+  }, [])
+
   const filteredResources = filter === "all"
     ? resources
     : resources.filter(r => r.type === filter)
@@ -315,7 +490,9 @@ export function ResourceList({
             const Icon = resourceIcons[resource.type]
             const isAudio = resource.type === "audio"
             const isImage = resource.type === "image"
+            const isMarkdown = resource.type === "markdown"
             const hasTranscription = resource.transcription?.text
+            const isProcessingMarkdown = processingMarkdownResourceId === resource.id
 
             return (
               <Card key={resource.id} className="group hover:border-primary/50 transition-colors">
@@ -326,7 +503,8 @@ export function ResourceList({
                       "p-2 rounded-lg",
                       isAudio && "bg-purple-500/10 text-purple-500",
                       isImage && "bg-blue-500/10 text-blue-500",
-                      !isAudio && !isImage && "bg-muted"
+                      isMarkdown && "bg-green-500/10 text-green-500",
+                      !isAudio && !isImage && !isMarkdown && "bg-muted"
                     )}>
                       <Icon className="h-5 w-5" />
                     </div>
@@ -383,10 +561,32 @@ export function ResourceList({
                     </div>
                   )}
 
+                  {/* Markdown Processing Status */}
+                  {isProcessingMarkdown && (
+                    <div className="mt-3 pt-3 border-t space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {markdownAction === "kickoff"
+                          ? "Preparing kickoff content..."
+                          : "Extracting work packets..."}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Markdown Error */}
+                  {isMarkdown && packetizeError && processingMarkdownResourceId === null && (
+                    <div className="mt-3 pt-3 border-t">
+                      <div className="flex items-center gap-2 text-sm text-red-500">
+                        <AlertCircle className="h-4 w-4" />
+                        {packetizeError}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Actions */}
                   <div className={cn(
                     "flex items-center gap-1 mt-3 pt-3 border-t transition-opacity",
-                    transcribingResourceId === resource.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                    (transcribingResourceId === resource.id || isProcessingMarkdown) ? "opacity-100" : "opacity-0 group-hover:opacity-100"
                   )}>
                     {(isImage || isAudio) && (
                       <Button
@@ -439,6 +639,49 @@ export function ResourceList({
                         <FileText className="h-4 w-4 mr-1" />
                         View Transcript
                       </Button>
+                    )}
+
+                    {/* Markdown Actions */}
+                    {isMarkdown && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleUseAsKickoff(resource)}
+                                disabled={isProcessingMarkdown}
+                                className="text-blue-500 hover:text-blue-600 hover:bg-blue-500/10"
+                              >
+                                {isProcessingMarkdown && markdownAction === "kickoff" ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                ) : (
+                                  <Rocket className="h-4 w-4 mr-1" />
+                                )}
+                                Kickoff
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleGeneratePackets(resource)}
+                                disabled={isProcessingMarkdown}
+                                className="text-purple-500 hover:text-purple-600 hover:bg-purple-500/10"
+                              >
+                                {isProcessingMarkdown && markdownAction === "packetize" ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                ) : (
+                                  <Package className="h-4 w-4 mr-1" />
+                                )}
+                                Packets
+                              </Button>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-[280px]">
+                            <p>Use this markdown file to generate a build plan kickoff or extract work packets</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     )}
 
                     <div className="flex-1" />
@@ -608,6 +851,17 @@ export function ResourceList({
           </div>
         </div>
       )}
+
+      {/* Packet Approval Dialog for Markdown Files */}
+      <PacketApprovalDialog
+        open={showPacketApproval}
+        onOpenChange={setShowPacketApproval}
+        proposedPackets={proposedPackets}
+        onApprove={handlePacketsApproved}
+        onDismiss={handleDismissPackets}
+        isLoading={processingMarkdownResourceId !== null && markdownAction === "packetize"}
+        projectName={projectName}
+      />
     </div>
   )
 }

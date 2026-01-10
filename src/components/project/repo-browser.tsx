@@ -21,10 +21,7 @@ import {
   ExternalLink,
   Settings,
   FolderOpen,
-  ChevronDown,
-  ChevronUp,
   MapPin,
-  Pencil,
   Download,
   CheckCircle2
 } from "lucide-react"
@@ -74,10 +71,6 @@ export function RepoBrowser({
   const [error, setError] = useState<string | null>(null)
   const [hasToken, setHasToken] = useState(false)
   const [linking, setLinking] = useState<number | null>(null)
-
-  // Custom path state - tracks which repos have custom path enabled and their custom values
-  const [customPathEnabled, setCustomPathEnabled] = useState<Record<number, boolean>>({})
-  const [customPaths, setCustomPaths] = useState<Record<number, string>>({})
 
   // Link mode state - tracks which mode user selected for each repo
   const [linkModes, setLinkModes] = useState<Record<number, LinkMode>>({})
@@ -155,13 +148,8 @@ export function RepoBrowser({
     setLinkModes(prev => ({ ...prev, [repo.id]: mode }))
 
     try {
-      // Determine the local path: use custom path if enabled, otherwise use auto-mapped path
-      let localPath: string
-      if (customPathEnabled[repo.id] && customPaths[repo.id]) {
-        localPath = customPaths[repo.id]
-      } else {
-        localPath = getAutoMappedPath(effectiveBasePath, repo.name)
-      }
+      // Always use the auto-mapped path based on project folder
+      let localPath: string = getAutoMappedPath(effectiveBasePath, repo.name)
 
       // If cloning, call the clone API first
       if (mode === "clone") {
@@ -179,7 +167,6 @@ export function RepoBrowser({
               url: repo.http_url_to_repo || repo.web_url,
               path_with_namespace: repo.path_with_namespace
             },
-            customPath: customPathEnabled[repo.id] ? customPaths[repo.id] : undefined,
             skipClone: false
           })
         })
@@ -230,26 +217,6 @@ export function RepoBrowser({
       delete newStatus[repoId]
       return newStatus
     })
-  }
-
-  // Helper to toggle custom path for a repo
-  const toggleCustomPath = (repoId: number, repoName: string) => {
-    setCustomPathEnabled(prev => {
-      const newState = { ...prev, [repoId]: !prev[repoId] }
-      // Initialize custom path with auto-mapped path when enabling
-      if (newState[repoId] && !customPaths[repoId]) {
-        setCustomPaths(prevPaths => ({
-          ...prevPaths,
-          [repoId]: getAutoMappedPath(effectiveBasePath, repoName)
-        }))
-      }
-      return newState
-    })
-  }
-
-  // Helper to update custom path
-  const updateCustomPath = (repoId: number, path: string) => {
-    setCustomPaths(prev => ({ ...prev, [repoId]: path }))
   }
 
   return (
@@ -365,7 +332,6 @@ export function RepoBrowser({
                   const isLinked = isRepoLinked(repo.id)
                   const isLinking = linking === repo.id
                   const autoMappedPath = getAutoMappedPath(effectiveBasePath, repo.name)
-                  const isCustomPathMode = customPathEnabled[repo.id]
                   const currentLinkMode = linkModes[repo.id]
                   const currentCloneStatus = cloneStatus[repo.id]
 
@@ -432,12 +398,12 @@ export function RepoBrowser({
                         {/* Link options - only show for repos that aren't linked yet and have basePath */}
                         {!isLinked && effectiveBasePath && (
                           <div className="border-t pt-3 space-y-3">
-                            {/* Auto-mapped path display */}
+                            {/* Auto-mapped path display (read-only) */}
                             <div className="flex items-center gap-2">
                               <MapPin className="h-4 w-4 text-green-500 flex-shrink-0" />
                               <span className="text-xs text-muted-foreground">Will be at:</span>
                               <code className="text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded font-mono flex-1 truncate">
-                                {isCustomPathMode ? customPaths[repo.id] || autoMappedPath : autoMappedPath}
+                                {autoMappedPath}
                               </code>
                             </div>
 
@@ -487,50 +453,6 @@ export function RepoBrowser({
                                 Already There
                               </Button>
                             </div>
-
-                            {/* Custom path toggle */}
-                            <div className="flex items-center justify-between">
-                              <button
-                                type="button"
-                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                                onClick={() => toggleCustomPath(repo.id, repo.name)}
-                              >
-                                <Pencil className="h-3 w-3" />
-                                <span>Custom path</span>
-                                {isCustomPathMode ? (
-                                  <ChevronUp className="h-3 w-3" />
-                                ) : (
-                                  <ChevronDown className="h-3 w-3" />
-                                )}
-                              </button>
-
-                              {isCustomPathMode && (
-                                <button
-                                  type="button"
-                                  className="text-xs text-blue-500 hover:text-blue-600"
-                                  onClick={() => {
-                                    setCustomPathEnabled(prev => ({ ...prev, [repo.id]: false }))
-                                  }}
-                                >
-                                  Use auto-mapped
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Custom path input (collapsed by default) */}
-                            {isCustomPathMode && (
-                              <div className="space-y-1">
-                                <Input
-                                  value={customPaths[repo.id] || ""}
-                                  onChange={(e) => updateCustomPath(repo.id, e.target.value)}
-                                  placeholder="/path/to/local/repo"
-                                  className="h-8 text-sm font-mono"
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                  Enter the full path where this repo exists or should be cloned
-                                </p>
-                              </div>
-                            )}
                           </div>
                         )}
 

@@ -82,6 +82,7 @@ import { VisionDisplay } from "@/components/project/vision-display"
 import { FileBrowser } from "@/components/project/file-browser"
 import { QuickComment } from "@/components/project/quick-comment"
 import { AnalyzeCodebaseButton } from "@/components/project/analyze-codebase-button"
+import { WhatsNextSection } from "@/components/project/whats-next-section"
 import {
   Select,
   SelectContent,
@@ -834,6 +835,30 @@ export default function ProjectDetailPage() {
           {/* Vision Display - Shows game/creative vision prominently */}
           <VisionDisplay projectId={project.id} />
 
+          {/* What's Next Section - Shows when queue is empty or all complete */}
+          <WhatsNextSection
+            projectId={project.id}
+            projectName={project.name}
+            projectDescription={project.description}
+            packets={packets}
+            hasBuildPlan={hasBuildPlan}
+            workingDirectory={getEffectiveWorkingDirectory(project)}
+            onPacketCreated={(packetId) => {
+              console.log("Packet created from What's Next:", packetId)
+              // Refresh packets list
+              const storedPackets = localStorage.getItem("claudia_packets")
+              if (storedPackets) {
+                try {
+                  const allPackets = JSON.parse(storedPackets)
+                  const projectPackets = allPackets[project.id] || []
+                  setPackets(projectPackets)
+                } catch {
+                  console.error("Failed to parse packets")
+                }
+              }
+            }}
+          />
+
           {/* Start Build Hero - Prominent CTA when ready to execute */}
           <StartBuildHero
             projectId={project.id}
@@ -852,7 +877,7 @@ export default function ProjectDetailPage() {
             projectName={project.name}
             projectDescription={project.description}
             hasLinkedRepo={project.repos.length > 0}
-            repoPath={project.repos.find(r => r.localPath)?.localPath}
+            repoPath={project.repos.find(r => r.localPath)?.localPath || project.basePath || getEffectiveWorkingDirectory(project)}
             hasBuildPlan={hasBuildPlan}
             onAnalysisComplete={() => {
               // Refresh build plan status
@@ -1499,8 +1524,24 @@ export default function ProjectDetailPage() {
           {/* Resource List */}
           <ResourceList
             projectId={project.id}
+            projectName={project.name}
+            projectDescription={project.description}
             onPacketCreate={(transcription, resource) => {
               console.log("Packet created from transcription:", resource.name)
+              // Refresh packets list
+              const storedPackets = localStorage.getItem("claudia_packets")
+              if (storedPackets) {
+                try {
+                  const allPackets = JSON.parse(storedPackets)
+                  const projectPackets = allPackets[project.id] || []
+                  setPackets(projectPackets)
+                } catch {
+                  console.error("Failed to parse packets")
+                }
+              }
+            }}
+            onMarkdownPacketsCreated={(packets) => {
+              console.log("Packets created from markdown:", packets.length)
               // Refresh packets list
               const storedPackets = localStorage.getItem("claudia_packets")
               if (storedPackets) {

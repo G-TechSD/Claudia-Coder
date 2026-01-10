@@ -5,6 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
+import { headers } from "next/headers"
+import { auth } from "@/lib/auth/index"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
 import type { PatentSearch, PriorArt } from "@/lib/data/types"
 
@@ -195,6 +197,18 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now()
 
   try {
+    // Verify authentication
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
+
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
+
     const body = await request.json()
     const {
       inventionTitle,
@@ -328,19 +342,39 @@ function extractKeywords(title: string, description: string): string[] {
 
 // GET endpoint to retrieve search by ID (placeholder for future persistence)
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const searchId = searchParams.get("id")
+  try {
+    // Verify authentication
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
 
-  if (!searchId) {
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
+
+    const { searchParams } = new URL(request.url)
+    const searchId = searchParams.get("id")
+
+    if (!searchId) {
+      return NextResponse.json(
+        { error: "Search ID required" },
+        { status: 400 }
+      )
+    }
+
+    // TODO: Implement persistence and retrieval
+    return NextResponse.json({
+      error: "Search retrieval not yet implemented",
+      suggestion: "Searches are currently session-based only"
+    }, { status: 501 })
+  } catch (error) {
+    console.error("[Patent Search API] GET error:", error)
     return NextResponse.json(
-      { error: "Search ID required" },
-      { status: 400 }
+      { error: error instanceof Error ? error.message : "Failed to retrieve search" },
+      { status: 500 }
     )
   }
-
-  // TODO: Implement persistence and retrieval
-  return NextResponse.json({
-    error: "Search retrieval not yet implemented",
-    suggestion: "Searches are currently session-based only"
-  }, { status: 501 })
 }

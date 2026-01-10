@@ -290,7 +290,7 @@ export function ProjectNavigation({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="start"
-                className="w-52 bg-popover border shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2"
+                className="w-52 bg-popover dark:bg-popover border border-border shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2"
                 sideOffset={8}
               >
                 <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground font-normal">

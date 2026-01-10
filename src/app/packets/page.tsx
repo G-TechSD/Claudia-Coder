@@ -29,8 +29,13 @@ import {
   RefreshCw,
   StopCircle,
   List,
-  LayoutGrid
+  LayoutGrid,
+  History,
+  Eye,
+  EyeOff
 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 import { useLegacyPacketExecution, type ExecutionLog, type ExecutionResult } from "@/hooks/usePacketExecution"
 
 // Extended status types to match N8N data
@@ -197,6 +202,7 @@ export default function PacketsPage() {
   const [selectedPacket, setSelectedPacket] = useState<Packet | null>(null)
   const [filter, setFilter] = useState<PacketStatus | "all">("all")
   const [search, setSearch] = useState("")
+  const [showCompleted, setShowCompleted] = useState(false)
   const [showExecutionLogs, setShowExecutionLogs] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -433,7 +439,20 @@ export default function PacketsPage() {
     })
   }
 
+  // Separate active and completed packets
+  const activeStatuses: PacketStatus[] = ["queued", "running", "paused", "blocked"]
+  const completedStatuses: PacketStatus[] = ["completed", "failed", "cancelled"]
+
+  const activePackets = packets.filter(p => activeStatuses.includes(p.status))
+  const completedPackets = packets.filter(p => completedStatuses.includes(p.status))
+
   const filteredPackets = packets.filter(packet => {
+    // First, check if we should show this packet based on completion status
+    const isCompleted = completedStatuses.includes(packet.status)
+    if (isCompleted && !showCompleted && filter === "all") {
+      return false
+    }
+
     const matchesFilter = filter === "all" || packet.status === filter
     const matchesSearch = search === "" ||
       packet.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -459,7 +478,12 @@ export default function PacketsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Packet Queue</h1>
           <p className="text-sm text-muted-foreground">
-            Manage and monitor development work packets across all projects
+            {activePackets.length} active packet{activePackets.length !== 1 ? "s" : ""}
+            {completedPackets.length > 0 && (
+              <span className="text-muted-foreground/70">
+                {" "} | {completedPackets.length} completed
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -593,6 +617,33 @@ export default function PacketsPage() {
           Filters
           <ChevronDown className="h-3 w-3" />
         </Button>
+
+        {/* Show Completed Toggle */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-background">
+          <Switch
+            id="show-completed"
+            checked={showCompleted}
+            onCheckedChange={setShowCompleted}
+          />
+          <Label
+            htmlFor="show-completed"
+            className="text-sm cursor-pointer flex items-center gap-1.5"
+          >
+            {showCompleted ? (
+              <Eye className="h-3.5 w-3.5 text-green-400" />
+            ) : (
+              <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+            <span className="hidden sm:inline">
+              {showCompleted ? "Showing" : "Show"} Completed
+            </span>
+            {completedPackets.length > 0 && (
+              <Badge variant="secondary" className="ml-1 text-xs">
+                {completedPackets.length}
+              </Badge>
+            )}
+          </Label>
+        </div>
 
         {/* View Mode Toggle */}
         <div className="flex items-center gap-1 rounded-lg border p-1">

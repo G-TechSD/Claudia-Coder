@@ -7,6 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
+import { headers } from "next/headers"
+import { auth } from "@/lib/auth/index"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
 import { cleanLLMResponse, parseLLMJson } from "@/lib/llm"
 import type {
@@ -267,6 +269,18 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now()
 
   try {
+    // Verify authentication
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
+
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
+
     const body: GenerationRequest = await request.json()
     const {
       inventionTitle,
@@ -436,6 +450,18 @@ export async function PATCH(request: NextRequest) {
   const startTime = Date.now()
 
   try {
+    // Verify authentication
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
+
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
+
     const body = await request.json()
     const {
       patentId,
@@ -643,40 +669,60 @@ export async function PATCH(request: NextRequest) {
 
 // GET endpoint to export patent as formatted document
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const patentId = searchParams.get("patentId")
-  const format = searchParams.get("format") || "text"
+  try {
+    // Verify authentication
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
 
-  if (!patentId) {
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
+
+    const { searchParams } = new URL(request.url)
+    const patentId = searchParams.get("patentId")
+    const format = searchParams.get("format") || "text"
+
+    if (!patentId) {
+      return NextResponse.json({
+        availableFormats: ["text", "markdown", "docx", "pdf"],
+        note: "Provide patentId query parameter to export a specific patent"
+      })
+    }
+
+    const patent = getPatent(patentId)
+    if (!patent) {
+      return NextResponse.json({
+        error: `Patent with ID ${patentId} not found`
+      }, { status: 404 })
+    }
+
+    // For now, return patent data in the requested format
+    if (format === "markdown") {
+      const markdown = formatPatentAsMarkdown(patent)
+      return new NextResponse(markdown, {
+        headers: {
+          "Content-Type": "text/markdown",
+          "Content-Disposition": `attachment; filename="${patent.title.replace(/[^a-z0-9]/gi, '_')}.md"`
+        }
+      })
+    }
+
     return NextResponse.json({
+      patent,
       availableFormats: ["text", "markdown", "docx", "pdf"],
-      note: "Provide patentId query parameter to export a specific patent"
+      selectedFormat: format
     })
+  } catch (error) {
+    console.error("[Patent Generate API] GET error:", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to export patent" },
+      { status: 500 }
+    )
   }
-
-  const patent = getPatent(patentId)
-  if (!patent) {
-    return NextResponse.json({
-      error: `Patent with ID ${patentId} not found`
-    }, { status: 404 })
-  }
-
-  // For now, return patent data in the requested format
-  if (format === "markdown") {
-    const markdown = formatPatentAsMarkdown(patent)
-    return new NextResponse(markdown, {
-      headers: {
-        "Content-Type": "text/markdown",
-        "Content-Disposition": `attachment; filename="${patent.title.replace(/[^a-z0-9]/gi, '_')}.md"`
-      }
-    })
-  }
-
-  return NextResponse.json({
-    patent,
-    availableFormats: ["text", "markdown", "docx", "pdf"],
-    selectedFormat: format
-  })
 }
 
 /**
