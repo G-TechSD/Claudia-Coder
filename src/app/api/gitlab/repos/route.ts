@@ -3,6 +3,10 @@
  * Proxies GitLab API requests from the client to handle CORS and self-signed certificates
  */
 
+// Disable SSL verification for self-signed GitLab certs
+// Node.js native fetch() doesn't support the agent option, so we use this env var
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+
 import { NextRequest, NextResponse } from "next/server"
 import https from "https"
 
