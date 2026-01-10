@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getBusinessDev, exportBusinessDevPDF } from "@/lib/data/business-dev"
 import { getProject } from "@/lib/data/projects"
 import type { BusinessDev } from "@/lib/data/types"
+import { verifyApiAuth, unauthorizedResponse } from "@/lib/auth/api-helpers"
 
 export type ExportFormat = "pdf" | "markdown" | "md" | "docx" | "html" | "json"
 
@@ -19,6 +20,13 @@ export type ExportFormat = "pdf" | "markdown" | "md" | "docx" | "html" | "json"
 
 export async function GET(request: NextRequest) {
   try {
+    // Verify authentication
+    const authResult = await verifyApiAuth()
+    if (!authResult) {
+      return unauthorizedResponse()
+    }
+    const userId = authResult.user.id
+
     const { searchParams } = new URL(request.url)
     const projectId = searchParams.get("projectId")
     const format = (searchParams.get("format") || "pdf").toLowerCase() as ExportFormat
@@ -37,7 +45,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const project = getProject(projectId)
+    const project = getProject(projectId, userId)
     if (!project) {
       return NextResponse.json(
         { error: "Project not found" },
@@ -45,7 +53,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const businessDev = getBusinessDev(projectId)
+    const businessDev = getBusinessDev(projectId, userId)
     if (!businessDev) {
       return NextResponse.json(
         { error: "No business dev document found for this project" },
@@ -63,7 +71,8 @@ export async function GET(request: NextRequest) {
           includeMarketAnalysis,
           includeGoToMarket,
           includeRisks,
-          companyName
+          companyName,
+          userId
         })
 
         if (!result) {
@@ -194,6 +203,12 @@ interface LegacyBusinessDevData {
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authentication
+    const authResult = await verifyApiAuth()
+    if (!authResult) {
+      return unauthorizedResponse()
+    }
+
     const { projectName, data, format } = await request.json()
 
     if (!projectName || !data) {

@@ -20,6 +20,7 @@ import {
 } from "@/lib/data/business-dev"
 import { getProject } from "@/lib/data/projects"
 import { getBuildPlanForProject } from "@/lib/data/build-plans"
+import { verifyApiAuth, unauthorizedResponse } from "@/lib/auth/api-helpers"
 import type {
   BusinessDev,
   BusinessDevExecutiveSummary,
@@ -53,13 +54,20 @@ Return ONLY valid JSON matching the exact structure requested. No markdown, no a
 
 export async function GET(request: NextRequest) {
   try {
+    // Verify authentication
+    const authResult = await verifyApiAuth()
+    if (!authResult) {
+      return unauthorizedResponse()
+    }
+    const userId = authResult.user.id
+
     const { searchParams } = new URL(request.url)
     const projectId = searchParams.get("projectId")
     const id = searchParams.get("id")
 
     // Get by ID if provided
     if (id) {
-      const businessDev = getBusinessDevById(id)
+      const businessDev = getBusinessDevById(id, userId)
       if (!businessDev) {
         return NextResponse.json(
           { error: "Business dev document not found" },
@@ -77,7 +85,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const project = getProject(projectId)
+    const project = getProject(projectId, userId)
     if (!project) {
       return NextResponse.json(
         { error: "Project not found" },
@@ -85,7 +93,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const businessDev = getBusinessDev(projectId)
+    const businessDev = getBusinessDev(projectId, userId)
 
     return NextResponse.json({
       businessDev,
@@ -104,6 +112,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authentication
+    const authResult = await verifyApiAuth()
+    if (!authResult) {
+      return unauthorizedResponse()
+    }
+    const userId = authResult.user.id
+
     const body = await request.json()
     const {
       projectId,
@@ -120,7 +135,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const project = getProject(projectId)
+    const project = getProject(projectId, userId)
     if (!project) {
       return NextResponse.json(
         { error: "Project not found" },
@@ -128,14 +143,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const buildPlan = getBuildPlanForProject(projectId)
+    const buildPlan = getBuildPlanForProject(projectId, userId)
 
     // If not using AI, generate template-based business dev
     if (!useAI) {
       const businessDev = generateBusinessDev({
         projectId,
         buildPlan: buildPlan || undefined,
-        generatedBy: { server: "template", model: "none" }
+        generatedBy: { server: "template", model: "none" },
+        userId
       })
 
       return NextResponse.json({
@@ -224,7 +240,8 @@ export async function POST(request: NextRequest) {
     const businessDev = generateBusinessDev({
       projectId,
       buildPlan: buildPlan || undefined,
-      generatedBy: { server: "template", model: "fallback" }
+      generatedBy: { server: "template", model: "fallback" },
+      userId
     })
 
     return NextResponse.json({
@@ -247,6 +264,13 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    // Verify authentication
+    const authResult = await verifyApiAuth()
+    if (!authResult) {
+      return unauthorizedResponse()
+    }
+    const userId = authResult.user.id
+
     const body = await request.json()
     const { projectId, updates } = body
 
@@ -257,7 +281,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const existing = getBusinessDev(projectId)
+    const existing = getBusinessDev(projectId, userId)
     if (!existing) {
       return NextResponse.json(
         { error: "Business dev document not found for this project" },
@@ -265,7 +289,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const updated = updateBusinessDev(projectId, updates)
+    const updated = updateBusinessDev(projectId, updates, userId)
     if (!updated) {
       return NextResponse.json(
         { error: "Failed to update business dev" },
@@ -290,6 +314,13 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    // Verify authentication
+    const authResult = await verifyApiAuth()
+    if (!authResult) {
+      return unauthorizedResponse()
+    }
+    const userId = authResult.user.id
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
     const projectId = searchParams.get("projectId")
@@ -298,7 +329,7 @@ export async function DELETE(request: NextRequest) {
 
     // If projectId provided, get the business dev ID for that project
     if (!targetId && projectId) {
-      const businessDev = getBusinessDev(projectId)
+      const businessDev = getBusinessDev(projectId, userId)
       if (!businessDev) {
         return NextResponse.json(
           { error: "No business dev found for this project" },
@@ -315,7 +346,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    const deleted = deleteBusinessDev(targetId)
+    const deleted = deleteBusinessDev(targetId, userId)
     if (!deleted) {
       return NextResponse.json(
         { error: "Business dev not found or already deleted" },

@@ -28,6 +28,7 @@ interface AnalyzeCodebaseButtonProps {
   projectDescription: string
   hasLinkedRepo: boolean
   repoPath?: string
+  repoCloned: boolean  // Whether the repo has been cloned locally
   hasBuildPlan: boolean
   onAnalysisComplete?: () => void
   className?: string
@@ -73,6 +74,7 @@ export function AnalyzeCodebaseButton({
   projectDescription,
   hasLinkedRepo,
   repoPath,
+  repoCloned,
   hasBuildPlan,
   onAnalysisComplete,
   className
@@ -291,6 +293,14 @@ export function AnalyzeCodebaseButton({
                 Converting recommendations to work packets
               </p>
             </div>
+          ) : !repoCloned ? (
+            <div className="py-12 text-center">
+              <GitBranch className="h-12 w-12 mx-auto text-orange-400 mb-4" />
+              <p className="text-lg font-medium">Clone Repository First</p>
+              <p className="text-muted-foreground max-w-md mx-auto">
+                Clone the repository to analyze its codebase. Go to the Repos tab and click &quot;Clone&quot; on your linked repository.
+              </p>
+            </div>
           ) : repoPath ? (
             <CodebaseAnalyzer
               projectId={projectId}
@@ -322,6 +332,7 @@ export function AnalyzeCodebaseCompact({
   projectName,
   hasLinkedRepo,
   repoPath,
+  repoCloned,
   hasBuildPlan,
   onAnalysisComplete
 }: Omit<AnalyzeCodebaseButtonProps, 'className' | 'projectDescription'>) {
@@ -365,7 +376,15 @@ export function AnalyzeCodebaseCompact({
             </DialogTitle>
           </DialogHeader>
 
-          {repoPath ? (
+          {!repoCloned ? (
+            <div className="py-12 text-center">
+              <GitBranch className="h-12 w-12 mx-auto text-orange-400 mb-4" />
+              <p className="text-lg font-medium">Clone Repository First</p>
+              <p className="text-muted-foreground max-w-md mx-auto">
+                Clone the repository to analyze its codebase. Go to the Repos tab and click &quot;Clone&quot; on your linked repository.
+              </p>
+            </div>
+          ) : repoPath ? (
             <CodebaseAnalyzer
               projectId={projectId}
               projectName={projectName}

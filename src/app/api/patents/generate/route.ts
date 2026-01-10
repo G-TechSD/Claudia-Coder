@@ -488,8 +488,8 @@ export async function PATCH(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // Get the patent from storage
-    const patent = getPatent(patentId)
+    // Get the patent from storage (scoped to user)
+    const patent = getPatent(patentId, session.user.id)
     if (!patent) {
       return NextResponse.json({
         error: `Patent with ID ${patentId} not found`
@@ -633,8 +633,8 @@ export async function PATCH(request: NextRequest) {
       }))
     }
 
-    // Save updates to the patent
-    const updatedPatent = updatePatent(patentId, updates)
+    // Save updates to the patent (scoped to user)
+    const updatedPatent = updatePatent(patentId, updates, session.user.id)
 
     if (!updatedPatent) {
       return NextResponse.json({
@@ -693,7 +693,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const patent = getPatent(patentId)
+    const patent = getPatent(patentId, session.user.id)
     if (!patent) {
       return NextResponse.json({
         error: `Patent with ID ${patentId} not found`

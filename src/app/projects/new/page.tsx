@@ -374,6 +374,112 @@ function NewProjectContent() {
     }
   }
 
+  // Auto-save a Linear import project immediately
+  const autoSaveLinearProject = async (repoToLink?: { id: number; name: string; path: string; url: string } | null) => {
+    if (!linearImportData) return
+
+    setIsSubmitting(true)
+    setSubmitError("")
+
+    try {
+      // Create the project immediately with imported data
+      const project = createProject({
+        name: projectName || linearImportData.projects[0]?.name || "Linear Import",
+        description: projectDescription || linearImportData.projects[0]?.description || `Imported from Linear with ${linearImportData.summary.totalIssues} issues`,
+        status: "active",
+        priority: priority || "medium",
+        repos: [],
+        packetIds: [],
+        tags: ["imported-from-linear"],
+        basePath: projectFolderPath.trim() || localRepoPath.trim() || undefined
+      })
+
+      // Configure Linear sync
+      if (linearImportData.projects.length > 0) {
+        configureLinearSync(project.id, {
+          mode: "imported",
+          projectId: linearImportData.projects[0].linearProjectId,
+          teamId: linearImportData.projects[0].teamIds[0],
+          syncIssues: false,
+          syncComments: false,
+          syncStatus: false,
+          importedAt: new Date().toISOString(),
+          importedIssueCount: linearImportData.summary.totalIssues
+        })
+      }
+
+      // Save the build plan with phases
+      saveBuildPlan(project.id, {
+        id: `plan-${Date.now()}`,
+        projectId: project.id,
+        version: 1,
+        status: "approved",
+        spec: {
+          name: project.name,
+          description: project.description,
+          objectives: [],
+          nonGoals: [],
+          assumptions: [],
+          risks: [],
+          techStack: []
+        },
+        phases: linearImportData.phases.map(p => ({
+          ...p,
+          packetIds: linearImportData.packets
+            .filter(pkt => pkt.status !== "completed")
+            .map(pkt => pkt.id),
+          dependencies: [],
+          estimatedEffort: { optimistic: 8, realistic: 16, pessimistic: 32, confidence: "medium" as const },
+          successCriteria: ["All packets completed"]
+        })),
+        packets: linearImportData.packets.map(pkt => ({
+          ...pkt,
+          blockedBy: pkt.dependencies || [],
+          blocks: []
+        })),
+        modelAssignments: [],
+        constraints: {
+          requireLocalFirst: true,
+          requireHumanApproval: ["planning", "deployment"],
+          maxParallelPackets: 2
+        },
+        generatedBy: "linear-import",
+        createdAt: new Date().toISOString()
+      })
+
+      // Save all the packets
+      const packetsToSave = linearImportData.packets.map(pkt => ({
+        ...pkt,
+        blockedBy: pkt.dependencies || [],
+        blocks: []
+      }))
+      savePackets(project.id, packetsToSave)
+
+      // Update project with packet IDs
+      updateProject(project.id, {
+        packetIds: packetsToSave.map(p => p.id)
+      })
+
+      // Link repo if one was selected
+      if (repoToLink) {
+        linkRepoToProject(project.id, {
+          provider: "gitlab",
+          id: repoToLink.id,
+          name: repoToLink.name,
+          path: repoToLink.path,
+          url: repoToLink.url
+        })
+      }
+
+      setCreatedProject(project)
+      setMode("complete")
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to create project")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const handleLinearConfirm = async () => {
     if (!linearImportData) return
 
@@ -400,23 +506,28 @@ function NewProjectContent() {
       setLoadingRepos(false)
     }
 
-    // No repos available or no token - proceed directly to setup
-    setMode("setup")
+    // No repos available or no token - auto-save immediately
+    await autoSaveLinearProject(null)
   }
 
-  const handleRepoLinkChoice = (choice: "link" | "create" | "skip") => {
+  const handleRepoLinkChoice = async (choice: "link" | "create" | "skip") => {
+    setShowRepoLinkDialog(false)
+
     if (choice === "link" && selectedRepoId) {
-      // The selected repo will be linked when the project is created
-      // Keep selectedRepoId so handleSubmit can use it
+      // Link the selected repo and save project immediately
+      const repoToLink = availableRepos.find(r => r.id === selectedRepoId)
+      await autoSaveLinearProject(repoToLink || null)
     } else if (choice === "create") {
+      // User wants to create a new repo - go to setup for repo creation options
       setCreateRepo(true)
       setSelectedRepoId(null)
+      setMode("setup")
     } else {
+      // Skip repo linking - save project immediately without repo
       setSelectedRepoId(null)
       setCreateRepo(false)
+      await autoSaveLinearProject(null)
     }
-    setShowRepoLinkDialog(false)
-    setMode("setup")
   }
 
   // Generate plan from quick description
@@ -461,14 +572,45 @@ function NewProjectContent() {
     }
   }
 
-  const handleApprovePlan = () => {
+  // Auto-save a project from "Feeling Lucky" quick creation
+  const autoSaveQuickProject = async (plan: GeneratedPlan) => {
+    setIsSubmitting(true)
+    setSubmitError("")
+
+    try {
+      const project = createProject({
+        name: plan.name,
+        description: plan.description,
+        status: "planning", // Start as planning since it's a quick create
+        priority: plan.priority,
+        repos: [],
+        packetIds: [],
+        tags: plan.techStack || [],
+        basePath: projectFolderPath.trim() || localRepoPath.trim() || undefined
+      })
+
+      // Link voice recording if project was created from voice
+      if (sourceVoiceRecording) {
+        markProjectCreated(sourceVoiceRecording.id, project.id)
+        updateProject(project.id, {
+          tags: [...(project.tags || []), "created-from-voice"]
+        })
+      }
+
+      setCreatedProject(project)
+      setMode("complete")
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to create project")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleApprovePlan = async () => {
     if (!generatedPlan) return
 
-    setProjectName(generatedPlan.name)
-    setProjectDescription(generatedPlan.description)
-    setRepoName(toRepoName(generatedPlan.name))
-    setPriority(generatedPlan.priority)
-    setMode("setup")
+    // Auto-save the project immediately
+    await autoSaveQuickProject(generatedPlan)
   }
 
   const handleRejectPlan = () => {
@@ -478,6 +620,47 @@ function NewProjectContent() {
 
   const handleRegeneratePlan = async () => {
     await handleFeelingLucky()
+  }
+
+  // Auto-save a project from interview completion (when build plan is disabled)
+  const autoSaveInterviewProject = async (
+    name: string,
+    description: string,
+    extractedPriority: "low" | "medium" | "high" | "critical",
+    techStack: string[],
+    session: InterviewSession
+  ) => {
+    setIsSubmitting(true)
+    setSubmitError("")
+
+    try {
+      const project = createProject({
+        name,
+        description,
+        status: "planning", // Start as planning since no build plan was generated
+        priority: extractedPriority,
+        repos: [],
+        packetIds: [],
+        tags: techStack,
+        basePath: projectFolderPath.trim() || localRepoPath.trim() || undefined,
+        creationInterview: session
+      })
+
+      // Link voice recording if project was created from voice
+      if (sourceVoiceRecording) {
+        markProjectCreated(sourceVoiceRecording.id, project.id)
+        updateProject(project.id, {
+          tags: [...(project.tags || []), "created-from-voice"]
+        })
+      }
+
+      setCreatedProject(project)
+      setMode("complete")
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to create project")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleInterviewComplete = async (session: InterviewSession) => {
@@ -494,13 +677,16 @@ function NewProjectContent() {
     setProjectName(name)
     setProjectDescription(description)
     setRepoName(toRepoName(name))
-    setPriority((extractedData.priority as "low" | "medium" | "high" | "critical") || "medium")
+    const extractedPriority = (extractedData.priority as "low" | "medium" | "high" | "critical") || "medium"
+    setPriority(extractedPriority)
+    const techStack = (extractedData.techStack as string[]) || []
 
     // If auto-generate is enabled, generate build plan and show review
     if (autoGenerateBuildPlan) {
       await generateBuildPlanForProject(name, description, hasMonetizationIntent)
     } else {
-      setMode("setup")
+      // Auto-save project immediately without build plan
+      await autoSaveInterviewProject(name, description, extractedPriority, techStack, session)
     }
   }
 

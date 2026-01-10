@@ -153,9 +153,22 @@ function SettingsPageContent() {
         const data = await response.json()
         setServices(prev => prev.map(s => {
           if (s.name.toLowerCase().includes("n8n")) {
+            // Determine appropriate status:
+            // - Not configured: N8N URL is not set
+            // - Connected: N8N is healthy
+            // - Disconnected: N8N is configured but not reachable
+            let status: "connected" | "disconnected" | "error" | "not_configured" = "disconnected"
+            if (data.healthy) {
+              status = "connected"
+            } else if (data.configured === false) {
+              status = "not_configured"
+            }
             return {
               ...s,
-              status: data.healthy ? "connected" : "disconnected"
+              status,
+              statusMessage: data.message,
+              url: data.url || s.url,
+              latency: data.healthy ? s.latency : undefined,
             }
           }
           return s

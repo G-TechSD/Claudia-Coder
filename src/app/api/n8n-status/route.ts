@@ -10,15 +10,35 @@
 
 import { NextResponse } from "next/server"
 import https from "https"
+import http from "http"
 
-const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
+// N8N URL configuration - empty string means not configured
+const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || ""
 const N8N_API_KEY = process.env.NEXT_PUBLIC_N8N_API_KEY || ""
-const N8N_API_URL = process.env.N8N_API_URL || `${N8N_BASE_URL}/api/v1`
+const N8N_API_URL = N8N_BASE_URL ? `${N8N_BASE_URL}/api/v1` : ""
 
 /**
- * Make HTTPS request that accepts self-signed certificates
+ * Check if N8N is configured
  */
-function httpsRequest(url: string, options: {
+function isN8NConfigured(): boolean {
+  // Check if we have a valid URL
+  if (!N8N_BASE_URL || N8N_BASE_URL.trim() === "") {
+    return false
+  }
+
+  // Check if URL looks valid
+  try {
+    new URL(N8N_BASE_URL)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Make HTTP/HTTPS request that accepts self-signed certificates
+ */
+function makeRequest(url: string, options: {
   method?: string
   headers?: Record<string, string>
   body?: string
@@ -26,17 +46,24 @@ function httpsRequest(url: string, options: {
 }): Promise<{ ok: boolean; status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url)
+    const isHttps = urlObj.protocol === "https:"
+    const httpModule = isHttps ? https : http
+
     const reqOptions: https.RequestOptions = {
       hostname: urlObj.hostname,
-      port: urlObj.port || 443,
+      port: urlObj.port || (isHttps ? 443 : 80),
       path: urlObj.pathname + urlObj.search,
       method: options.method || "GET",
       headers: options.headers || {},
-      rejectUnauthorized: false, // Accept self-signed certificates
       timeout: options.timeout || 5000,
     }
 
-    const req = https.request(reqOptions, (res) => {
+    // For HTTPS, accept self-signed certificates
+    if (isHttps) {
+      reqOptions.rejectUnauthorized = false
+    }
+
+    const req = httpModule.request(reqOptions, (res) => {
       let body = ""
       res.on("data", (chunk) => { body += chunk })
       res.on("end", () => {
@@ -48,7 +75,9 @@ function httpsRequest(url: string, options: {
       })
     })
 
-    req.on("error", reject)
+    req.on("error", (err) => {
+      reject(err)
+    })
     req.on("timeout", () => {
       req.destroy()
       reject(new Error("Request timed out"))
@@ -62,34 +91,20 @@ function httpsRequest(url: string, options: {
 }
 
 /**
- * Fetch with self-signed cert support
+ * Fetch with self-signed cert support for both HTTP and HTTPS
  */
 async function fetchWithSelfSignedCert(
   url: string,
   options: { method?: string; headers?: Record<string, string>; body?: string; timeout?: number } = {}
 ): Promise<{ ok: boolean; status: number; json: () => Promise<unknown>; text: () => Promise<string> }> {
-  // For HTTPS URLs, use custom https request
-  if (url.startsWith("https://")) {
-    const result = await httpsRequest(url, options)
-    return {
-      ok: result.ok,
-      status: result.status,
-      json: async () => JSON.parse(result.body),
-      text: async () => result.body,
-    }
-  }
-
-  // For HTTP URLs, use regular fetch
-  const response = await fetch(url, {
-    method: options.method,
-    headers: options.headers,
-    body: options.body,
-  })
+  // Use our custom request handler for both HTTP and HTTPS
+  // This gives us consistent error handling and timeout support
+  const result = await makeRequest(url, options)
   return {
-    ok: response.ok,
-    status: response.status,
-    json: () => response.json(),
-    text: () => response.text(),
+    ok: result.ok,
+    status: result.status,
+    json: async () => JSON.parse(result.body),
+    text: async () => result.body,
   }
 }
 
@@ -101,7 +116,24 @@ async function fetchWithSelfSignedCert(
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
+// Common no-cache headers
+const noCacheHeaders = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate',
+  'Pragma': 'no-cache',
+  'Expires': '0'
+}
+
 export async function GET() {
+  // Check if N8N is configured first
+  if (!isN8NConfigured()) {
+    return NextResponse.json({
+      healthy: false,
+      configured: false,
+      url: N8N_BASE_URL || null,
+      message: "N8N is not configured. Set NEXT_PUBLIC_N8N_URL environment variable.",
+    }, { headers: noCacheHeaders })
+  }
+
   try {
     // Try the health endpoint first
     const healthUrl = `${N8N_BASE_URL}/healthz`
@@ -140,41 +172,27 @@ export async function GET() {
 
       return NextResponse.json({
         healthy: true,
+        configured: true,
         url: N8N_BASE_URL,
         message: "N8N is running",
         workflows,
-      }, {
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      })
+      }, { headers: noCacheHeaders })
     }
 
     return NextResponse.json({
       healthy: false,
+      configured: true,
       url: N8N_BASE_URL,
       message: `Health check returned status ${healthResponse.status}`,
-    }, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    })
+    }, { headers: noCacheHeaders })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error"
-    const noCacheHeaders = {
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0'
-    }
 
     // Check for common connection errors
     if (message.includes("ECONNREFUSED")) {
       return NextResponse.json({
         healthy: false,
+        configured: true,
         url: N8N_BASE_URL,
         message: "Connection refused - N8N may not be running",
       }, { headers: noCacheHeaders })
@@ -183,6 +201,7 @@ export async function GET() {
     if (message.includes("ETIMEDOUT") || message.includes("timeout")) {
       return NextResponse.json({
         healthy: false,
+        configured: true,
         url: N8N_BASE_URL,
         message: "Connection timed out - N8N may be unreachable",
       }, { headers: noCacheHeaders })
@@ -191,13 +210,24 @@ export async function GET() {
     if (message.includes("CERT") || message.includes("certificate")) {
       return NextResponse.json({
         healthy: false,
+        configured: true,
         url: N8N_BASE_URL,
         message: "Certificate error - check HTTPS configuration",
       }, { headers: noCacheHeaders })
     }
 
+    if (message.includes("ENOTFOUND") || message.includes("getaddrinfo")) {
+      return NextResponse.json({
+        healthy: false,
+        configured: true,
+        url: N8N_BASE_URL,
+        message: "Host not found - check N8N URL configuration",
+      }, { headers: noCacheHeaders })
+    }
+
     return NextResponse.json({
       healthy: false,
+      configured: true,
       url: N8N_BASE_URL,
       message: `Health check failed: ${message}`,
     }, { headers: noCacheHeaders })
@@ -209,6 +239,14 @@ export async function GET() {
  * Useful for workflows, executions, etc.
  */
 export async function POST(request: Request) {
+  // Check if N8N is configured
+  if (!isN8NConfigured()) {
+    return NextResponse.json({
+      error: "N8N is not configured",
+      configured: false,
+    }, { status: 503 })
+  }
+
   try {
     const body = await request.json()
     const { endpoint, method = "GET", data } = body

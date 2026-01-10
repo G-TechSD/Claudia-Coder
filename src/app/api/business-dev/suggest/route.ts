@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { verifyApiAuth, unauthorizedResponse } from "@/lib/auth/api-helpers"
 
 /**
  * Get AI Suggestion for Business Dev Field
@@ -57,6 +58,12 @@ Respond with ONLY the competitive advantage description (1-2 paragraphs).`
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authentication
+    const authResult = await verifyApiAuth()
+    if (!authResult) {
+      return unauthorizedResponse()
+    }
+
     const { field, context, currentValue, businessData } = await request.json()
 
     if (!field) {

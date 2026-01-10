@@ -9,6 +9,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
+import { headers } from "next/headers"
+import { auth } from "@/lib/auth/index"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
 import { parseLLMJson } from "@/lib/llm"
 import type { PriorArtResearch } from "@/lib/data/types"
@@ -174,6 +176,18 @@ async function performWebSearch(query: string): Promise<WebSearchResult[]> {
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authentication
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    })
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
+
     const body: PriorArtRequest = await request.json()
     const {
       projectId,

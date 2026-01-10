@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
+import { verifyApiAuth, unauthorizedResponse } from "@/lib/auth/api-helpers"
 
 const SYSTEM_PROMPT = `You are an expert business analyst helping entrepreneurs transform their raw ideas into structured business development plans.
 
@@ -216,6 +217,12 @@ function generatePlaceholderAnalysis(
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify authentication
+    const authResult = await verifyApiAuth()
+    if (!authResult) {
+      return unauthorizedResponse()
+    }
+
     const body = await request.json()
     const {
       projectId,

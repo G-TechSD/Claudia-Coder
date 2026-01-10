@@ -68,7 +68,8 @@ export interface ServiceStatus {
   id?: string
   name: string
   url: string
-  status: "connected" | "disconnected" | "error"
+  status: "connected" | "disconnected" | "error" | "not_configured"
+  statusMessage?: string  // Additional status context (e.g., "N8N is not configured")
   latency?: number
   type?: "local" | "api" | "git"
   serverType?: "lmstudio" | "ollama" | "custom"
@@ -130,10 +131,11 @@ function categorizeConnection(service: ServiceStatus): CategorizedConnection {
   return { service, category: "other" }
 }
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
   connected: { label: "Connected", color: "text-green-400", bg: "bg-green-400" },
   disconnected: { label: "Disconnected", color: "text-muted-foreground", bg: "bg-muted-foreground" },
-  error: { label: "Error", color: "text-red-400", bg: "bg-red-400" }
+  error: { label: "Error", color: "text-red-400", bg: "bg-red-400" },
+  not_configured: { label: "Not Configured", color: "text-amber-400", bg: "bg-amber-400" }
 }
 
 interface ConnectionsTabProps {
@@ -402,7 +404,11 @@ export function ConnectionsTab({
                 {service.latency}ms
               </span>
             )}
-            <Badge variant={service.status === "connected" ? "success" : "destructive"}>
+            <Badge variant={
+              service.status === "connected" ? "success" :
+              service.status === "not_configured" ? "warning" :
+              "destructive"
+            }>
               {config.label}
             </Badge>
             {externalUrl && (
@@ -596,7 +602,11 @@ export function ConnectionsTab({
               {service.latency}ms
             </span>
           )}
-          <Badge variant={service.status === "connected" ? "success" : "destructive"}>
+          <Badge variant={
+            service.status === "connected" ? "success" :
+            service.status === "not_configured" ? "warning" :
+            "destructive"
+          }>
             {config.label}
           </Badge>
           {externalUrl && (
@@ -630,6 +640,12 @@ export function ConnectionsTab({
             </Button>
           )}
         </div>
+        {/* Show status message for not_configured or error states */}
+        {service.statusMessage && service.status !== "connected" && (
+          <p className="text-xs text-muted-foreground mt-2 ml-5">
+            {service.statusMessage}
+          </p>
+        )}
       </div>
     )
   }

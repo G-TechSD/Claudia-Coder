@@ -103,12 +103,22 @@ export function N8NEmbed({
 
       const data = await response.json()
 
+      // Determine the connection status message
+      let statusMessage = "Connection failed"
+      if (data.healthy) {
+        statusMessage = "Connected"
+      } else if (data.configured === false) {
+        statusMessage = "Not configured"
+      } else if (data.message) {
+        statusMessage = data.message
+      }
+
       const newStatus: ConnectionStatus = {
         connected: data.healthy === true,
         checking: false,
         url,
         mode,
-        message: data.healthy ? "Connected" : (data.message || "Connection failed"),
+        message: statusMessage,
       }
 
       setConnectionStatus(newStatus)

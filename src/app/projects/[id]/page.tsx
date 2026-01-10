@@ -877,7 +877,8 @@ export default function ProjectDetailPage() {
             projectName={project.name}
             projectDescription={project.description}
             hasLinkedRepo={project.repos.length > 0}
-            repoPath={project.repos.find(r => r.localPath)?.localPath || project.basePath || getEffectiveWorkingDirectory(project)}
+            repoPath={project.repos.find(r => r.localPath)?.localPath}
+            repoCloned={project.repos.some(r => r.localPath)}
             hasBuildPlan={hasBuildPlan}
             onAnalysisComplete={() => {
               // Refresh build plan status
@@ -1276,14 +1277,25 @@ export default function ProjectDetailPage() {
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 flex-1">
-                          <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
-                            {repo.localPath || <span className="text-muted-foreground italic">Not configured</span>}
-                          </code>
+                          {repo.localPath ? (
+                            <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
+                              {repo.localPath}
+                            </code>
+                          ) : project.basePath ? (
+                            <code className="text-sm bg-green-500/10 text-green-600 px-2 py-1 rounded flex-1 font-mono">
+                              {project.basePath.replace(/\/+$/, "")}/repos/{repo.name}
+                              <span className="text-muted-foreground ml-2">(auto-mapped)</span>
+                            </code>
+                          ) : (
+                            <span className="text-sm text-orange-500 italic">
+                              Set project folder to auto-map path
+                            </span>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            onClick={() => handleStartEditLocalPath(repo.id, repo.localPath)}
+                            onClick={() => handleStartEditLocalPath(repo.id, repo.localPath || (project.basePath ? `${project.basePath.replace(/\/+$/, "")}/repos/${repo.name}` : ""))}
                             title="Edit local path"
                           >
                             <Pencil className="h-4 w-4" />

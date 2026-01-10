@@ -49,6 +49,16 @@ export async function POST(request: NextRequest) {
       lockdownActive,
     })
 
+    // Set the user ID cookie (httpOnly: false so middleware can read it)
+    // This cookie is used by middleware for user data sandboxing
+    response.cookies.set("claudia-user-id", result.id, {
+      httpOnly: false, // Must be false for middleware to access
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7, // 7 days (matches session)
+    })
+
     // Set the role cookie (httpOnly: false so middleware can read it)
     // This cookie is used by middleware to check beta restrictions
     response.cookies.set("claudia-user-role", role, {
@@ -108,6 +118,7 @@ export async function DELETE() {
   // DELETE endpoint to clear all security cookies (on logout)
   const response = NextResponse.json({ success: true })
 
+  response.cookies.delete("claudia-user-id")
   response.cookies.delete("claudia-user-role")
   response.cookies.delete("claudia-access-revoked")
   response.cookies.delete("claudia-lockdown-active")

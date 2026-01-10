@@ -47,9 +47,10 @@ interface RepoBrowserProps {
 /**
  * Generate the auto-mapped local path for a repo
  * Format: <basePath>/repos/<repoName>
+ * Returns null if basePath is not set (to distinguish from empty string)
  */
-function getAutoMappedPath(basePath: string | undefined, repoName: string): string {
-  if (!basePath) return ""
+function getAutoMappedPath(basePath: string | undefined, repoName: string): string | null {
+  if (!basePath) return null
   // Normalize: remove trailing slash, add /repos/<repoName>
   const normalizedBase = basePath.replace(/\/+$/, "")
   return `${normalizedBase}/repos/${repoName}`
@@ -149,7 +150,7 @@ export function RepoBrowser({
 
     try {
       // Always use the auto-mapped path based on project folder
-      let localPath: string = getAutoMappedPath(effectiveBasePath, repo.name)
+      let localPath: string = getAutoMappedPath(effectiveBasePath, repo.name) || ""
 
       // If cloning, call the clone API first
       if (mode === "clone") {
@@ -458,9 +459,16 @@ export function RepoBrowser({
 
                         {/* Disabled state when no basePath */}
                         {!isLinked && !effectiveBasePath && (
-                          <div className="border-t pt-3">
+                          <div className="border-t pt-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-orange-500 flex-shrink-0" />
+                              <span className="text-xs text-muted-foreground">Will be cloned to:</span>
+                              <code className="text-xs bg-orange-500/10 text-orange-600 px-2 py-0.5 rounded font-mono">
+                                &lt;project-folder&gt;/repos/{repo.name}
+                              </code>
+                            </div>
                             <p className="text-xs text-muted-foreground">
-                              Set a project folder to enable linking
+                              Set a project folder first to enable cloning and linking
                             </p>
                           </div>
                         )}
