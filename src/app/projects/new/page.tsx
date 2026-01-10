@@ -199,6 +199,9 @@ function NewProjectContent() {
   // Local repo linking state
   const [localRepoPath, setLocalRepoPath] = useState("")
 
+  // Project folder path state (basePath for file browser)
+  const [projectFolderPath, setProjectFolderPath] = useState("")
+
   // GitLab token state
   const [hasToken, setHasToken] = useState(false)
   const [showTokenInput, setShowTokenInput] = useState(false)
@@ -594,6 +597,9 @@ function NewProjectContent() {
         localPath: localRepoPath.trim()
       }] : []
 
+      // Determine basePath: use explicitly set folder, or fall back to local repo path
+      const basePath = projectFolderPath.trim() || localRepoPath.trim() || undefined
+
       const project = createProject({
         name: projectName,
         description: projectDescription,
@@ -602,6 +608,7 @@ function NewProjectContent() {
         repos: initialRepos,
         packetIds: packets.map(p => p.id),
         tags,
+        basePath,
         creationInterview: interviewSession || undefined
       })
 
@@ -705,6 +712,9 @@ function NewProjectContent() {
         localPath: localRepoPath.trim()
       }] : []
 
+      // Determine basePath: use explicitly set folder, or fall back to local repo path
+      const basePath = projectFolderPath.trim() || localRepoPath.trim() || undefined
+
       const project = createProject({
         name: projectName,
         description: projectDescription,
@@ -713,6 +723,7 @@ function NewProjectContent() {
         repos: initialRepos,
         packetIds: [],
         tags,
+        basePath,
         creationInterview: interviewSession || undefined
       })
 
@@ -1829,20 +1840,53 @@ function NewProjectContent() {
         )}
       </Card>
 
-      {/* Link Existing Local Repo */}
+      {/* Project Folder Path - For File Browser */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <FolderOpen className="h-4 w-4" />
-            Local Repository Path
+            Project Folder Path
           </CardTitle>
           <CardDescription>
-            Link an existing local repository for Claude Code execution
+            The folder containing your project files. This is used by the file browser and for Claude Code execution.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="localRepoPath">Filesystem Path</Label>
+            <Label htmlFor="projectFolderPath">Project Location</Label>
+            <Input
+              id="projectFolderPath"
+              value={projectFolderPath}
+              onChange={(e) => {
+                setProjectFolderPath(e.target.value)
+                // Also set local repo path if not already set
+                if (!localRepoPath.trim()) {
+                  setLocalRepoPath(e.target.value)
+                }
+              }}
+              placeholder="/home/bill/projects/my-project"
+            />
+            <p className="text-xs text-muted-foreground">
+              Full path to your project folder. If empty, a new folder will be created at <code className="bg-muted px-1 rounded">/home/bill/claudia-projects/{toRepoName(projectName) || 'project-name'}</code>
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Link Existing Local Repo (Legacy - for Git repositories) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <GitBranch className="h-4 w-4" />
+            Local Git Repository
+          </CardTitle>
+          <CardDescription>
+            Optional: Link a local Git repository (can be different from project folder)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="localRepoPath">Git Repository Path</Label>
             <Input
               id="localRepoPath"
               value={localRepoPath}
@@ -1850,7 +1894,7 @@ function NewProjectContent() {
               placeholder="/home/bill/projects/my-app"
             />
             <p className="text-xs text-muted-foreground">
-              Full path to the local repository. Claude Code will execute changes here.
+              Path to a local Git repository. Leave empty to use the project folder path above.
             </p>
           </div>
         </CardContent>

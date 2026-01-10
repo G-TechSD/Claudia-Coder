@@ -35,7 +35,7 @@ export function getRecordings(userId: string, options?: {
   sortOrder?: "asc" | "desc"
 }): VoiceRecording[] {
   const allRecordings = getRecordingsIndex()
-  let recordings = allRecordings.filter(r => r.userId === userId)
+  const recordings = allRecordings.filter(r => r.userId === userId)
 
   // Sort
   const sortBy = options?.sortBy || "createdAt"

@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Generate view-specific data
-    let result: Record<string, unknown> = { totals }
+    const result: Record<string, unknown> = { totals }
 
     if (view === "daily" || view === "entries") {
       // Aggregate by day

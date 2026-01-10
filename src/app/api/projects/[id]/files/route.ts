@@ -245,8 +245,11 @@ export async function GET(
     if (!projectPath) {
       return NextResponse.json(
         {
-          error: "Project folder not found",
-          message: "The project folder doesn't exist or hasn't been initialized yet."
+          error: "Project folder not configured",
+          message: "No project folder path is set for this project.",
+          suggestion: "Go to the project's Files tab and set the project folder path, or edit the project settings to add a basePath.",
+          helpUrl: `/projects/${projectId}?tab=files`,
+          code: "BASEPATH_NOT_SET"
         },
         { status: 404 }
       )

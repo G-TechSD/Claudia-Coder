@@ -166,6 +166,10 @@ export default function ProjectDetailPage() {
   const [editingRepoId, setEditingRepoId] = useState<number | null>(null)
   const [editingLocalPath, setEditingLocalPath] = useState("")
 
+  // State for editing basePath
+  const [editingBasePath, setEditingBasePath] = useState(false)
+  const [newBasePath, setNewBasePath] = useState("")
+
   // Claude Code terminal state
   const [claudeCodeStarted, setClaudeCodeStarted] = useState(false)
   const [claudeCodeKey, setClaudeCodeKey] = useState(0)
@@ -971,6 +975,89 @@ export default function ProjectDetailPage() {
             </Card>
           )}
 
+          {/* Project Folder Path Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <FolderOpen className="h-4 w-4" />
+                Project Folder
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {editingBasePath ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={newBasePath}
+                    onChange={(e) => setNewBasePath(e.target.value)}
+                    placeholder="/home/bill/projects/my-project"
+                    className="flex-1"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newBasePath.trim()) {
+                        const updated = updateProject(project.id, { basePath: newBasePath.trim() })
+                        if (updated) setProject(updated)
+                        setEditingBasePath(false)
+                        setNewBasePath("")
+                      }
+                      if (e.key === "Escape") {
+                        setEditingBasePath(false)
+                        setNewBasePath("")
+                      }
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
+                    onClick={() => {
+                      if (newBasePath.trim()) {
+                        const updated = updateProject(project.id, { basePath: newBasePath.trim() })
+                        if (updated) setProject(updated)
+                      }
+                      setEditingBasePath(false)
+                      setNewBasePath("")
+                    }}
+                    disabled={!newBasePath.trim()}
+                  >
+                    <Check className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                    onClick={() => {
+                      setEditingBasePath(false)
+                      setNewBasePath("")
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono overflow-x-auto">
+                    {project.basePath || getEffectiveWorkingDirectory(project) || <span className="text-muted-foreground italic">Not configured</span>}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => {
+                      setEditingBasePath(true)
+                      setNewBasePath(project.basePath || getEffectiveWorkingDirectory(project) || "")
+                    }}
+                    title="Edit project folder path"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                The folder containing your project files. This is used by the file browser and Claude Code.
+              </p>
+            </CardContent>
+          </Card>
+
           {/* Linear Sync */}
           {project.linearSync && project.linearSync.mode !== "none" && (
             <Card>
@@ -1159,6 +1246,13 @@ export default function ProjectDetailPage() {
           <FileBrowser
             projectId={project.id}
             basePath={project.basePath || getEffectiveWorkingDirectory(project)}
+            onSetBasePath={(newPath) => {
+              // Update project with new basePath
+              const updated = updateProject(project.id, { basePath: newPath })
+              if (updated) {
+                setProject(updated)
+              }
+            }}
           />
         </TabsContent>
 

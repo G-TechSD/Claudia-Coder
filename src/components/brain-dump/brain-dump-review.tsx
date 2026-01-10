@@ -18,7 +18,9 @@ import {
   Pause,
   ChevronDown,
   ChevronUp,
-  Package
+  Package,
+  RefreshCw,
+  Mic
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type {
@@ -54,8 +56,10 @@ export function BrainDumpReview({
 }: BrainDumpReviewProps) {
   const [brainDump, setBrainDump] = useState<BrainDump | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set())
 
@@ -79,13 +83,52 @@ export function BrainDumpReview({
         try {
           const resource = await import("@/lib/data/resources").then(m => m.getResource(dump.resourceId))
           if (resource?.storage === "indexeddb" && resource.indexedDbKey) {
-            const url = await getResourceBlobUrl(resource.indexedDbKey)
-            if (url) setAudioUrl(url)
+            const blob = await getResourceBlob(resource.indexedDbKey)
+            if (blob) {
+              setAudioBlob(blob)
+              const url = URL.createObjectURL(blob)
+              setAudioUrl(url)
+            }
           }
         } catch (err) {
           console.error("Failed to load audio:", err)
         }
       }
+    }
+  }
+
+  async function retryTranscription() {
+    if (!audioBlob || !brainDump) return
+
+    setIsTranscribing(true)
+    setError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append("file", audioBlob, "recording.webm")
+
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData
+      })
+
+      const data = await response.json()
+
+      if (data.success && data.transcription) {
+        const updated = updateBrainDump(brainDumpId, {
+          transcription: data.transcription,
+          status: "review"
+        })
+        if (updated) setBrainDump(updated)
+      } else if (data.useBrowserFallback) {
+        setError("No transcription service available. Configure NEXT_PUBLIC_WHISPER_URL or OPENAI_API_KEY.")
+      } else {
+        throw new Error(data.error || "Transcription failed")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transcription failed")
+    } finally {
+      setIsTranscribing(false)
     }
   }
 
@@ -293,9 +336,30 @@ export function BrainDumpReview({
                 </p>
               </ScrollArea>
             ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <AlertCircle className="h-8 w-8 mx-auto mb-2" />
-                <p>No transcription available</p>
+              <div className="text-center py-8">
+                <Mic className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
+                <p className="text-muted-foreground mb-4">No transcription available yet</p>
+                {audioBlob && (
+                  <Button
+                    onClick={retryTranscription}
+                    disabled={isTranscribing}
+                  >
+                    {isTranscribing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Transcribing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Transcribe Now
+                      </>
+                    )}
+                  </Button>
+                )}
+                {!audioBlob && (
+                  <p className="text-sm text-yellow-600">Audio file not found in storage</p>
+                )}
               </div>
             )}
 

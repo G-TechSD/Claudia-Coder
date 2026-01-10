@@ -297,7 +297,7 @@ export class UserWorkflowService {
     }
 
     // Apply user prefix to name if changing
-    let updateData: Record<string, unknown> = { ...updates }
+    const updateData: Record<string, unknown> = { ...updates }
     if (updates.name) {
       updateData.name = generateWorkflowName(this.userId, updates.name)
     }

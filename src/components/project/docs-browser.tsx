@@ -178,7 +178,7 @@ interface Example {
 
 // Simple markdown renderer
 function renderMarkdown(content: string): string {
-  let html = content
+  const html = content
     // Escape HTML
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

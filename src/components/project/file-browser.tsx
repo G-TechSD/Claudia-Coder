@@ -1,10 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import {
   Folder,
@@ -27,6 +29,8 @@ import {
   X,
   FolderTree,
   HardDrive,
+  Settings,
+  Check,
   type LucideIcon,
 } from "lucide-react"
 
@@ -44,6 +48,7 @@ interface FileBrowserProps {
   projectId: string
   basePath?: string
   className?: string
+  onSetBasePath?: (path: string) => void
 }
 
 // Map file extensions to icon type keys
@@ -330,19 +335,23 @@ function FilePreviewModal({
   )
 }
 
-export function FileBrowser({ projectId, basePath, className }: FileBrowserProps) {
+export function FileBrowser({ projectId, basePath, className, onSetBasePath }: FileBrowserProps) {
   const [files, setFiles] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [errorCode, setErrorCode] = useState<string | null>(null)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [previewFile, setPreviewFile] = useState<FileNode | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [stats, setStats] = useState<{ totalFiles: number; totalSize: number } | null>(null)
+  const [showPathInput, setShowPathInput] = useState(false)
+  const [newBasePath, setNewBasePath] = useState("")
 
   const loadFiles = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
+      setErrorCode(null)
 
       const url = new URL(`/api/projects/${projectId}/files`, window.location.origin)
       if (basePath) {
@@ -353,7 +362,8 @@ export function FileBrowser({ projectId, basePath, className }: FileBrowserProps
 
       if (!response.ok) {
         const data = await response.json()
-        throw new Error(data.error || "Failed to load files")
+        setErrorCode(data.code || null)
+        throw new Error(data.message || data.error || "Failed to load files")
       }
 
       const data = await response.json()
@@ -468,6 +478,82 @@ export function FileBrowser({ projectId, basePath, className }: FileBrowserProps
   }
 
   if (error) {
+    // Special UI when basePath is not configured
+    if (errorCode === "BASEPATH_NOT_SET") {
+      return (
+        <Card className={className}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FolderTree className="h-5 w-5 text-primary" />
+              Project Files
+            </CardTitle>
+            <CardDescription>
+              Configure the project folder location to browse files
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex flex-col items-center justify-center text-center py-4">
+              <Settings className="h-12 w-12 text-muted-foreground/50 mb-4" />
+              <h3 className="font-medium mb-2">Project Folder Not Configured</h3>
+              <p className="text-muted-foreground mb-4 max-w-md">
+                To browse files, you need to set the project folder path. This is the directory containing your project&apos;s source code.
+              </p>
+            </div>
+
+            {showPathInput ? (
+              <div className="space-y-4 max-w-md mx-auto">
+                <div className="space-y-2">
+                  <Label htmlFor="basePath">Project Folder Path</Label>
+                  <Input
+                    id="basePath"
+                    value={newBasePath}
+                    onChange={(e) => setNewBasePath(e.target.value)}
+                    placeholder="/home/bill/projects/my-project"
+                    autoFocus
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter the full path to your project folder (e.g., /home/bill/projects/my-app)
+                  </p>
+                </div>
+                <div className="flex gap-2 justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowPathInput(false)
+                      setNewBasePath("")
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      if (newBasePath.trim() && onSetBasePath) {
+                        onSetBasePath(newBasePath.trim())
+                      }
+                    }}
+                    disabled={!newBasePath.trim()}
+                  >
+                    <Check className="h-4 w-4 mr-2" />
+                    Set Path
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex justify-center">
+                <Button onClick={() => setShowPathInput(true)}>
+                  <Settings className="h-4 w-4 mr-2" />
+                  Configure Project Folder
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )
+    }
+
+    // Generic error UI
     return (
       <Card className={className}>
         <CardContent className="p-8">

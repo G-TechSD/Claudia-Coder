@@ -18,14 +18,15 @@ import {
   Loader2,
   AlertCircle,
   Link2,
-  Check,
   ExternalLink,
   Settings,
   FolderOpen,
   ChevronDown,
   ChevronUp,
   MapPin,
-  Pencil
+  Pencil,
+  Download,
+  CheckCircle2
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { listGitLabProjects, type GitLabProject } from "@/lib/gitlab/api"
@@ -33,6 +34,8 @@ import { getUserGitLabToken } from "@/lib/data/user-gitlab"
 import { linkRepoToProject } from "@/lib/data/projects"
 import { useAuth } from "@/components/auth/auth-provider"
 import type { LinkedRepo } from "@/lib/data/types"
+
+type LinkMode = "clone" | "existing" | null
 
 interface RepoBrowserProps {
   open: boolean
@@ -75,6 +78,12 @@ export function RepoBrowser({
   // Custom path state - tracks which repos have custom path enabled and their custom values
   const [customPathEnabled, setCustomPathEnabled] = useState<Record<number, boolean>>({})
   const [customPaths, setCustomPaths] = useState<Record<number, string>>({})
+
+  // Link mode state - tracks which mode user selected for each repo
+  const [linkModes, setLinkModes] = useState<Record<number, LinkMode>>({})
+
+  // Clone status tracking
+  const [cloneStatus, setCloneStatus] = useState<Record<number, { status: "cloning" | "success" | "error"; message?: string }>>({})
 
   // Effective base path: prefer basePath prop, fall back to workingDirectory
   const effectiveBasePath = basePath || workingDirectory
@@ -136,16 +145,56 @@ export function RepoBrowser({
     return linkedRepos.some(r => r.provider === "gitlab" && r.id === repoId)
   }
 
-  const handleLinkRepo = async (repo: GitLabProject) => {
+  const handleLinkRepo = async (repo: GitLabProject, mode: LinkMode = "existing") => {
+    if (!effectiveBasePath) {
+      setError("Set project folder first before linking repositories")
+      return
+    }
+
     setLinking(repo.id)
+    setLinkModes(prev => ({ ...prev, [repo.id]: mode }))
 
     try {
       // Determine the local path: use custom path if enabled, otherwise use auto-mapped path
-      let localPath: string | undefined
+      let localPath: string
       if (customPathEnabled[repo.id] && customPaths[repo.id]) {
         localPath = customPaths[repo.id]
-      } else if (effectiveBasePath) {
+      } else {
         localPath = getAutoMappedPath(effectiveBasePath, repo.name)
+      }
+
+      // If cloning, call the clone API first
+      if (mode === "clone") {
+        setCloneStatus(prev => ({ ...prev, [repo.id]: { status: "cloning" } }))
+
+        const cloneResponse = await fetch("/api/projects/clone-repo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId,
+            basePath: effectiveBasePath,
+            repo: {
+              id: repo.id,
+              name: repo.name,
+              url: repo.http_url_to_repo || repo.web_url,
+              path_with_namespace: repo.path_with_namespace
+            },
+            customPath: customPathEnabled[repo.id] ? customPaths[repo.id] : undefined,
+            skipClone: false
+          })
+        })
+
+        const cloneResult = await cloneResponse.json()
+
+        if (!cloneResult.success) {
+          setCloneStatus(prev => ({ ...prev, [repo.id]: { status: "error", message: cloneResult.error } }))
+          setLinking(null)
+          return
+        }
+
+        // Use the path from clone result
+        localPath = cloneResult.localPath
+        setCloneStatus(prev => ({ ...prev, [repo.id]: { status: "success", message: cloneResult.alreadyExists ? "Already cloned" : "Cloned successfully" } }))
       }
 
       const linkedRepo: LinkedRepo = {
@@ -161,11 +210,26 @@ export function RepoBrowser({
       if (updated) {
         onRepoLinked?.(linkedRepo)
       }
+
+      // Reset link mode after successful link
+      setLinkModes(prev => ({ ...prev, [repo.id]: null }))
     } catch (err) {
       console.error("Failed to link repo:", err)
+      setCloneStatus(prev => ({ ...prev, [repo.id]: { status: "error", message: err instanceof Error ? err.message : "Failed to link" } }))
     } finally {
       setLinking(null)
     }
+  }
+
+  // Helper to set link mode for a repo
+  const setLinkMode = (repoId: number, mode: LinkMode) => {
+    setLinkModes(prev => ({ ...prev, [repoId]: mode }))
+    // Clear any previous status when changing mode
+    setCloneStatus(prev => {
+      const newStatus = { ...prev }
+      delete newStatus[repoId]
+      return newStatus
+    })
   }
 
   // Helper to toggle custom path for a repo
@@ -245,14 +309,21 @@ export function RepoBrowser({
 
             {/* Warning if no base path configured */}
             {!effectiveBasePath && (
-              <Card className="bg-yellow-500/10 border-yellow-500/30">
-                <CardContent className="p-3 flex items-start gap-2 text-sm">
-                  <AlertCircle className="h-4 w-4 text-yellow-500 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-yellow-600">No project folder configured</p>
-                    <p className="text-muted-foreground text-xs mt-1">
-                      Set a working directory in project settings to enable auto-mapping of repo paths.
+              <Card className="bg-orange-500/10 border-orange-500/30">
+                <CardContent className="p-4 flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-orange-500 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-medium text-orange-600">Set Project Folder First</p>
+                    <p className="text-muted-foreground text-sm mt-1">
+                      You need to set a base folder for this project before you can link repositories.
+                      Repos will be cloned to <code className="bg-muted px-1 py-0.5 rounded font-mono text-xs">&lt;project-folder&gt;/repos/&lt;repo-name&gt;</code>
                     </p>
+                    <Button size="sm" variant="outline" className="mt-3" asChild>
+                      <a href={`/projects/${projectId}`}>
+                        <Settings className="h-4 w-4 mr-1" />
+                        Go to Project Settings
+                      </a>
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -295,6 +366,8 @@ export function RepoBrowser({
                   const isLinking = linking === repo.id
                   const autoMappedPath = getAutoMappedPath(effectiveBasePath, repo.name)
                   const isCustomPathMode = customPathEnabled[repo.id]
+                  const currentLinkMode = linkModes[repo.id]
+                  const currentCloneStatus = cloneStatus[repo.id]
 
                   return (
                     <Card
@@ -326,63 +399,93 @@ export function RepoBrowser({
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              asChild
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            asChild
+                          >
+                            <a
+                              href={repo.web_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
                             >
-                              <a
-                                href={repo.web_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={e => e.stopPropagation()}
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </a>
-                            </Button>
-
-                            {isLinked ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-primary"
-                                disabled
-                              >
-                                <Check className="h-4 w-4 mr-1" />
-                                Linked
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleLinkRepo(repo)}
-                                disabled={isLinking}
-                              >
-                                {isLinking ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <>
-                                  <Link2 className="h-4 w-4 mr-1" />
-                                  Link
-                                </>
-                              )}
-                            </Button>
-                          )}
-                        </div>
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
                         </div>
 
-                        {/* Local Path Section - only show for repos that aren't linked yet */}
+                        {/* Already linked state */}
+                        {isLinked && (
+                          <div className="flex items-center gap-2 text-sm text-primary">
+                            <CheckCircle2 className="h-4 w-4" />
+                            <span className="font-medium">Linked</span>
+                            {linkedRepos.find(r => r.id === repo.id)?.localPath && (
+                              <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono flex-1 truncate ml-2">
+                                {linkedRepos.find(r => r.id === repo.id)?.localPath}
+                              </code>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Link options - only show for repos that aren't linked yet and have basePath */}
                         {!isLinked && effectiveBasePath && (
-                          <div className="border-t pt-3 space-y-2">
+                          <div className="border-t pt-3 space-y-3">
                             {/* Auto-mapped path display */}
                             <div className="flex items-center gap-2">
                               <MapPin className="h-4 w-4 text-green-500 flex-shrink-0" />
-                              <span className="text-xs text-muted-foreground">Maps to:</span>
+                              <span className="text-xs text-muted-foreground">Will be at:</span>
                               <code className="text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded font-mono flex-1 truncate">
                                 {isCustomPathMode ? customPaths[repo.id] || autoMappedPath : autoMappedPath}
                               </code>
+                            </div>
+
+                            {/* Clone status message */}
+                            {currentCloneStatus && (
+                              <div className={cn(
+                                "flex items-center gap-2 text-sm p-2 rounded",
+                                currentCloneStatus.status === "cloning" && "bg-blue-500/10 text-blue-600",
+                                currentCloneStatus.status === "success" && "bg-green-500/10 text-green-600",
+                                currentCloneStatus.status === "error" && "bg-red-500/10 text-red-600"
+                              )}>
+                                {currentCloneStatus.status === "cloning" && <Loader2 className="h-4 w-4 animate-spin" />}
+                                {currentCloneStatus.status === "success" && <CheckCircle2 className="h-4 w-4" />}
+                                {currentCloneStatus.status === "error" && <AlertCircle className="h-4 w-4" />}
+                                <span>{currentCloneStatus.message || (currentCloneStatus.status === "cloning" ? "Cloning repository..." : "")}</span>
+                              </div>
+                            )}
+
+                            {/* Action buttons - Clone or Link Existing */}
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="default"
+                                size="sm"
+                                className="flex-1"
+                                onClick={() => handleLinkRepo(repo, "clone")}
+                                disabled={isLinking || !effectiveBasePath}
+                              >
+                                {isLinking && currentLinkMode !== "existing" ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                ) : (
+                                  <Download className="h-4 w-4 mr-1" />
+                                )}
+                                Clone Here
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="flex-1"
+                                onClick={() => handleLinkRepo(repo, "existing")}
+                                disabled={isLinking || !effectiveBasePath}
+                              >
+                                {isLinking && currentLinkMode === "existing" ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                ) : (
+                                  <Link2 className="h-4 w-4 mr-1" />
+                                )}
+                                Already There
+                              </Button>
                             </div>
 
                             {/* Custom path toggle */}
@@ -424,21 +527,19 @@ export function RepoBrowser({
                                   className="h-8 text-sm font-mono"
                                 />
                                 <p className="text-xs text-muted-foreground">
-                                  Enter the full path where this repo exists locally
+                                  Enter the full path where this repo exists or should be cloned
                                 </p>
                               </div>
                             )}
                           </div>
                         )}
 
-                        {/* Show mapped path for already linked repos */}
-                        {isLinked && linkedRepos.find(r => r.id === repo.id)?.localPath && (
-                          <div className="border-t pt-2 flex items-center gap-2">
-                            <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <span className="text-xs text-muted-foreground">Mapped to:</span>
-                            <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono flex-1 truncate">
-                              {linkedRepos.find(r => r.id === repo.id)?.localPath}
-                            </code>
+                        {/* Disabled state when no basePath */}
+                        {!isLinked && !effectiveBasePath && (
+                          <div className="border-t pt-3">
+                            <p className="text-xs text-muted-foreground">
+                              Set a project folder to enable linking
+                            </p>
                           </div>
                         )}
                       </CardContent>

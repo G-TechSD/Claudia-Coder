@@ -27,8 +27,13 @@ import {
   createVisionPacket,
   createDefaultVisionPacket,
   extractCreativeContext,
+  generateGameImplementationPackets,
+  generateDefaultImplementationPackets,
+  implementationToWorkPackets,
   type GameProjectDetection,
-  type VisionPacket
+  type VisionPacket,
+  type ImplementationPacketResult,
+  type GeneratedVision
 } from "@/lib/ai/game-vision"
 import {
   createVisionFromLinearExtraction,
@@ -281,6 +286,7 @@ export async function POST(request: NextRequest) {
     // Default syncComments to TRUE - always import comments for maximum context
     // extractNuance - when true, uses AI to extract key decisions/requirements from comments
     // generateVision - when true, generates a vision packet for game/creative projects
+    // generateImplementationPackets - when true, generates detailed implementation work packets for game projects
     // saveToMarkdown - when true, saves vision/story content to markdown files
     const {
       projectIds,
@@ -289,6 +295,7 @@ export async function POST(request: NextRequest) {
       syncComments = true,
       extractNuance = false,
       generateVision = true,  // Auto-generate vision packets for game/creative projects
+      generateImplementationPackets = true, // Auto-generate implementation packets for game projects
       saveToMarkdown = true,  // Save vision/story as markdown documents
       preferredServer,  // For nuance extraction LLM
       preferredModel    // For nuance extraction LLM
@@ -306,7 +313,7 @@ export async function POST(request: NextRequest) {
 
     // Import all selected projects in parallel
     // Pass syncComments to fetch all comments with pagination
-    console.log(`[Linear Import] Starting import of ${idsToImport.length} project(s), syncComments: ${syncComments}, extractNuance: ${extractNuance}, generateVision: ${generateVision}`)
+    console.log(`[Linear Import] Starting import of ${idsToImport.length} project(s), syncComments: ${syncComments}, extractNuance: ${extractNuance}, generateVision: ${generateVision}, generateImplementationPackets: ${generateImplementationPackets}`)
     const importResults = await Promise.all(
       idsToImport.map(id => importProject(id, { includeComments: syncComments }))
     )
@@ -334,8 +341,8 @@ export async function POST(request: NextRequest) {
     console.log(`[Linear Import] Game/creative detection: isGameOrCreative=${gameDetection.isGameOrCreative}, confidence=${gameDetection.confidence}, type=${gameDetection.projectType}, matchedKeywords=${gameDetection.matchedKeywords.length}`)
 
     // Extract nuance from comments if enabled
-    let nuanceMap: Map<string, ExtractedNuance> = new Map()
-    let nuanceStats = { processed: 0, withComments: 0, failed: 0 }
+    const nuanceMap: Map<string, ExtractedNuance> = new Map()
+    const nuanceStats = { processed: 0, withComments: 0, failed: 0 }
 
     if (extractNuance && syncComments) {
       console.log(`[Linear Import] Starting nuance extraction for ${allIssues.length} issues...`)
@@ -384,7 +391,7 @@ export async function POST(request: NextRequest) {
 
     // Generate vision packet for game/creative projects
     let visionPacket: VisionPacket | null = null
-    let visionStats = { detected: false, generated: false, error: undefined as string | undefined }
+    const visionStats = { detected: false, generated: false, error: undefined as string | undefined }
 
     if (gameDetection.isGameOrCreative && generateVision) {
       visionStats.detected = true
@@ -445,9 +452,95 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Generate implementation packets for game/creative projects
+    let implementationResult: ImplementationPacketResult | null = null
+    const implementationStats = {
+      detected: false,
+      generated: false,
+      packetCount: 0,
+      estimatedHours: 0,
+      error: undefined as string | undefined
+    }
+    // Create a phase for implementation packets
+    const implementationPhaseId = `phase-implementation-${generateId()}`
+
+    if (gameDetection.isGameOrCreative && generateImplementationPackets) {
+      implementationStats.detected = true
+      console.log(`[Linear Import] Generating implementation packets for ${gameDetection.projectType} project...`)
+
+      // Build the "brain dump" from project description and all issue content
+      const brainDump = [
+        projectDescriptions,
+        ...allIssues.map(i => {
+          const parts = [i.title]
+          if (i.description) parts.push(i.description)
+          // Include comment content as additional context
+          if (i.comments && i.comments.length > 0) {
+            parts.push("Discussion:\n" + i.comments.map(c => c.body).join("\n"))
+          }
+          return parts.join("\n")
+        })
+      ].join("\n\n---\n\n")
+
+      // Extract vision content if we generated it
+      let existingVision: GeneratedVision | undefined
+      if (visionPacket && visionPacket.metadata) {
+        existingVision = {
+          gameName: projectNames,
+          tagline: visionPacket.metadata.tagline || "",
+          storeDescription: visionPacket.metadata.storeDescription || "",
+          shortDescription: "",
+          keyFeatures: visionPacket.metadata.keyFeatures || [],
+          uniqueSellingPoints: visionPacket.metadata.uniqueSellingPoints || [],
+          targetAudience: visionPacket.metadata.targetAudience || "",
+          genre: gameDetection.suggestedCategory,
+          mood: "",
+          coreExperience: ""
+        }
+      }
+
+      try {
+        // Generate implementation packets using AI
+        implementationResult = await generateGameImplementationPackets(
+          projectNames,
+          brainDump,
+          gameDetection,
+          {
+            preferredServer,
+            preferredModel,
+            existingVision,
+            maxRetries: 3
+          }
+        )
+
+        if (implementationResult) {
+          implementationStats.generated = true
+          implementationStats.packetCount = implementationResult.packets.length
+          implementationStats.estimatedHours = implementationResult.summary.estimatedTotalHours
+          console.log(`[Linear Import] Generated ${implementationResult.packets.length} implementation packets (${implementationResult.summary.estimatedTotalHours} estimated hours)`)
+        } else {
+          // Fall back to default implementation packets
+          console.log(`[Linear Import] AI implementation packet generation failed, using defaults`)
+          implementationResult = generateDefaultImplementationPackets(projectNames, gameDetection)
+          implementationStats.generated = true
+          implementationStats.packetCount = implementationResult.packets.length
+          implementationStats.estimatedHours = implementationResult.summary.estimatedTotalHours
+          implementationStats.error = "AI generation failed, used default template"
+        }
+      } catch (error) {
+        console.error(`[Linear Import] Implementation packet generation error:`, error)
+        // Create default implementation packets on error
+        implementationResult = generateDefaultImplementationPackets(projectNames, gameDetection)
+        implementationStats.generated = true
+        implementationStats.packetCount = implementationResult.packets.length
+        implementationStats.estimatedHours = implementationResult.summary.estimatedTotalHours
+        implementationStats.error = error instanceof Error ? error.message : "Implementation packet generation failed"
+      }
+    }
+
     // Save vision and stories as markdown documents if enabled
     const savedDocs: ProjectDoc[] = []
-    let markdownStats = { visionDoc: false, storyDocs: 0, error: undefined as string | undefined }
+    const markdownStats = { visionDoc: false, storyDocs: 0, error: undefined as string | undefined }
 
     if (saveToMarkdown && claudiaProjectId) {
       console.log(`[Linear Import] Saving documents to project ${claudiaProjectId}...`)
@@ -510,15 +603,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Build phases - include vision phase if we have a vision packet
+    // Build phases - include vision phase, implementation phase, and default phase
     const phases = []
+    let phaseOrder = 0
 
     if (visionPacket) {
       phases.push({
         id: visionPhaseId,
         name: "Project Vision",
         description: `Vision and store description for ${projectNames}. This defines the ultimate goal of the project.`,
-        order: 0,
+        order: phaseOrder++,
         status: "not_started" as const,
         isVisionPhase: true
       })
@@ -527,11 +621,28 @@ export async function POST(request: NextRequest) {
       packets.unshift(visionPacket as unknown as WorkPacket)
     }
 
+    // Add implementation phase and packets if generated
+    if (implementationResult && implementationResult.packets.length > 0) {
+      phases.push({
+        id: implementationPhaseId,
+        name: "Game Implementation",
+        description: `${implementationResult.packets.length} implementation packets for building ${projectNames}. Estimated ${implementationResult.summary.estimatedTotalHours} hours.`,
+        order: phaseOrder++,
+        status: "not_started" as const,
+        isImplementationPhase: true,
+        projectAnalysis: implementationResult.projectAnalysis
+      })
+
+      // Convert implementation packets to work packets and add them
+      const implementationWorkPackets = implementationToWorkPackets(implementationResult, implementationPhaseId)
+      packets.push(...implementationWorkPackets as unknown as WorkPacket[])
+    }
+
     phases.push({
       id: defaultPhaseId,
       name: "Imported from Linear",
       description: `${allIssues.length} issues imported from ${projectNames}`,
-      order: visionPacket ? 1 : 0,
+      order: phaseOrder,
       status: "not_started" as const
     })
 
@@ -597,6 +708,14 @@ export async function POST(request: NextRequest) {
             generated: visionStats.generated,
             packetId: visionPacket?.id,
             error: visionStats.error
+          } : undefined,
+          // Implementation packet generation results
+          implementationPackets: implementationStats.detected ? {
+            generated: implementationStats.generated,
+            packetCount: implementationStats.packetCount,
+            estimatedHours: implementationStats.estimatedHours,
+            projectAnalysis: implementationResult?.projectAnalysis,
+            error: implementationStats.error
           } : undefined
         },
         // Markdown document saving results
