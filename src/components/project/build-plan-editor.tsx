@@ -1465,7 +1465,7 @@ export function BuildPlanEditor({
                                   </Badge>
                                 </div>
                               </div>
-                              <p className="text-sm text-muted-foreground">{packet.description}</p>
+                              <p className="text-sm text-muted-foreground whitespace-pre-wrap">{packet.description}</p>
 
                               {/* Priority selector */}
                               {!isLocked && (

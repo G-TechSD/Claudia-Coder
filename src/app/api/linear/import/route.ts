@@ -191,7 +191,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { projectIds, projectId, syncComments = false } = body
+    // Default syncComments to TRUE - always import comments for maximum context
+    const { projectIds, projectId, syncComments = true } = body
 
     // Support both single projectId (legacy) and multiple projectIds
     const idsToImport: string[] = projectIds || (projectId ? [projectId] : [])
@@ -205,6 +206,7 @@ export async function POST(request: NextRequest) {
 
     // Import all selected projects in parallel
     // Pass syncComments to fetch all comments with pagination
+    console.log(`[Linear Import] Starting import of ${idsToImport.length} project(s), syncComments: ${syncComments}`)
     const importResults = await Promise.all(
       idsToImport.map(id => importProject(id, { includeComments: syncComments }))
     )
@@ -248,6 +250,7 @@ export async function POST(request: NextRequest) {
       (sum, issue) => sum + (issue.comments?.length || 0),
       0
     )
+    console.log(`[Linear Import] Imported ${allIssues.length} issues with ${totalComments} total comments`)
 
     // Build the import response
     return NextResponse.json({

@@ -423,7 +423,7 @@ export function BuildPlanReview({
                               <Badge variant="secondary" className="text-xs">Existing</Badge>
                             )}
                           </div>
-                          <p className="text-sm text-muted-foreground line-clamp-2">
+                          <p className="text-sm text-muted-foreground whitespace-pre-wrap">
                             {packet.description}
                           </p>
                         </div>

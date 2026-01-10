@@ -1,9 +1,11 @@
 /**
  * GitLab API Helper
  * Handles GitLab operations including repo creation
+ *
+ * NOTE: All API calls are proxied through /api/gitlab/* to handle:
+ * - CORS issues when calling GitLab from the browser
+ * - Self-signed certificate handling for internal GitLab servers
  */
-
-const GITLAB_URL = process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1"
 
 export interface GitLabProject {
   id: number
@@ -52,6 +54,7 @@ export function clearGitLabToken(): void {
 
 /**
  * Create a new GitLab repository
+ * Uses server-side proxy to handle CORS and self-signed certs
  */
 export async function createGitLabRepo(options: CreateRepoOptions): Promise<GitLabProject> {
   const token = getGitLabToken()
@@ -59,50 +62,33 @@ export async function createGitLabRepo(options: CreateRepoOptions): Promise<GitL
     throw new Error("GitLab token not configured. Please set your GitLab access token.")
   }
 
-  const body: Record<string, unknown> = {
-    name: options.name,
-    description: options.description || "",
-    visibility: options.visibility || "private",
-    initialize_with_readme: options.initializeWithReadme ?? true,
-  }
-
-  if (options.defaultBranch) {
-    body.default_branch = options.defaultBranch
-  }
-
-  const response = await fetch(`${GITLAB_URL}/api/v4/projects`, {
+  const response = await fetch("/api/gitlab/repos", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "PRIVATE-TOKEN": token,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      token,
+      name: options.name,
+      description: options.description || "",
+      visibility: options.visibility || "private",
+      initializeWithReadme: options.initializeWithReadme ?? true,
+      defaultBranch: options.defaultBranch,
+    }),
   })
 
+  const data = await response.json()
+
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: "Unknown error" }))
-    // GitLab returns errors in various formats - handle them all
-    let errorMessage: string
-    if (typeof errorData.message === "string") {
-      errorMessage = errorData.message
-    } else if (typeof errorData.message === "object" && errorData.message !== null) {
-      // Validation errors come as { message: { field: ["error1", "error2"] } }
-      errorMessage = Object.entries(errorData.message)
-        .map(([field, errors]) => `${field}: ${Array.isArray(errors) ? errors.join(", ") : errors}`)
-        .join("; ")
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error
-    } else {
-      errorMessage = `Failed to create repository: ${response.status}`
-    }
-    throw new Error(errorMessage)
+    throw new Error(data.error || `Failed to create repository: ${response.status}`)
   }
 
-  return response.json()
+  return data
 }
 
 /**
  * List GitLab projects accessible to the user
+ * Uses server-side proxy to handle CORS and self-signed certs
  */
 export async function listGitLabProjects(options?: {
   search?: string
@@ -117,25 +103,28 @@ export async function listGitLabProjects(options?: {
 
   const params = new URLSearchParams()
   if (options?.search) params.set("search", options.search)
-  if (options?.perPage) params.set("per_page", options.perPage.toString())
+  if (options?.perPage) params.set("perPage", options.perPage.toString())
   if (options?.page) params.set("page", options.page.toString())
   if (options?.owned) params.set("owned", "true")
 
-  const response = await fetch(`${GITLAB_URL}/api/v4/projects?${params}`, {
+  const response = await fetch(`/api/gitlab/repos?${params}`, {
     headers: {
-      "PRIVATE-TOKEN": token,
+      "x-gitlab-token": token,
     },
   })
 
+  const data = await response.json()
+
   if (!response.ok) {
-    throw new Error(`Failed to list projects: ${response.status}`)
+    throw new Error(data.error || `Failed to list projects: ${response.status}`)
   }
 
-  return response.json()
+  return data
 }
 
 /**
  * Get a specific GitLab project by ID
+ * Uses server-side proxy to handle CORS and self-signed certs
  */
 export async function getGitLabProject(projectId: number): Promise<GitLabProject> {
   const token = getGitLabToken()
@@ -143,21 +132,24 @@ export async function getGitLabProject(projectId: number): Promise<GitLabProject
     throw new Error("GitLab token not configured")
   }
 
-  const response = await fetch(`${GITLAB_URL}/api/v4/projects/${projectId}`, {
+  const response = await fetch(`/api/gitlab/repos/${projectId}`, {
     headers: {
-      "PRIVATE-TOKEN": token,
+      "x-gitlab-token": token,
     },
   })
 
+  const data = await response.json()
+
   if (!response.ok) {
-    throw new Error(`Failed to get project: ${response.status}`)
+    throw new Error(data.error || `Failed to get project: ${response.status}`)
   }
 
-  return response.json()
+  return data
 }
 
 /**
  * Delete a GitLab project
+ * Uses server-side proxy to handle CORS and self-signed certs
  */
 export async function deleteGitLabProject(projectId: number): Promise<void> {
   const token = getGitLabToken()
@@ -165,50 +157,23 @@ export async function deleteGitLabProject(projectId: number): Promise<void> {
     throw new Error("GitLab token not configured")
   }
 
-  const response = await fetch(`${GITLAB_URL}/api/v4/projects/${projectId}`, {
+  const response = await fetch(`/api/gitlab/repos/${projectId}`, {
     method: "DELETE",
     headers: {
-      "PRIVATE-TOKEN": token,
+      "x-gitlab-token": token,
     },
   })
 
   if (!response.ok) {
-    throw new Error(`Failed to delete project: ${response.status}`)
+    const data = await response.json().catch(() => ({}))
+    throw new Error(data.error || `Failed to delete project: ${response.status}`)
   }
-}
-
-/**
- * Parse error for better debugging messages
- */
-function parseConnectionError(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "Connection failed"
-  }
-
-  const message = error.message.toLowerCase()
-
-  if (
-    message.includes("certificate") ||
-    message.includes("ssl") ||
-    message.includes("self-signed")
-  ) {
-    return "SSL certificate error. The GitLab server may use a self-signed certificate."
-  }
-
-  if (message.includes("network") || message.includes("enotfound")) {
-    return "Network error. Cannot reach the GitLab server."
-  }
-
-  if (message.includes("econnrefused")) {
-    return "Connection refused. GitLab server may not be running."
-  }
-
-  return error.message
 }
 
 /**
  * Validate GitLab token by attempting to get current user
  * Returns detailed validation result
+ * Uses server-side proxy to handle CORS and self-signed certs
  */
 export async function validateGitLabToken(token: string): Promise<{
   valid: boolean
@@ -220,26 +185,21 @@ export async function validateGitLabToken(token: string): Promise<{
   }
 
   try {
-    const response = await fetch(`${GITLAB_URL}/api/v4/user`, {
+    const response = await fetch("/api/gitlab/validate", {
+      method: "POST",
       headers: {
-        "PRIVATE-TOKEN": token,
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({ token }),
     })
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        return { valid: false, error: "Invalid or expired token" }
-      }
-      if (response.status === 403) {
-        return { valid: false, error: "Token lacks required permissions (api scope)" }
-      }
-      return { valid: false, error: `GitLab returned HTTP ${response.status}` }
-    }
-
-    const user = await response.json()
-    return { valid: true, user }
+    const data = await response.json()
+    return data
   } catch (error) {
-    return { valid: false, error: parseConnectionError(error) }
+    return {
+      valid: false,
+      error: error instanceof Error ? error.message : "Connection failed",
+    }
   }
 }
 

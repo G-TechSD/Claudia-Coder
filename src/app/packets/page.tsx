@@ -837,7 +837,7 @@ export default function PacketsPage() {
                   </div>
                   <h3 className="text-lg font-semibold">{selectedPacket.title}</h3>
                   {selectedPacket.summary && (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">
                       {selectedPacket.summary}
                     </p>
                   )}
@@ -903,7 +903,7 @@ export default function PacketsPage() {
                           </div>
                           <p className="text-sm font-medium mt-1">{issue.title}</p>
                           {issue.description && (
-                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                            <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">
                               {issue.description}
                             </p>
                           )}

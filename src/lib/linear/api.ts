@@ -273,11 +273,16 @@ export async function getProjectIssues(
 
   // Fetch comments for all issues if requested
   if (includeComments) {
+    console.log(`[Linear API] Fetching comments for ${allIssues.length} issues...`)
     await Promise.all(
       allIssues.map(async (issue) => {
         issue.comments = await getIssueComments(issue.id)
       })
     )
+    const totalComments = allIssues.reduce((sum, issue) => sum + (issue.comments?.length || 0), 0)
+    console.log(`[Linear API] Fetched ${totalComments} comments across ${allIssues.length} issues`)
+  } else {
+    console.log(`[Linear API] Skipping comment fetch (includeComments: false)`)
   }
 
   return allIssues

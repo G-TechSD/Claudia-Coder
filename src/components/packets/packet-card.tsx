@@ -109,7 +109,7 @@ export function PacketCard({ packet, onStart, onStop, isExecuting }: PacketCardP
 
       <CardContent className="space-y-4">
         {/* Description */}
-        <p className="text-sm text-muted-foreground line-clamp-2">
+        <p className="text-sm text-muted-foreground whitespace-pre-wrap">
           {packet.description}
         </p>
 

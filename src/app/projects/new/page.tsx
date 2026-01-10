@@ -305,7 +305,10 @@ function NewProjectContent() {
       const response = await fetch("/api/linear/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectIds: Array.from(selectedLinearProjectIds) })
+        body: JSON.stringify({
+          projectIds: Array.from(selectedLinearProjectIds),
+          syncComments: true  // Always import comments for full context
+        })
       })
 
       if (!response.ok) {

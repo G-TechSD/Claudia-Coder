@@ -1,6 +1,9 @@
 /**
  * GitLab API Service
- * Connects to the self-hosted GitLab at https://bill-dev-linux-1
+ * Connects to the self-hosted GitLab via server-side proxy routes
+ * to handle CORS and self-signed certificate issues
+ *
+ * All requests are proxied through /api/gitlab/* endpoints
  */
 
 const GITLAB_BASE_URL = process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1"
@@ -100,51 +103,44 @@ function getGitLabToken(): string | null {
 }
 
 class GitLabApiService {
-  private baseUrl: string
+  private gitlabBaseUrl: string
 
   constructor() {
-    this.baseUrl = GITLAB_BASE_URL
+    this.gitlabBaseUrl = GITLAB_BASE_URL
   }
 
-  private async request<T>(endpoint: string): Promise<T> {
-    const url = `${this.baseUrl}/api/v4${endpoint}`
+  /**
+   * Make a request through the proxy API
+   * All GitLab requests go through /api/gitlab/* to handle CORS and SSL
+   */
+  private async request<T>(proxyEndpoint: string): Promise<T> {
     const token = getGitLabToken()
 
+    if (!token) {
+      throw new Error("GitLab token not configured. Please set your GitLab access token.")
+    }
+
     const headers: Record<string, string> = {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "x-gitlab-token": token,
     }
 
-    // Add authentication token if available
-    if (token) {
-      headers["PRIVATE-TOKEN"] = token
-    }
-
-    const response = await fetch(url, {
+    const response = await fetch(proxyEndpoint, {
       headers,
-      // Enable caching for 30 seconds for better UX
-      next: { revalidate: 30 }
     })
 
     if (!response.ok) {
-      // Provide more detailed error messages
+      // Parse error from proxy response
       let errorMessage = `GitLab API error: ${response.status} ${response.statusText}`
-
-      if (response.status === 401) {
-        errorMessage = "GitLab authentication failed. Please check your Personal Access Token."
-      } else if (response.status === 403) {
-        errorMessage = "GitLab access denied. Your token may lack the required permissions (api scope)."
-      } else if (response.status === 404) {
-        errorMessage = "GitLab resource not found. Check the URL or project access."
-      }
 
       try {
         const errorData = await response.json()
-        if (errorData.message) {
+        if (errorData.error) {
+          errorMessage = errorData.error
+        } else if (errorData.message) {
           errorMessage = typeof errorData.message === "string"
             ? errorData.message
             : JSON.stringify(errorData.message)
-        } else if (errorData.error) {
-          errorMessage = errorData.error
         }
       } catch {
         // Use default error message
@@ -158,12 +154,12 @@ class GitLabApiService {
 
   // Projects
   async getProjects(perPage = 20): Promise<GitLabProject[]> {
-    return this.request(`/projects?per_page=${perPage}&order_by=last_activity_at`)
+    return this.request(`/api/gitlab/projects?per_page=${perPage}&order_by=last_activity_at`)
   }
 
   async getProject(projectId: number | string): Promise<GitLabProject> {
     const id = typeof projectId === "string" ? encodeURIComponent(projectId) : projectId
-    return this.request(`/projects/${id}`)
+    return this.request(`/api/gitlab/projects/${id}`)
   }
 
   // Commits
@@ -179,23 +175,23 @@ class GitLabApiService {
     if (options?.page) params.append("page", options.page.toString())
     params.append("with_stats", "true")
 
-    return this.request(`/projects/${id}/repository/commits?${params}`)
+    return this.request(`/api/gitlab/projects/${id}/commits?${params}`)
   }
 
   async getCommit(projectId: number | string, sha: string): Promise<GitLabCommit> {
     const id = typeof projectId === "string" ? encodeURIComponent(projectId) : projectId
-    return this.request(`/projects/${id}/repository/commits/${sha}?stats=true`)
+    return this.request(`/api/gitlab/projects/${id}/commits/${sha}`)
   }
 
   // Branches
   async getBranches(projectId: number | string, perPage = 20): Promise<GitLabBranch[]> {
     const id = typeof projectId === "string" ? encodeURIComponent(projectId) : projectId
-    return this.request(`/projects/${id}/repository/branches?per_page=${perPage}`)
+    return this.request(`/api/gitlab/projects/${id}/branches?per_page=${perPage}`)
   }
 
   async getBranch(projectId: number | string, branchName: string): Promise<GitLabBranch> {
     const id = typeof projectId === "string" ? encodeURIComponent(projectId) : projectId
-    return this.request(`/projects/${id}/repository/branches/${encodeURIComponent(branchName)}`)
+    return this.request(`/api/gitlab/projects/${id}/branches/${encodeURIComponent(branchName)}`)
   }
 
   // File tree
@@ -211,32 +207,34 @@ class GitLabApiService {
     if (options?.recursive) params.append("recursive", "true")
     params.append("per_page", "100")
 
-    return this.request(`/projects/${id}/repository/tree?${params}`)
+    return this.request(`/api/gitlab/projects/${id}/tree?${params}`)
   }
 
   // Merge Requests
   async getMergeRequests(projectId: number | string, state?: "opened" | "closed" | "merged" | "all"): Promise<GitLabMergeRequest[]> {
     const id = typeof projectId === "string" ? encodeURIComponent(projectId) : projectId
     const params = state ? `?state=${state}` : ""
-    return this.request(`/projects/${id}/merge_requests${params}`)
+    return this.request(`/api/gitlab/projects/${id}/merge_requests${params}`)
   }
 
   async getMergeRequest(projectId: number | string, mrIid: number): Promise<GitLabMergeRequest> {
     const id = typeof projectId === "string" ? encodeURIComponent(projectId) : projectId
-    return this.request(`/projects/${id}/merge_requests/${mrIid}`)
+    return this.request(`/api/gitlab/projects/${id}/merge_requests/${mrIid}`)
   }
 
   // Pipelines
   async getPipelines(projectId: number | string, perPage = 10): Promise<GitLabPipeline[]> {
     const id = typeof projectId === "string" ? encodeURIComponent(projectId) : projectId
-    return this.request(`/projects/${id}/pipelines?per_page=${perPage}`)
+    return this.request(`/api/gitlab/projects/${id}/pipelines?per_page=${perPage}`)
   }
 
   async getLatestPipeline(projectId: number | string, ref?: string): Promise<GitLabPipeline | null> {
     try {
       const id = typeof projectId === "string" ? encodeURIComponent(projectId) : projectId
-      const params = ref ? `?ref=${ref}` : ""
-      const pipelines = await this.request<GitLabPipeline[]>(`/projects/${id}/pipelines${params}&per_page=1`)
+      const params = new URLSearchParams()
+      params.set("per_page", "1")
+      if (ref) params.set("ref", ref)
+      const pipelines = await this.request<GitLabPipeline[]>(`/api/gitlab/projects/${id}/pipelines?${params}`)
       return pipelines[0] || null
     } catch {
       return null
@@ -251,10 +249,10 @@ class GitLabApiService {
     compare_same_ref: boolean
   }> {
     const id = typeof projectId === "string" ? encodeURIComponent(projectId) : projectId
-    return this.request(`/projects/${id}/repository/compare?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+    return this.request(`/api/gitlab/projects/${id}/compare?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
   }
 
-  // Utility to build web URLs
+  // Utility to build web URLs (these don't need the proxy - they're just URL builders)
   getProjectUrl(project: GitLabProject): string {
     return project.web_url
   }
