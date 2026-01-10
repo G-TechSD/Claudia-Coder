@@ -80,6 +80,7 @@ import { PriorArtSection } from "@/components/project/prior-art-section"
 import { DocsBrowser } from "@/components/project/docs-browser"
 import { VisionDisplay } from "@/components/project/vision-display"
 import { FileBrowser } from "@/components/project/file-browser"
+import { QuickComment } from "@/components/project/quick-comment"
 import {
   Select,
   SelectContent,
@@ -1765,6 +1766,29 @@ export default function ProjectDetailPage() {
         onRepoLinked={() => refreshProject()}
         workingDirectory={getEffectiveWorkingDirectory(project)}
         basePath={project.basePath || project.workingDirectory || getEffectiveWorkingDirectory(project)}
+      />
+
+      {/* Quick Comment FAB */}
+      <QuickComment
+        projectId={project.id}
+        projectName={project.name}
+        onPacketCreated={(packetId) => {
+          console.log("Packet created from comment:", packetId)
+          // Refresh packets list
+          const storedPackets = localStorage.getItem("claudia_packets")
+          if (storedPackets) {
+            try {
+              const allPackets = JSON.parse(storedPackets)
+              const projectPackets = allPackets[project.id] || []
+              setPackets(projectPackets)
+            } catch {
+              console.error("Failed to parse packets")
+            }
+          }
+        }}
+        onCommentAdded={(comment) => {
+          console.log("Comment added:", comment)
+        }}
       />
     </div>
   )

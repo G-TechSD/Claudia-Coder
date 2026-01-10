@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -20,7 +20,8 @@ import {
   ChevronUp,
   Package,
   RefreshCw,
-  Mic
+  Mic,
+  Sparkles
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type {
@@ -36,32 +37,55 @@ import {
   getResourceBlob,
   getResourceBlobUrl
 } from "@/lib/data/resources"
+import { PacketApprovalDialog } from "@/components/project/packet-approval-dialog"
+import type { ProposedPacket } from "@/app/api/brain-dump/packetize/route"
+
+interface ProjectContext {
+  hasBuildPlan: boolean
+  hasPackets: boolean
+  currentPhase?: string
+  recentActivity?: string[]
+}
 
 interface BrainDumpReviewProps {
   brainDumpId: string
+  projectId?: string
   projectName?: string
   projectDescription?: string
+  existingProjectContext?: ProjectContext  // If provided, enables smart packetize
   onComplete?: () => void
   onConvertToPackets?: (items: ActionItem[]) => void
+  onPacketsApproved?: (packets: ProposedPacket[]) => void
   className?: string
 }
 
 export function BrainDumpReview({
   brainDumpId,
+  projectId,
   projectName,
   projectDescription,
+  existingProjectContext,
   onComplete,
   onConvertToPackets,
+  onPacketsApproved,
   className
 }: BrainDumpReviewProps) {
   const [brainDump, setBrainDump] = useState<BrainDump | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [isPacketizing, setIsPacketizing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set())
+
+  // Packetize state
+  const [proposedPackets, setProposedPackets] = useState<ProposedPacket[]>([])
+  const [showPacketApproval, setShowPacketApproval] = useState(false)
+
+  // Check if this is an existing project
+  const isExistingProject = existingProjectContext?.hasBuildPlan || existingProjectContext?.hasPackets
 
   // Audio element ref
   const audioRef = useState<HTMLAudioElement | null>(null)
@@ -244,6 +268,71 @@ export function BrainDumpReview({
     updateBrainDump(brainDumpId, { status: "completed" })
     onComplete?.()
   }
+
+  /**
+   * Smart packetize using LLM to extract categorized work items
+   */
+  async function smartPacketize() {
+    if (!brainDump?.transcription?.text || !projectId) return
+
+    setIsPacketizing(true)
+    setError(null)
+
+    try {
+      const response = await fetch("/api/brain-dump/packetize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript: brainDump.transcription.text,
+          projectId,
+          projectName,
+          projectDescription,
+          existingContext: existingProjectContext
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      if (data.proposedPackets && data.proposedPackets.length > 0) {
+        setProposedPackets(data.proposedPackets)
+        setShowPacketApproval(true)
+      } else {
+        setError("No actionable items were extracted from the transcript.")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Packetization failed")
+    } finally {
+      setIsPacketizing(false)
+    }
+  }
+
+  /**
+   * Handle packet approval from dialog
+   */
+  const handlePacketsApproved = useCallback((approvedPackets: Array<ProposedPacket & { approvedPriority: string }>) => {
+    setShowPacketApproval(false)
+
+    // Update brain dump status
+    updateBrainDump(brainDumpId, {
+      status: "completed"
+    })
+    setBrainDump(prev => prev ? { ...prev, status: "completed" } : null)
+
+    // Notify parent of approved packets
+    onPacketsApproved?.(approvedPackets)
+  }, [brainDumpId, onPacketsApproved])
+
+  /**
+   * Handle dismissing all packets
+   */
+  const handleDismissPackets = useCallback(() => {
+    setShowPacketApproval(false)
+    setProposedPackets([])
+  }, [])
 
   if (!brainDump) {
     return (
@@ -535,23 +624,49 @@ export function BrainDumpReview({
       </div>
 
       {/* Actions */}
-      {processed && (
+      {brainDump.transcription?.text && (
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="text-sm text-muted-foreground">
-                {processed.actionItems.filter(a => a.approved).length} action items approved
+                {processed
+                  ? `${processed.actionItems.filter(a => a.approved).length} action items approved`
+                  : "Process transcript to extract action items"}
               </div>
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handleConvertToPackets}
-                  disabled={!processed.actionItems.some(a => a.approved)}
-                >
-                  <Package className="h-4 w-4 mr-2" />
-                  Create Packets
-                </Button>
-                <Button onClick={markComplete}>
+                {/* Smart Packetize for existing projects */}
+                {isExistingProject && projectId && (
+                  <Button
+                    variant="outline"
+                    onClick={smartPacketize}
+                    disabled={isPacketizing}
+                    className="border-primary/50 text-primary hover:bg-primary/10"
+                  >
+                    {isPacketizing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Extracting...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Smart Packetize
+                      </>
+                    )}
+                  </Button>
+                )}
+                {/* Regular create packets (requires processed content) */}
+                {processed && (
+                  <Button
+                    variant="outline"
+                    onClick={handleConvertToPackets}
+                    disabled={!processed.actionItems.some(a => a.approved)}
+                  >
+                    <Package className="h-4 w-4 mr-2" />
+                    Create Packets
+                  </Button>
+                )}
+                <Button onClick={markComplete} disabled={isPacketizing}>
                   <CheckCircle2 className="h-4 w-4 mr-2" />
                   Mark Complete
                 </Button>
@@ -560,6 +675,17 @@ export function BrainDumpReview({
           </CardContent>
         </Card>
       )}
+
+      {/* Packet Approval Dialog */}
+      <PacketApprovalDialog
+        open={showPacketApproval}
+        onOpenChange={setShowPacketApproval}
+        proposedPackets={proposedPackets}
+        onApprove={handlePacketsApproved}
+        onDismiss={handleDismissPackets}
+        isLoading={isPacketizing}
+        projectName={projectName}
+      />
     </div>
   )
 }

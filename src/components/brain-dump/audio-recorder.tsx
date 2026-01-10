@@ -13,22 +13,36 @@ import {
   Brain,
   Loader2,
   Check,
-  Send
+  Send,
+  Package
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { uploadResource, updateBrainDump } from "@/lib/data/resources"
 import { createBrainDumpFromRecording } from "@/lib/data/resources"
 import type { TranscriptionData } from "@/lib/data/types"
+import { PacketApprovalDialog } from "@/components/project/packet-approval-dialog"
+import type { ProposedPacket } from "@/app/api/brain-dump/packetize/route"
+
+interface ProjectContext {
+  hasBuildPlan: boolean
+  hasPackets: boolean
+  currentPhase?: string
+  recentActivity?: string[]
+}
 
 interface AudioRecorderProps {
   projectId: string
+  projectName?: string
+  projectDescription?: string
   onRecordingComplete?: (resourceId: string, brainDumpId: string) => void
+  onPacketsApproved?: (packets: ProposedPacket[]) => void
   onCancel?: () => void
   autoProcess?: boolean  // If true, automatically process after transcription
+  existingProjectContext?: ProjectContext  // If provided, will trigger packetize flow
   className?: string
 }
 
-type ProcessingStatus = "idle" | "listening" | "saving" | "processing" | "complete" | "error"
+type ProcessingStatus = "idle" | "listening" | "saving" | "processing" | "packetizing" | "complete" | "error"
 
 // Type declarations for Web Speech API
 type SpeechRecognitionInstance = {
@@ -54,9 +68,13 @@ type SpeechRecognitionInstance = {
  */
 export function AudioRecorder({
   projectId,
+  projectName,
+  projectDescription,
   onRecordingComplete,
+  onPacketsApproved,
   onCancel,
   autoProcess = false,
+  existingProjectContext,
   className
 }: AudioRecorderProps) {
   const [status, setStatus] = useState<ProcessingStatus>("idle")
@@ -70,6 +88,15 @@ export function AudioRecorder({
   const [interimTranscript, setInterimTranscript] = useState("")
   const [audioLevel, setAudioLevel] = useState(0)
   const [duration, setDuration] = useState(0)
+
+  // Packetize state for existing projects
+  const [proposedPackets, setProposedPackets] = useState<ProposedPacket[]>([])
+  const [showPacketApproval, setShowPacketApproval] = useState(false)
+  const [savedBrainDumpId, setSavedBrainDumpId] = useState<string | null>(null)
+  const [savedResourceId, setSavedResourceId] = useState<string | null>(null)
+
+  // Check if this is an existing project with work
+  const isExistingProject = existingProjectContext?.hasBuildPlan || existingProjectContext?.hasPackets
 
   // Refs
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
@@ -299,11 +326,38 @@ export function AudioRecorder({
       // Update brain dump with transcription
       updateBrainDump(brainDump.id, {
         transcription: transcriptionData,
-        status: autoProcess ? "processing" : "review"
+        status: isExistingProject ? "processing" : (autoProcess ? "processing" : "review")
       })
 
-      // If auto-processing enabled, process the transcript
-      if (autoProcess) {
+      // Save IDs for later use
+      setSavedBrainDumpId(brainDump.id)
+      setSavedResourceId(resource.id)
+
+      // For existing projects with work, run packetize flow
+      if (isExistingProject) {
+        setStatus("packetizing")
+        setStatusMessage("Extracting actionable items...")
+
+        try {
+          const packets = await packetizeTranscript(fullTranscript)
+          if (packets.length > 0) {
+            setProposedPackets(packets)
+            setShowPacketApproval(true)
+            // Don't set complete yet - wait for approval dialog
+            return
+          } else {
+            // No packets extracted, fall through to standard flow
+            setStatusMessage("No actionable items found")
+          }
+        } catch (packetErr) {
+          console.error("Packetize failed:", packetErr)
+          setProcessingError("Failed to extract work items. Brain dump saved.")
+          // Continue with standard processing as fallback
+        }
+      }
+
+      // Standard processing for new projects or if packetize found nothing
+      if (autoProcess && !isExistingProject) {
         setStatus("processing")
         setStatusMessage("Processing with AI...")
 
@@ -325,6 +379,78 @@ export function AudioRecorder({
       setProcessingError(err instanceof Error ? err.message : "Failed to save brain dump")
     }
   }
+
+  /**
+   * Packetize transcript for existing projects using LLM
+   */
+  async function packetizeTranscript(transcriptText: string): Promise<ProposedPacket[]> {
+    const response = await fetch("/api/brain-dump/packetize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transcript: transcriptText,
+        projectId,
+        projectName,
+        projectDescription,
+        existingContext: existingProjectContext
+      })
+    })
+
+    const data = await response.json()
+
+    if (data.error) {
+      throw new Error(data.error)
+    }
+
+    return data.proposedPackets || []
+  }
+
+  /**
+   * Handle packet approval from dialog
+   */
+  const handlePacketsApproved = useCallback((approvedPackets: Array<ProposedPacket & { approvedPriority: string }>) => {
+    setShowPacketApproval(false)
+
+    // Update brain dump status
+    if (savedBrainDumpId) {
+      updateBrainDump(savedBrainDumpId, {
+        status: "completed"
+      })
+    }
+
+    // Notify parent of approved packets
+    onPacketsApproved?.(approvedPackets)
+
+    setStatus("complete")
+    setStatusMessage(`${approvedPackets.length} packets added to queue!`)
+
+    // Also call the standard completion callback
+    if (savedResourceId && savedBrainDumpId) {
+      onRecordingComplete?.(savedResourceId, savedBrainDumpId)
+    }
+  }, [savedBrainDumpId, savedResourceId, onPacketsApproved, onRecordingComplete])
+
+  /**
+   * Handle dismissing all packets
+   */
+  const handleDismissPackets = useCallback(() => {
+    setShowPacketApproval(false)
+
+    // Update brain dump status
+    if (savedBrainDumpId) {
+      updateBrainDump(savedBrainDumpId, {
+        status: "review"  // Set to review so user can still process it manually
+      })
+    }
+
+    setStatus("complete")
+    setStatusMessage("Brain dump saved (no packets added)")
+
+    // Call the standard completion callback
+    if (savedResourceId && savedBrainDumpId) {
+      onRecordingComplete?.(savedResourceId, savedBrainDumpId)
+    }
+  }, [savedBrainDumpId, savedResourceId, onRecordingComplete])
 
   /**
    * Process transcript using the brain dump processing API
@@ -361,7 +487,7 @@ export function AudioRecorder({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
   }
 
-  const isProcessing = status === "saving" || status === "processing"
+  const isProcessing = status === "saving" || status === "processing" || status === "packetizing"
   const hasTranscript = transcript.trim().length > 0
 
   if (!isSupported) {
@@ -405,12 +531,17 @@ export function AudioRecorder({
         {isProcessing && (
           <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
             <div className="flex items-center gap-3">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              {status === "packetizing" ? (
+                <Package className="h-5 w-5 animate-pulse text-primary" />
+              ) : (
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              )}
               <div>
                 <p className="font-medium text-sm">{statusMessage}</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {status === "saving" && "Saving your brain dump..."}
                   {status === "processing" && "Analyzing and structuring content with AI..."}
+                  {status === "packetizing" && "Using AI to extract feature requests, bugs, and tasks..."}
                 </p>
               </div>
             </div>
@@ -617,6 +748,17 @@ export function AudioRecorder({
           )}
         </div>
       </CardContent>
+
+      {/* Packet Approval Dialog for existing projects */}
+      <PacketApprovalDialog
+        open={showPacketApproval}
+        onOpenChange={setShowPacketApproval}
+        proposedPackets={proposedPackets}
+        onApprove={handlePacketsApproved}
+        onDismiss={handleDismissPackets}
+        isLoading={status === "packetizing"}
+        projectName={projectName}
+      />
     </Card>
   )
 }
