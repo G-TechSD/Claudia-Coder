@@ -244,9 +244,14 @@ function NewProjectContent() {
     name: string
     path: string
     url: string
+    http_url_to_repo?: string
   }>>([])
   const [loadingRepos, setLoadingRepos] = useState(false)
-  const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null)
+  const [selectedRepoIds, setSelectedRepoIds] = useState<Set<number>>(new Set())
+
+  // Cloning state for Linear import flow
+  const [isCloningRepos, setIsCloningRepos] = useState(false)
+  const [cloningProgress, setCloningProgress] = useState<{ current: number; total: number; repoName: string }>({ current: 0, total: 0, repoName: "" })
 
   // Check for GitLab token on mount - use getUserGitLabToken which checks both personal and shared instance tokens
   useEffect(() => {
@@ -494,8 +499,10 @@ function NewProjectContent() {
             id: r.id,
             name: r.name,
             path: r.path_with_namespace,
-            url: r.web_url
+            url: r.web_url,
+            http_url_to_repo: r.http_url_to_repo
           })))
+          setSelectedRepoIds(new Set()) // Reset selection
           setShowRepoLinkDialog(true)
           setLoadingRepos(false)
           return
@@ -511,22 +518,205 @@ function NewProjectContent() {
   }
 
   const handleRepoLinkChoice = async (choice: "link" | "create" | "skip") => {
-    setShowRepoLinkDialog(false)
+    if (choice === "link" && selectedRepoIds.size > 0) {
+      // Clone and link all selected repos, then save project
+      setShowRepoLinkDialog(false)
+      setIsCloningRepos(true)
 
-    if (choice === "link" && selectedRepoId) {
-      // Link the selected repo and save project immediately
-      const repoToLink = availableRepos.find(r => r.id === selectedRepoId)
-      await autoSaveLinearProject(repoToLink || null)
+      const selectedRepos = availableRepos.filter(r => selectedRepoIds.has(r.id))
+      const clonedRepos: Array<{
+        provider: "gitlab"
+        id: number
+        name: string
+        path: string
+        url: string
+        localPath?: string
+      }> = []
+
+      // Determine basePath - use explicitly set folder or create default
+      const basePath = projectFolderPath.trim() || localRepoPath.trim() || `/home/bill/claudia-projects/${toRepoName(projectName)}`
+
+      for (let i = 0; i < selectedRepos.length; i++) {
+        const repo = selectedRepos[i]
+        setCloningProgress({ current: i + 1, total: selectedRepos.length, repoName: repo.name })
+
+        try {
+          // Call the clone API
+          const cloneResponse = await fetch("/api/projects/clone-repo", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              projectId: `temp-${Date.now()}`, // Temp ID since project isn't created yet
+              basePath,
+              repo: {
+                id: repo.id,
+                name: repo.name,
+                url: repo.http_url_to_repo || repo.url,
+                path_with_namespace: repo.path
+              },
+              skipClone: false
+            })
+          })
+
+          const cloneResult = await cloneResponse.json()
+
+          if (cloneResult.success) {
+            clonedRepos.push({
+              provider: "gitlab",
+              id: repo.id,
+              name: repo.name,
+              path: repo.path,
+              url: repo.url,
+              localPath: cloneResult.localPath
+            })
+          } else {
+            console.error(`Failed to clone ${repo.name}:`, cloneResult.error)
+            // Still add repo without localPath if clone fails
+            clonedRepos.push({
+              provider: "gitlab",
+              id: repo.id,
+              name: repo.name,
+              path: repo.path,
+              url: repo.url
+            })
+          }
+        } catch (err) {
+          console.error(`Failed to clone ${repo.name}:`, err)
+          // Still add repo without localPath if clone fails
+          clonedRepos.push({
+            provider: "gitlab",
+            id: repo.id,
+            name: repo.name,
+            path: repo.path,
+            url: repo.url
+          })
+        }
+      }
+
+      setIsCloningRepos(false)
+      setCloningProgress({ current: 0, total: 0, repoName: "" })
+
+      // Update project folder path if it wasn't set
+      if (!projectFolderPath.trim() && !localRepoPath.trim()) {
+        setProjectFolderPath(basePath)
+      }
+
+      // Save project with all cloned repos
+      await autoSaveLinearProjectWithRepos(clonedRepos, basePath)
     } else if (choice === "create") {
       // User wants to create a new repo - go to setup for repo creation options
+      setShowRepoLinkDialog(false)
       setCreateRepo(true)
-      setSelectedRepoId(null)
+      setSelectedRepoIds(new Set())
       setMode("setup")
     } else {
       // Skip repo linking - save project immediately without repo
-      setSelectedRepoId(null)
+      setShowRepoLinkDialog(false)
+      setSelectedRepoIds(new Set())
       setCreateRepo(false)
       await autoSaveLinearProject(null)
+    }
+  }
+
+  // Auto-save a Linear import project with multiple repos
+  const autoSaveLinearProjectWithRepos = async (repos: Array<{
+    provider: "gitlab"
+    id: number
+    name: string
+    path: string
+    url: string
+    localPath?: string
+  }>, basePath?: string) => {
+    if (!linearImportData) return
+
+    setIsSubmitting(true)
+    setSubmitError("")
+
+    try {
+      // Create the project immediately with imported data
+      const project = createProject({
+        name: projectName || linearImportData.projects[0]?.name || "Linear Import",
+        description: projectDescription || linearImportData.projects[0]?.description || `Imported from Linear with ${linearImportData.summary.totalIssues} issues`,
+        status: "active",
+        priority: priority || "medium",
+        repos: repos,
+        packetIds: [],
+        tags: ["imported-from-linear"],
+        basePath: basePath || projectFolderPath.trim() || localRepoPath.trim() || undefined
+      })
+
+      // Configure Linear sync
+      if (linearImportData.projects.length > 0) {
+        configureLinearSync(project.id, {
+          mode: "imported",
+          projectId: linearImportData.projects[0].linearProjectId,
+          teamId: linearImportData.projects[0].teamIds[0],
+          syncIssues: false,
+          syncComments: false,
+          syncStatus: false,
+          importedAt: new Date().toISOString(),
+          importedIssueCount: linearImportData.summary.totalIssues
+        })
+      }
+
+      // Save the build plan with phases
+      saveBuildPlan(project.id, {
+        id: `plan-${Date.now()}`,
+        projectId: project.id,
+        version: 1,
+        status: "approved",
+        spec: {
+          name: project.name,
+          description: project.description,
+          objectives: [],
+          nonGoals: [],
+          assumptions: [],
+          risks: [],
+          techStack: []
+        },
+        phases: linearImportData.phases.map(p => ({
+          ...p,
+          packetIds: linearImportData.packets
+            .filter(pkt => pkt.status !== "completed")
+            .map(pkt => pkt.id),
+          dependencies: [],
+          estimatedEffort: { optimistic: 8, realistic: 16, pessimistic: 32, confidence: "medium" as const },
+          successCriteria: ["All packets completed"]
+        })),
+        packets: linearImportData.packets.map(pkt => ({
+          ...pkt,
+          blockedBy: pkt.dependencies || [],
+          blocks: []
+        })),
+        modelAssignments: [],
+        constraints: {
+          requireLocalFirst: true,
+          requireHumanApproval: ["planning", "deployment"],
+          maxParallelPackets: 2
+        },
+        generatedBy: "linear-import",
+        createdAt: new Date().toISOString()
+      })
+
+      // Save all the packets
+      const packetsToSave = linearImportData.packets.map(pkt => ({
+        ...pkt,
+        blockedBy: pkt.dependencies || [],
+        blocks: []
+      }))
+      savePackets(project.id, packetsToSave)
+
+      // Update project with packet IDs
+      updateProject(project.id, {
+        packetIds: packetsToSave.map(p => p.id)
+      })
+
+      setCreatedProject(project)
+      setMode("complete")
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to create project")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -980,17 +1170,19 @@ function NewProjectContent() {
         })
       }
 
-      // Link an existing repo if one was selected from the dialog
-      if (selectedRepoId && availableRepos.length > 0) {
-        const repoToLink = availableRepos.find(r => r.id === selectedRepoId)
-        if (repoToLink) {
-          linkRepoToProject(project.id, {
-            provider: "gitlab",
-            id: repoToLink.id,
-            name: repoToLink.name,
-            path: repoToLink.path,
-            url: repoToLink.url
-          })
+      // Link existing repos if any were selected from the dialog
+      if (selectedRepoIds.size > 0 && availableRepos.length > 0) {
+        for (const repoId of selectedRepoIds) {
+          const repoToLink = availableRepos.find(r => r.id === repoId)
+          if (repoToLink) {
+            linkRepoToProject(project.id, {
+              provider: "gitlab",
+              id: repoToLink.id,
+              name: repoToLink.name,
+              path: repoToLink.path,
+              url: repoToLink.url
+            })
+          }
         }
       } else if (createRepo && hasToken) {
         // Create a new repo if that option was selected
@@ -1258,6 +1450,49 @@ function NewProjectContent() {
             Back to Projects
           </Button>
         </div>
+      </div>
+    )
+  }
+
+  // Cloning repositories loading state (for Linear import flow)
+  if (isCloningRepos) {
+    return (
+      <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-6">
+        <Card className="max-w-md w-full">
+          <CardContent className="pt-6 text-center">
+            <div className="h-16 w-16 rounded-full bg-blue-500/10 flex items-center justify-center mx-auto mb-4">
+              <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+            </div>
+            <h2 className="text-xl font-semibold mb-2">Cloning Repositories...</h2>
+            <p className="text-muted-foreground mb-4">
+              {cloningProgress.total > 1
+                ? `Cloning ${cloningProgress.current} of ${cloningProgress.total} repositories`
+                : `Cloning repository`}
+            </p>
+            {cloningProgress.repoName && (
+              <div className="p-3 rounded-lg bg-muted/50">
+                <div className="flex items-center justify-center gap-2">
+                  <GitBranch className="h-4 w-4 text-muted-foreground" />
+                  <code className="text-sm font-mono">{cloningProgress.repoName}</code>
+                </div>
+              </div>
+            )}
+            {cloningProgress.total > 1 && (
+              <div className="mt-4">
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-300"
+                    style={{ width: `${(cloningProgress.current / cloningProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground mt-4">
+              <Download className="h-4 w-4" />
+              <span>This may take a minute for large repositories</span>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -1566,60 +1801,117 @@ function NewProjectContent() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <GitBranch className="h-5 w-5 text-primary" />
-                Link a Repository?
+                Link Repositories
               </DialogTitle>
               <DialogDescription>
-                Would you like to link an existing GitLab repository to this imported project?
+                Select repositories to clone and link to this project. They will be cloned to your project folder.
               </DialogDescription>
             </DialogHeader>
 
             <div className="py-4 space-y-4">
-              {/* Repo List */}
+              {/* Selection controls */}
+              <div className="flex items-center justify-between">
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedRepoIds(new Set(availableRepos.map(r => r.id)))}
+                    disabled={selectedRepoIds.size === availableRepos.length}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedRepoIds(new Set())}
+                    disabled={selectedRepoIds.size === 0}
+                  >
+                    Deselect All
+                  </Button>
+                </div>
+                {selectedRepoIds.size > 0 && (
+                  <Badge variant="secondary">
+                    {selectedRepoIds.size} selected
+                  </Badge>
+                )}
+              </div>
+
+              {/* Repo List with Checkboxes */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Available Repositories</Label>
-                <ScrollArea className="h-[200px] border rounded-lg">
+                <ScrollArea className="h-[250px] border rounded-lg">
                   <div className="p-2 space-y-1">
-                    {availableRepos.map((repo) => (
-                      <div
-                        key={repo.id}
-                        className={cn(
-                          "p-3 rounded-md border cursor-pointer transition-colors",
-                          selectedRepoId === repo.id
-                            ? "border-primary bg-primary/5"
-                            : "hover:border-primary/50"
-                        )}
-                        onClick={() => setSelectedRepoId(repo.id)}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={cn(
-                            "h-4 w-4 rounded-full border-2 flex items-center justify-center",
-                            selectedRepoId === repo.id
-                              ? "border-primary bg-primary"
-                              : "border-muted-foreground/30"
-                          )}>
-                            {selectedRepoId === repo.id && (
-                              <Check className="h-2.5 w-2.5 text-primary-foreground" />
-                            )}
+                    {availableRepos.map((repo) => {
+                      const isSelected = selectedRepoIds.has(repo.id)
+                      return (
+                        <div
+                          key={repo.id}
+                          className={cn(
+                            "p-3 rounded-md border cursor-pointer transition-colors",
+                            isSelected
+                              ? "border-primary bg-primary/5"
+                              : "hover:border-primary/50"
+                          )}
+                          onClick={() => {
+                            setSelectedRepoIds(prev => {
+                              const next = new Set(prev)
+                              if (next.has(repo.id)) {
+                                next.delete(repo.id)
+                              } else {
+                                next.add(repo.id)
+                              }
+                              return next
+                            })
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0",
+                              isSelected
+                                ? "bg-primary border-primary"
+                                : "border-muted-foreground/30"
+                            )}>
+                              {isSelected && (
+                                <Check className="h-3 w-3 text-primary-foreground" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm truncate">{repo.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{repo.path}</p>
+                            </div>
+                            <a
+                              href={repo.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate">{repo.name}</p>
-                            <p className="text-xs text-muted-foreground truncate">{repo.path}</p>
-                          </div>
-                          <a
-                            href={repo.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-muted-foreground hover:text-foreground"
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                          </a>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </ScrollArea>
               </div>
+
+              {/* Clone info */}
+              {selectedRepoIds.size > 0 && (
+                <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <div className="flex items-start gap-2">
+                    <Download className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-medium text-blue-600">
+                        {selectedRepoIds.size === 1 ? "Repository" : `${selectedRepoIds.size} repositories`} will be cloned
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Repos will be cloned to: <code className="bg-muted px-1 rounded">{projectFolderPath.trim() || localRepoPath.trim() || `/home/bill/claudia-projects/${toRepoName(projectName)}`}/repos/</code>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <DialogFooter className="flex-col sm:flex-row gap-2">
@@ -1634,7 +1926,7 @@ function NewProjectContent() {
                 variant="outline"
                 className="flex-1"
                 onClick={() => {
-                  setSelectedRepoId(null)
+                  setSelectedRepoIds(new Set())
                   setCreateRepo(true)
                   handleRepoLinkChoice("create")
                 }}
@@ -1645,10 +1937,10 @@ function NewProjectContent() {
               <Button
                 className="flex-1"
                 onClick={() => handleRepoLinkChoice("link")}
-                disabled={!selectedRepoId}
+                disabled={selectedRepoIds.size === 0}
               >
-                <Link2 className="mr-2 h-4 w-4" />
-                Link Selected
+                <Download className="mr-2 h-4 w-4" />
+                Clone & Link ({selectedRepoIds.size})
               </Button>
             </DialogFooter>
           </DialogContent>

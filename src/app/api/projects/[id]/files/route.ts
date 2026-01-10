@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { promises as fs } from "fs"
 import path from "path"
+import { auth } from "@/lib/auth"
 
 // Maximum file size for reading content (5MB)
 const MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -226,6 +227,12 @@ export async function GET(
   { params }: RouteParams
 ) {
   try {
+    // Authenticate user via session
+    const session = await auth.api.getSession({ headers: request.headers })
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const { id: projectId } = await params
     const { searchParams } = new URL(request.url)
 
