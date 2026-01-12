@@ -145,6 +145,134 @@ function Test-PortInUse {
     return $null -ne $connection
 }
 
+function Test-WSLEnabled {
+    # Check if WSL feature is enabled
+    $wslFeature = Get-WindowsOptionalFeature -Online -FeatureName "Microsoft-Windows-Subsystem-Linux" -ErrorAction SilentlyContinue
+    $vmFeature = Get-WindowsOptionalFeature -Online -FeatureName "VirtualMachinePlatform" -ErrorAction SilentlyContinue
+
+    if ($wslFeature.State -ne "Enabled" -or $vmFeature.State -ne "Enabled") {
+        return $false
+    }
+
+    # Check if wsl.exe exists and responds
+    if (-not (Test-Path "$env:SystemRoot\System32\wsl.exe")) {
+        return $false
+    }
+
+    # Try running wsl --status to verify it works
+    try {
+        $null = wsl --status 2>&1
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Enable-WSL2 {
+    Write-Step "Checking WSL2"
+
+    if (Test-WSLEnabled) {
+        Write-Success "WSL2 is already enabled"
+        return $false  # No reboot needed
+    }
+
+    Write-Info "Enabling WSL2 (required for Docker)..."
+
+    $rebootRequired = $false
+
+    # Enable Windows Subsystem for Linux
+    $wslFeature = Get-WindowsOptionalFeature -Online -FeatureName "Microsoft-Windows-Subsystem-Linux" -ErrorAction SilentlyContinue
+    if ($wslFeature.State -ne "Enabled") {
+        Write-Info "Enabling Windows Subsystem for Linux..."
+        $result = dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart 2>&1
+        if ($LASTEXITCODE -eq 3010 -or $result -match "restart") {
+            $rebootRequired = $true
+        }
+    }
+
+    # Enable Virtual Machine Platform
+    $vmFeature = Get-WindowsOptionalFeature -Online -FeatureName "VirtualMachinePlatform" -ErrorAction SilentlyContinue
+    if ($vmFeature.State -ne "Enabled") {
+        Write-Info "Enabling Virtual Machine Platform..."
+        $result = dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart 2>&1
+        if ($LASTEXITCODE -eq 3010 -or $result -match "restart") {
+            $rebootRequired = $true
+        }
+    }
+
+    # Download and install WSL2 kernel update if needed (only if no reboot required yet)
+    if (-not $rebootRequired) {
+        $wslUpdateUrl = "https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_x64.msi"
+        $wslUpdatePath = Join-Path $env:TEMP "wsl_update_x64.msi"
+
+        Write-Info "Installing WSL2 kernel update..."
+        try {
+            if (Download-File -Url $wslUpdateUrl -Destination $wslUpdatePath) {
+                $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i", $wslUpdatePath, "/quiet", "/norestart" -Wait -PassThru
+                Remove-Item $wslUpdatePath -Force -ErrorAction SilentlyContinue
+            }
+        }
+        catch {
+            Write-Warning "WSL2 kernel update download failed, will be installed on next run"
+        }
+
+        # Set WSL2 as default version
+        Write-Info "Setting WSL2 as default version..."
+        wsl --set-default-version 2 2>&1 | Out-Null
+    }
+
+    if ($rebootRequired) {
+        return $true  # Reboot needed
+    }
+
+    Write-Success "WSL2 enabled successfully"
+    return $false  # No reboot needed
+}
+
+function Request-RebootForWSL {
+    Write-Host ""
+    Write-Host "WSL2 has been enabled. A restart is required to continue." -ForegroundColor Yellow
+    Write-Host ""
+
+    $response = Read-Host "Restart now? (The installer will resume after restart) [Y/N]"
+
+    if ($response -eq "Y" -or $response -eq "y") {
+        # Create RunOnce registry entry to resume installer after reboot
+        $scriptPath = $MyInvocation.PSCommandPath
+        if (-not $scriptPath) {
+            $scriptPath = $PSCommandPath
+        }
+
+        $runOnceCommand = "powershell.exe -ExecutionPolicy Bypass -File `"$scriptPath`""
+
+        # Add parameters if they were provided
+        if ($InstallDir -ne "C:\ClaudiaCoder") {
+            $runOnceCommand += " -InstallDir `"$InstallDir`""
+        }
+        if ($GitLabDomain -ne "gitlab.claudia.local") {
+            $runOnceCommand += " -GitLabDomain `"$GitLabDomain`""
+        }
+        if ($N8nDomain -ne "n8n.claudia.local") {
+            $runOnceCommand += " -N8nDomain `"$N8nDomain`""
+        }
+        if ($SkipBrowserOpen) {
+            $runOnceCommand += " -SkipBrowserOpen"
+        }
+
+        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" -Name "ClaudiaCoderInstaller" -Value $runOnceCommand
+
+        Write-Info "Restarting in 5 seconds..."
+        Start-Sleep -Seconds 5
+        Restart-Computer -Force
+    }
+    else {
+        Write-Host ""
+        Write-Info "Please restart your computer manually, then run this installer again."
+        exit 0
+    }
+}
+
 function Wait-ForService {
     param(
         [string]$Url,
@@ -1098,6 +1226,13 @@ function Invoke-Installation {
     }
 
     try {
+        # WSL2 check (required for Docker Desktop)
+        $rebootNeeded = Enable-WSL2
+        if ($rebootNeeded) {
+            Request-RebootForWSL
+            return  # Will not reach here if user chose to reboot
+        }
+
         # Prerequisites
         Install-DockerDesktop
         Install-NodeJS
