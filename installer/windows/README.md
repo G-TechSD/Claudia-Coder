@@ -1,12 +1,56 @@
-# Claudia Admin - Windows Installer
+# Claudia Coder - Windows Installer
 
-A complete local AI development environment for Windows. Get up and running in minutes with a single command.
+A complete local AI development environment for Windows. Get up and running in minutes with a professional installer.
 
 ---
 
-## Quick Start
+## Download
 
-### One Command Installation
+### Single-File Installer (Recommended)
+
+Download the latest installer:
+
+**[Download ClaudiaCoderSetup.exe](https://github.com/claudia-coder/claudia-coder/releases/latest/download/ClaudiaCoderSetup.exe)**
+
+Then simply **double-click to install** - just like any Windows application!
+
+---
+
+## Installation Methods
+
+### Method 1: GUI Installer (Recommended)
+
+1. **Download** `ClaudiaCoderSetup.exe` from the link above
+2. **Double-click** the installer
+3. **Follow the wizard** - accept license, choose location, click Install
+4. **Done!** Use the desktop shortcut to start Claudia Coder
+
+The installer handles everything:
+- Checks system requirements
+- Installs all files to your chosen location
+- Creates desktop and Start Menu shortcuts
+- Adds to Windows Add/Remove Programs
+- Prompts to install Docker Desktop if needed
+
+### Method 2: PowerShell Installer
+
+For automation or scripted deployments, use the PowerShell installer:
+
+```powershell
+# Run as Administrator
+.\ClaudiaInstaller.ps1
+
+# Or with custom install location
+.\ClaudiaInstaller.ps1 -InstallDir "D:\MyApps\Claudia"
+
+# Silent installation
+.\ClaudiaInstaller.ps1 -Silent
+
+# Uninstall
+.\ClaudiaInstaller.ps1 -Uninstall
+```
+
+### Method 3: Manual Installation
 
 Open **PowerShell as Administrator** and run:
 
@@ -14,7 +58,7 @@ Open **PowerShell as Administrator** and run:
 .\install.bat
 ```
 
-That's it! The installer handles everything automatically.
+This runs the comprehensive installation script that handles all prerequisites.
 
 ### What Gets Installed
 
@@ -324,6 +368,65 @@ If you encounter issues not covered in this guide:
    - Your Windows version
    - Error messages from logs
    - Steps to reproduce the problem
+
+---
+
+## Building the Installer
+
+For developers who want to build the installer from source:
+
+### Prerequisites
+
+- **NSIS** (Nullsoft Scriptable Install System) - Install via:
+  - winget: `winget install NSIS.NSIS`
+  - Chocolatey: `choco install nsis`
+  - Manual: [https://nsis.sourceforge.io/Download](https://nsis.sourceforge.io/Download)
+
+### Build Steps
+
+1. Ensure all required files are present in this directory
+2. Run the build script:
+
+```batch
+build-installer.bat
+```
+
+The script will:
+- Check for NSIS (and offer to install it)
+- Verify all required files are present
+- Compile the NSIS script
+- Output `ClaudiaCoderSetup.exe`
+
+### Alternative: PowerShell Single-File Installer
+
+The `ClaudiaInstaller.ps1` script is self-contained and embeds all files as base64. It can be:
+
+1. Run directly as a PowerShell script
+2. Converted to a standalone .exe using [ps2exe](https://github.com/MScholtes/PS2EXE):
+
+```powershell
+# Install ps2exe
+Install-Module ps2exe -Scope CurrentUser
+
+# Convert to .exe
+ps2exe .\ClaudiaInstaller.ps1 .\ClaudiaCoderSetup.exe -requireAdmin
+```
+
+### Files Included in Installer
+
+| File | Description |
+|------|-------------|
+| `ClaudiaInstaller.nsi` | NSIS installer script |
+| `ClaudiaInstaller.ps1` | Self-contained PowerShell installer |
+| `build-installer.bat` | Build automation script |
+| `LICENSE.txt` | End User License Agreement |
+| `docker-compose.yml` | Docker service configuration |
+| `config.json` | Application configuration |
+| `.env.template` | Environment variable template |
+| `start-claudia.bat` | Service start script |
+| `stop-claudia.bat` | Service stop script |
+| `status.bat` | Service status script |
+| `uninstall.bat` | Uninstallation script |
 
 ---
 

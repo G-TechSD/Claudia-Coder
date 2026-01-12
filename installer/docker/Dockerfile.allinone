@@ -1,0 +1,238 @@
+# ============================================
+# Claudia Coder - All-in-One Docker Image
+# Single container with all services managed by Supervisor
+# ============================================
+# PRIVATE DEPLOYMENT ONLY - DO NOT PUSH TO PUBLIC REGISTRY
+#
+# This image includes:
+# - Claudia Coder (Node.js/Next.js)
+# - Gitea (lightweight Git server)
+# - n8n (workflow automation)
+# - faster-whisper (speech-to-text)
+# - PostgreSQL
+# - Redis
+# - Supervisor (process manager)
+# ============================================
+
+# ============================================
+# Stage 1: Build Claudia Coder Application
+# ============================================
+FROM node:20-alpine AS claudia-builder
+
+WORKDIR /build
+
+# Install build dependencies for native modules
+RUN apk add --no-cache \
+    libc6-compat \
+    python3 \
+    make \
+    g++ \
+    linux-headers
+
+# Copy package files from the project root
+COPY package.json package-lock.json ./
+
+# Install dependencies
+RUN npm ci --ignore-scripts && \
+    npm rebuild better-sqlite3 && \
+    npm cache clean --force
+
+# Copy source code
+COPY . .
+
+# Remove any existing .env files to prevent leaking secrets
+RUN rm -f .env .env.local .env.production .env.development
+
+# Set build-time environment variables
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+# Build the Next.js application
+RUN npm run build
+
+# ============================================
+# Stage 2: Final All-in-One Image
+# ============================================
+FROM debian:bookworm-slim
+
+LABEL maintainer="Claudia Coder Team"
+LABEL description="All-in-One Claudia Coder with Gitea, n8n, Whisper, PostgreSQL, Redis"
+LABEL version="1.0.0"
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ============================================
+# Install System Dependencies
+# ============================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Core utilities
+    curl \
+    wget \
+    gnupg \
+    ca-certificates \
+    supervisor \
+    tini \
+    git \
+    openssl \
+    # PostgreSQL dependencies
+    postgresql \
+    postgresql-contrib \
+    # Redis
+    redis-server \
+    # Python for faster-whisper
+    python3 \
+    python3-pip \
+    python3-venv \
+    # Build tools for native modules
+    build-essential \
+    # Audio processing
+    ffmpeg \
+    # Network utilities
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# ============================================
+# Install Node.js 20.x
+# ============================================
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ============================================
+# Install Gitea (Lightweight Git Server)
+# ============================================
+ARG GITEA_VERSION=1.21.4
+RUN wget -O /usr/local/bin/gitea https://dl.gitea.com/gitea/${GITEA_VERSION}/gitea-${GITEA_VERSION}-linux-amd64 \
+    && chmod +x /usr/local/bin/gitea \
+    && mkdir -p /data/gitea/conf /data/gitea/data /data/gitea/log \
+    && adduser --system --shell /bin/bash --gecos 'Git Version Control' --group --disabled-password --home /data/gitea git
+
+# ============================================
+# Install n8n
+# ============================================
+RUN npm install -g n8n \
+    && mkdir -p /data/n8n
+
+# ============================================
+# Install faster-whisper
+# ============================================
+RUN python3 -m venv /opt/whisper-venv \
+    && /opt/whisper-venv/bin/pip install --no-cache-dir \
+        faster-whisper \
+        uvicorn \
+        fastapi \
+        python-multipart \
+    && mkdir -p /data/whisper/models
+
+# ============================================
+# Setup PostgreSQL
+# ============================================
+RUN mkdir -p /data/postgresql /run/postgresql \
+    && chown -R postgres:postgres /data/postgresql /run/postgresql
+
+# ============================================
+# Setup Redis
+# ============================================
+RUN mkdir -p /data/redis \
+    && chown -R redis:redis /data/redis
+
+# ============================================
+# Copy Claudia Coder Application
+# ============================================
+WORKDIR /app
+
+# Copy built application from builder stage
+COPY --from=claudia-builder /build/public ./public
+COPY --from=claudia-builder /build/.next/standalone ./
+COPY --from=claudia-builder /build/.next/static ./.next/static
+
+# Create a marker in builder to handle optional copy
+# Copy database schemas if they exist (using shell to handle missing files)
+RUN mkdir -p ./src/lib/db
+
+# Create data directories
+RUN mkdir -p /data/claudia /app/.local-storage /app/data \
+    && chown -R node:node /app /data/claudia
+
+# ============================================
+# Copy Configuration Files
+# ============================================
+COPY installer/docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY installer/docker/scripts/ /opt/scripts/
+RUN chmod +x /opt/scripts/*.sh
+
+# ============================================
+# Environment Variables
+# ============================================
+# Claudia Coder
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# Service URLs (internal)
+ENV NEXT_PUBLIC_WHISPER_URL=http://localhost:8000
+ENV NEXT_PUBLIC_N8N_URL=http://localhost:5678
+ENV NEXT_PUBLIC_GITEA_URL=http://localhost:8929
+ENV NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# PostgreSQL
+ENV POSTGRES_USER=claudia
+ENV POSTGRES_PASSWORD=claudia_secure_password
+ENV POSTGRES_DB=claudia
+ENV PGDATA=/data/postgresql
+
+# Redis
+ENV REDIS_DIR=/data/redis
+
+# n8n
+ENV N8N_HOST=0.0.0.0
+ENV N8N_PORT=5678
+ENV N8N_PROTOCOL=http
+ENV N8N_USER_FOLDER=/data/n8n
+ENV DB_TYPE=postgresdb
+ENV DB_POSTGRESDB_HOST=localhost
+ENV DB_POSTGRESDB_PORT=5432
+ENV DB_POSTGRESDB_DATABASE=n8n
+ENV DB_POSTGRESDB_USER=claudia
+ENV DB_POSTGRESDB_PASSWORD=claudia_secure_password
+
+# Gitea
+ENV GITEA_WORK_DIR=/data/gitea
+ENV GITEA_CUSTOM=/data/gitea
+ENV USER=git
+ENV HOME=/data/gitea
+
+# Whisper
+ENV WHISPER_MODEL=base
+ENV WHISPER_DEVICE=cpu
+ENV WHISPER_COMPUTE_TYPE=int8
+
+# ============================================
+# Expose Ports
+# ============================================
+# 3000 - Claudia Coder (Next.js)
+# 8929 - Gitea (Git server)
+# 5678 - n8n (Workflow automation)
+# 8000 - Whisper (Speech-to-text API)
+EXPOSE 3000 8929 5678 8000
+
+# ============================================
+# Volumes
+# ============================================
+VOLUME ["/data"]
+
+# ============================================
+# Healthcheck
+# ============================================
+HEALTHCHECK --interval=60s --timeout=30s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health && \
+        curl -f http://localhost:5678/healthz && \
+        curl -f http://localhost:8929/ || exit 1
+
+# ============================================
+# Entrypoint
+# ============================================
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/scripts/init-container.sh"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

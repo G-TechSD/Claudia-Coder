@@ -1,0 +1,95 @@
+Claudia Coder End User License Agreement (EULA)
+===============================================
+
+Version 1.0.0
+Last Updated: January 2024
+
+PLEASE READ THIS LICENSE AGREEMENT CAREFULLY BEFORE USING CLAUDIA CODER.
+
+By installing, copying, or otherwise using Claudia Coder, you agree to be
+bound by the terms of this License Agreement.
+
+1. LICENSE GRANT
+----------------
+
+Claudia Coder Team grants you a non-exclusive, non-transferable license to:
+
+  a) Install and use Claudia Coder on computers you own or control
+  b) Make copies of Claudia Coder for backup purposes
+  c) Modify Claudia Coder for your personal or internal business use
+
+2. OPEN SOURCE COMPONENTS
+-------------------------
+
+Claudia Coder includes various open-source components, each governed by
+their respective licenses:
+
+  - GitLab CE: MIT License
+  - n8n: Sustainable Use License / Apache 2.0
+  - Whisper: MIT License
+  - Docker: Apache License 2.0
+  - PostgreSQL: PostgreSQL License
+  - Redis: BSD License
+
+3. RESTRICTIONS
+---------------
+
+You may NOT:
+
+  a) Sell, rent, or lease Claudia Coder
+  b) Remove any proprietary notices or labels
+  c) Use Claudia Coder for any unlawful purpose
+
+4. INTELLECTUAL PROPERTY
+------------------------
+
+All intellectual property rights in Claudia Coder remain with the
+Claudia Coder Team and its licensors.
+
+5. DISCLAIMER OF WARRANTIES
+---------------------------
+
+CLAUDIA CODER IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+6. LIMITATION OF LIABILITY
+--------------------------
+
+IN NO EVENT SHALL THE CLAUDIA CODER TEAM BE LIABLE FOR ANY SPECIAL,
+INCIDENTAL, INDIRECT, OR CONSEQUENTIAL DAMAGES WHATSOEVER ARISING OUT OF
+OR RELATED TO YOUR USE OF CLAUDIA CODER.
+
+7. PRIVACY
+----------
+
+Claudia Coder is designed to run locally on your machine. We do not
+collect, store, or transmit any personal data unless you explicitly
+configure external services.
+
+8. TERMINATION
+--------------
+
+This license is effective until terminated. It will terminate automatically
+if you fail to comply with any term of this Agreement.
+
+9. GOVERNING LAW
+----------------
+
+This Agreement shall be governed by and construed in accordance with the
+laws of the jurisdiction where you reside.
+
+10. CONTACT
+-----------
+
+For questions about this license, please contact:
+  - Website: https://github.com/claudia-coder/claudia-coder
+  - Email: legal@claudiacoder.com
+
+By clicking "I Agree" or by installing Claudia Coder, you acknowledge that
+you have read this Agreement, understand it, and agree to be bound by its
+terms and conditions.
+
+================================================================================
+Copyright (c) 2024 Claudia Coder Team. All rights reserved.
+================================================================================
