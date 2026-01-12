@@ -934,6 +934,53 @@ function New-WindowsShortcuts {
         Write-Info "Created shortcut: $($shortcut.Name)"
     }
 
+    # Create desktop shortcuts for batch files with Run as Administrator
+    $batchShortcuts = @(
+        @{
+            Name = "Start Claudia Coder"
+            BatchFile = "start-claudia.bat"
+            Description = "Start Claudia Coder services and open the application"
+            Icon = "%SystemRoot%\System32\shell32.dll,137"  # Play/green arrow icon
+        },
+        @{
+            Name = "Stop Claudia Coder"
+            BatchFile = "stop-claudia.bat"
+            Description = "Stop all Claudia Coder services"
+            Icon = "%SystemRoot%\System32\shell32.dll,131"  # Stop/square icon
+        },
+        @{
+            Name = "Uninstall Claudia Coder"
+            BatchFile = "uninstall.bat"
+            Description = "Remove Claudia Coder from this computer"
+            Icon = "%SystemRoot%\System32\shell32.dll,32"   # Warning/trash icon
+            RunAsAdmin = $true
+        }
+    )
+
+    foreach ($shortcut in $batchShortcuts) {
+        $batchPath = Join-Path $Script:Config.InstallDir $shortcut.BatchFile
+
+        foreach ($location in @($desktopPath, $startMenuPath)) {
+            $lnkPath = Join-Path $location "$($shortcut.Name).lnk"
+
+            $wshShortcut = $shell.CreateShortcut($lnkPath)
+            $wshShortcut.TargetPath = $batchPath
+            $wshShortcut.Description = $shortcut.Description
+            $wshShortcut.WorkingDirectory = $Script:Config.InstallDir
+            $wshShortcut.IconLocation = $shortcut.Icon
+            $wshShortcut.Save()
+
+            # Set Run as Administrator flag if needed
+            if ($shortcut.RunAsAdmin) {
+                $bytes = [System.IO.File]::ReadAllBytes($lnkPath)
+                # Set byte 21 (0x15) bit 5 to enable "Run as Administrator"
+                $bytes[0x15] = $bytes[0x15] -bor 0x20
+                [System.IO.File]::WriteAllBytes($lnkPath, $bytes)
+            }
+        }
+        Write-Info "Created shortcut: $($shortcut.Name)"
+    }
+
     Write-Success "Created desktop and Start Menu shortcuts"
 }
 
@@ -1131,7 +1178,7 @@ function Invoke-Uninstall {
     $desktopPath = [Environment]::GetFolderPath("Desktop")
     $startMenuPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Claudia Coder"
 
-    $shortcutNames = @("Claudia Coder", "GitLab", "n8n Workflows", "Start Claudia Services", "Stop Claudia Services")
+    $shortcutNames = @("Claudia Coder", "GitLab", "n8n Workflows", "Start Claudia Services", "Stop Claudia Services", "Start Claudia Coder", "Stop Claudia Coder", "Uninstall Claudia Coder")
     foreach ($name in $shortcutNames) {
         Remove-Item (Join-Path $desktopPath "$name.lnk") -Force -ErrorAction SilentlyContinue
         Remove-Item (Join-Path $desktopPath "$name.url") -Force -ErrorAction SilentlyContinue
