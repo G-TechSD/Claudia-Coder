@@ -41,7 +41,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"  # Faster downloads
 
 $Script:Config = @{
-    Version = "1.0.0"
+    Version = "1.1.0"
     InstallDir = $InstallDir
     GitLabDomain = $GitLabDomain
     N8nDomain = $N8nDomain
@@ -702,35 +702,40 @@ function Copy-RepoToInstallDir {
 }
 
 function Install-NpmDependencies {
-    <#
-    .SYNOPSIS
-        Installs npm dependencies in the install directory.
-    .DESCRIPTION
-        Runs npm install in the copied repository to install all dependencies.
-        This works completely offline if node_modules cache exists, otherwise requires internet.
-    #>
     Write-Step "Installing npm Dependencies"
 
-    $targetDir = $Script:Config.InstallDir
-
-    if (-not (Test-Path (Join-Path $targetDir "package.json"))) {
-        throw "package.json not found in $targetDir. Run Copy-RepoToInstallDir first."
-    }
-
-    Write-Info "Running npm install in $targetDir..."
+    $installDir = $Script:Config.InstallDir
+    Write-Info "Running npm install in $installDir..."
     Write-Info "(This may take several minutes on first run)"
 
-    Push-Location $targetDir
     try {
-        # Run npm install
-        $process = Start-Process -FilePath "npm" -ArgumentList "install" -Wait -PassThru -NoNewWindow
-        if ($process.ExitCode -ne 0) {
-            throw "npm install failed with exit code: $($process.ExitCode)"
+        # Find npm
+        $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+        if (-not $npmCmd) {
+            $npmPath = "$env:ProgramFiles\nodejs\npm.cmd"
+            if (-not (Test-Path $npmPath)) {
+                throw "npm not found. Please ensure Node.js is installed."
+            }
+        } else {
+            $npmPath = $npmCmd.Source
         }
-        Write-Success "npm dependencies installed successfully"
+
+        # Run npm install using Start-Process for better path handling
+        $process = Start-Process -FilePath $npmPath `
+            -ArgumentList "install" `
+            -WorkingDirectory $installDir `
+            -NoNewWindow `
+            -Wait `
+            -PassThru
+
+        if ($process.ExitCode -ne 0) {
+            throw "npm install failed with exit code $($process.ExitCode)"
+        }
+
+        Write-Success "npm dependencies installed"
     }
-    finally {
-        Pop-Location
+    catch {
+        throw "npm install failed: $_"
     }
 }
 
