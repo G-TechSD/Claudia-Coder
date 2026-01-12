@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "services": {
+    "claudia": { "url": "http://localhost:3000" },
+    "gitlab": { "url": "http://localhost:8929" },
+    "n8n": { "url": "http://localhost:5678" },
+    "whisper": { "url": "http://localhost:8000" }
+  },
+  "defaultAdmin": {
+    "email": "admin@claudiacoder.local",
+    "password": "ClaudiaAdmin2024!"
+  }
+}
