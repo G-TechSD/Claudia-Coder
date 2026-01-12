@@ -4,21 +4,21 @@ A comprehensive development environment with AI-powered coding assistance.
 
 ## Installation
 
-### Windows (Recommended for beginners)
-Download and run the installer - no technical knowledge required:
-- **[Download ClaudiaCoderSetup.exe](installer/windows/)** - Double-click to install
+### Windows
+1. Download this repository (Clone or [Download ZIP](../../archive/main.zip))
+2. Navigate to `installer/windows/`
+3. Right-click `install-claudia.ps1` → **Run with PowerShell** (as Admin)
 
-### Docker (One command)
-For users familiar with Docker:
+### Docker (Any OS)
 ```bash
-docker run -d --name claudia \
-  -p 3000:3000 -p 8929:8929 -p 5678:5678 -p 8000:8000 \
-  -v claudia-data:/data \
-  claudiacoder/allinone
+./installer/docker/docker-run.sh start
 ```
 
-### From Source
-See [installer/README.md](installer/) for detailed build instructions.
+### Development
+```bash
+npm install
+npm run dev
+```
 
 ---
 

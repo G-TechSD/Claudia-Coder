@@ -1,14 +1,28 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Claudia Coder Windows Installer
+    Claudia Coder Windows Installer (Offline/Local)
 .DESCRIPTION
-    Comprehensive installer for Claudia Coder development environment.
-    Installs all prerequisites, builds components, and configures services.
+    Installer for Claudia Coder that works from a locally downloaded repository.
+    No internet cloning required - copies files from the downloaded repo to the
+    install location (C:\ClaudiaCoder by default).
+
+    Usage:
+    1. Download the claudia-admin repository (zip from GitLab or git clone)
+    2. Navigate to installer/windows/
+    3. Run: .\install-claudia.ps1
+
+    The installer will:
+    - Detect the repo root (looks for package.json)
+    - Copy the repo to the install directory
+    - Install npm dependencies
+    - Set up Docker services from local docker-compose.yml
+    - Create shortcuts and service scripts
 .NOTES
-    Version:        1.0.0
+    Version:        1.1.0
     Author:         Claudia Coder Team
     Requires:       Windows 10/11, PowerShell 5.1+, Administrator privileges
+    Prerequisites:  Downloaded claudia-admin repository
 #>
 
 [CmdletBinding()]
@@ -32,11 +46,10 @@ $Script:Config = @{
     GitLabDomain = $GitLabDomain
     N8nDomain = $N8nDomain
 
-    # Repository URLs
-    ClaudiaCoderRepo = "https://github.com/claudia-coder/claudia-coder.git"
-    Ganesha2Repo = "https://github.com/claudia-coder/ganesha2.git"
+    # Local repo detection (no remote cloning needed)
+    RepoRoot = $null  # Will be detected at runtime
 
-    # Download URLs
+    # Download URLs (only for prerequisites)
     DockerDesktopUrl = "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
     RustupUrl = "https://win.rustup.rs/x86_64"
     NodeInstallerUrl = "https://nodejs.org/dist/v20.10.0/node-v20.10.0-x64.msi"
@@ -325,6 +338,60 @@ function Download-File {
     return $false
 }
 
+function Find-RepoRoot {
+    <#
+    .SYNOPSIS
+        Detects the repo root by looking for package.json starting from the installer directory.
+    .DESCRIPTION
+        The installer is expected to be run from installer/windows/ within the claudia-admin repo.
+        This function walks up the directory tree to find the repo root (containing package.json).
+    #>
+    Write-Step "Detecting Repository Location"
+
+    # Get the directory where this script is located
+    $scriptDir = $PSScriptRoot
+    if (-not $scriptDir) {
+        # Fallback if PSScriptRoot is not available
+        $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    }
+
+    Write-Info "Script location: $scriptDir"
+
+    # Walk up the directory tree looking for package.json
+    $currentDir = $scriptDir
+    $maxLevels = 5  # Don't search more than 5 levels up
+    $level = 0
+
+    while ($level -lt $maxLevels) {
+        $packageJsonPath = Join-Path $currentDir "package.json"
+
+        if (Test-Path $packageJsonPath) {
+            # Verify this is the claudia-admin package.json
+            $packageContent = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+            if ($packageContent.name -eq "claudia-admin-panel") {
+                Write-Success "Found repo root: $currentDir"
+                $Script:Config.RepoRoot = $currentDir
+                return $currentDir
+            }
+        }
+
+        # Go up one level
+        $parentDir = Split-Path -Parent $currentDir
+        if ($parentDir -eq $currentDir) {
+            # Reached filesystem root
+            break
+        }
+        $currentDir = $parentDir
+        $level++
+    }
+
+    # Repo not found
+    Write-ErrorMsg "Could not find the claudia-admin repository root."
+    Write-ErrorMsg "Please ensure you are running this script from within the claudia-admin repository."
+    Write-ErrorMsg "Expected structure: claudia-admin/installer/windows/install-claudia.ps1"
+    throw "Repository root not found. Ensure the script is run from within the claudia-admin repo."
+}
+
 # ============================================================================
 # Prerequisite Installation Functions
 # ============================================================================
@@ -523,254 +590,181 @@ function New-InstallDirectory {
     }
 }
 
-function Get-ClaudiaCoderSource {
-    Write-Step "Getting Claudia Coder Source"
+function Copy-RepoToInstallDir {
+    <#
+    .SYNOPSIS
+        Copies the local repository to the install directory.
+    .DESCRIPTION
+        This function copies the entire claudia-admin repository from its local location
+        to the install directory (C:\ClaudiaCoder by default). No internet connection required.
+    #>
+    Write-Step "Copying Repository to Install Location"
 
-    $srcDir = Join-Path $Script:Config.InstallDir "src"
-    $claudiaDir = Join-Path $srcDir "claudia-coder"
+    $repoRoot = $Script:Config.RepoRoot
+    if (-not $repoRoot) {
+        throw "Repository root not set. Run Find-RepoRoot first."
+    }
 
-    if (Test-Path $claudiaDir) {
-        Write-Info "Claudia Coder source exists, pulling latest changes..."
-        Push-Location $claudiaDir
-        try {
-            git pull --quiet
-            Write-Success "Updated Claudia Coder source"
-        }
-        catch {
-            Write-Warning "Failed to update, using existing source"
-        }
-        finally {
-            Pop-Location
+    $targetDir = $Script:Config.InstallDir
+
+    Write-Info "Source: $repoRoot"
+    Write-Info "Target: $targetDir"
+
+    # Define what to exclude from copy
+    $excludeDirs = @(
+        ".git",
+        ".next",
+        "node_modules",
+        ".local-storage"
+    )
+
+    $excludeFiles = @(
+        ".env.local",
+        "localhost.key",
+        "localhost.crt",
+        "*.log"
+    )
+
+    # Check if target already has files
+    if (Test-Path $targetDir) {
+        $existingFiles = Get-ChildItem -Path $targetDir -Force -ErrorAction SilentlyContinue
+        if ($existingFiles) {
+            Write-Warning "Install directory already contains files."
+            $response = Read-Host "Overwrite existing installation? (y/N)"
+            if ($response -ne "y" -and $response -ne "Y") {
+                Write-Info "Keeping existing installation. Skipping copy."
+                return
+            }
+            Write-Info "Removing existing files..."
+            Get-ChildItem -Path $targetDir -Exclude @(".env", "data", "logs") | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     else {
-        Write-Info "Cloning Claudia Coder repository..."
-        git clone --depth 1 $Script:Config.ClaudiaCoderRepo $claudiaDir
-        Write-Success "Cloned Claudia Coder source"
+        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
     }
 
-    # Install npm dependencies
-    Write-Info "Installing npm dependencies..."
-    Push-Location $claudiaDir
+    # Copy files using robocopy for better performance and control
+    Write-Info "Copying files (this may take a moment)..."
+
+    # Build exclude directory argument
+    $excludeDirArgs = ($excludeDirs | ForEach-Object { $_ }) -join " "
+
+    # Use robocopy for efficient copying
+    $robocopyArgs = @(
+        $repoRoot,
+        $targetDir,
+        "/E",           # Copy subdirectories including empty ones
+        "/NP",          # No progress percentage
+        "/NFL",         # No file list
+        "/NDL",         # No directory list
+        "/XD", ".git", ".next", "node_modules", ".local-storage",  # Exclude directories
+        "/XF", ".env.local", "localhost.key", "localhost.crt", "*.log"  # Exclude files
+    )
+
     try {
-        npm install --quiet
-        Write-Success "Installed npm dependencies"
+        $result = robocopy @robocopyArgs
+        # Robocopy exit codes 0-7 are success
+        if ($LASTEXITCODE -gt 7) {
+            throw "Robocopy failed with exit code: $LASTEXITCODE"
+        }
+        Write-Success "Files copied successfully"
+    }
+    catch {
+        Write-Warning "Robocopy failed, falling back to PowerShell copy..."
+
+        # Fallback to PowerShell copy
+        Get-ChildItem -Path $repoRoot -Force | Where-Object {
+            $_.Name -notin $excludeDirs
+        } | ForEach-Object {
+            $destPath = Join-Path $targetDir $_.Name
+            if ($_.PSIsContainer) {
+                Copy-Item -Path $_.FullName -Destination $destPath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            else {
+                if ($_.Name -notin $excludeFiles -and $_.Name -notlike "*.log") {
+                    Copy-Item -Path $_.FullName -Destination $destPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        Write-Success "Files copied successfully (PowerShell method)"
+    }
+
+    # Verify critical files exist
+    $criticalFiles = @("package.json", "docker-compose.yml", "src")
+    foreach ($file in $criticalFiles) {
+        $path = Join-Path $targetDir $file
+        if (-not (Test-Path $path)) {
+            throw "Critical file/directory missing after copy: $file"
+        }
+    }
+
+    Write-Success "Repository copied to $targetDir"
+}
+
+function Install-NpmDependencies {
+    <#
+    .SYNOPSIS
+        Installs npm dependencies in the install directory.
+    .DESCRIPTION
+        Runs npm install in the copied repository to install all dependencies.
+        This works completely offline if node_modules cache exists, otherwise requires internet.
+    #>
+    Write-Step "Installing npm Dependencies"
+
+    $targetDir = $Script:Config.InstallDir
+
+    if (-not (Test-Path (Join-Path $targetDir "package.json"))) {
+        throw "package.json not found in $targetDir. Run Copy-RepoToInstallDir first."
+    }
+
+    Write-Info "Running npm install in $targetDir..."
+    Write-Info "(This may take several minutes on first run)"
+
+    Push-Location $targetDir
+    try {
+        # Run npm install
+        $process = Start-Process -FilePath "npm" -ArgumentList "install" -Wait -PassThru -NoNewWindow
+        if ($process.ExitCode -ne 0) {
+            throw "npm install failed with exit code: $($process.ExitCode)"
+        }
+        Write-Success "npm dependencies installed successfully"
     }
     finally {
         Pop-Location
     }
 }
 
-function Get-Ganesha2Source {
-    Write-Step "Getting Ganesha2 Source"
+function Setup-DockerServices {
+    <#
+    .SYNOPSIS
+        Sets up Docker services using the local docker-compose.yml.
+    .DESCRIPTION
+        Uses the docker-compose.yml from the copied repository to configure services.
+        No need to generate a new compose file - just use what's in the repo.
+    #>
+    Write-Step "Setting Up Docker Services"
 
-    $srcDir = Join-Path $Script:Config.InstallDir "src"
-    $ganeshaDir = Join-Path $srcDir "ganesha2"
+    $targetDir = $Script:Config.InstallDir
+    $composeFile = Join-Path $targetDir "docker-compose.yml"
 
-    if (Test-Path $ganeshaDir) {
-        Write-Info "Ganesha2 source exists, pulling latest changes..."
-        Push-Location $ganeshaDir
-        try {
-            git pull --quiet
-            Write-Success "Updated Ganesha2 source"
-        }
-        catch {
-            Write-Warning "Failed to update, using existing source"
-        }
-        finally {
-            Pop-Location
-        }
-    }
-    else {
-        Write-Info "Cloning Ganesha2 repository..."
-        git clone --depth 1 $Script:Config.Ganesha2Repo $ganeshaDir
-        Write-Success "Cloned Ganesha2 source"
-    }
-}
-
-function Build-Ganesha2 {
-    Write-Step "Building Ganesha2"
-
-    $srcDir = Join-Path $Script:Config.InstallDir "src"
-    $ganeshaDir = Join-Path $srcDir "ganesha2"
-    $binDir = Join-Path $Script:Config.InstallDir "bin"
-    $targetBinary = Join-Path $binDir "ganesha2.exe"
-
-    if (Test-Path $targetBinary) {
-        Write-Info "Ganesha2 binary already exists"
-        $rebuild = Read-Host "Rebuild Ganesha2? (y/N)"
-        if ($rebuild -ne "y" -and $rebuild -ne "Y") {
-            Write-Success "Skipping Ganesha2 build"
-            return
-        }
-    }
-
-    Write-Info "Building Ganesha2 (this may take several minutes)..."
-
-    Push-Location $ganeshaDir
-    try {
-        cargo build --release
-
-        $builtBinary = Join-Path $ganeshaDir "target\release\ganesha2.exe"
-        if (Test-Path $builtBinary) {
-            Copy-Item $builtBinary $targetBinary -Force
-            Write-Success "Ganesha2 built and installed to: $targetBinary"
+    if (-not (Test-Path $composeFile)) {
+        # Check if there's one in the docker subdirectory
+        $dockerComposeFile = Join-Path $targetDir "docker\docker-compose.yml"
+        if (Test-Path $dockerComposeFile) {
+            $composeFile = $dockerComposeFile
         }
         else {
-            throw "Build completed but binary not found"
+            throw "docker-compose.yml not found in $targetDir or $targetDir\docker"
         }
     }
-    finally {
-        Pop-Location
-    }
+
+    Write-Success "Found docker-compose.yml at: $composeFile"
+    Write-Info "Docker services will be started from this configuration"
+
+    # Store the compose file location for later use
+    $Script:DockerComposeFile = $composeFile
 }
 
-function New-DockerCompose {
-    Write-Step "Creating Docker Compose Configuration"
-
-    $configDir = Join-Path $Script:Config.InstallDir "config"
-    $composeFile = Join-Path $configDir "docker-compose.yml"
-
-    $dockerCompose = @"
-version: '3.8'
-
-services:
-  # PostgreSQL for GitLab
-  postgresql:
-    image: postgres:15-alpine
-    container_name: claudia-postgresql
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: gitlab
-      POSTGRES_PASSWORD: gitlab_password
-      POSTGRES_DB: gitlabhq_production
-    volumes:
-      - postgresql_data:/var/lib/postgresql/data
-    networks:
-      - claudia-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gitlab"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Redis for GitLab
-  redis:
-    image: redis:7-alpine
-    container_name: claudia-redis
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    networks:
-      - claudia-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # GitLab CE
-  gitlab:
-    image: gitlab/gitlab-ce:latest
-    container_name: claudia-gitlab
-    restart: unless-stopped
-    hostname: $($Script:Config.GitLabDomain)
-    environment:
-      GITLAB_OMNIBUS_CONFIG: |
-        external_url 'http://$($Script:Config.GitLabDomain):$($Script:Config.Ports.GitLab)'
-        gitlab_rails['gitlab_shell_ssh_port'] = $($Script:Config.Ports.GitLabSSH)
-
-        # Disable built-in PostgreSQL
-        postgresql['enable'] = false
-        gitlab_rails['db_adapter'] = 'postgresql'
-        gitlab_rails['db_encoding'] = 'utf8'
-        gitlab_rails['db_host'] = 'postgresql'
-        gitlab_rails['db_port'] = 5432
-        gitlab_rails['db_username'] = 'gitlab'
-        gitlab_rails['db_password'] = 'gitlab_password'
-        gitlab_rails['db_database'] = 'gitlabhq_production'
-
-        # Disable built-in Redis
-        redis['enable'] = false
-        gitlab_rails['redis_host'] = 'redis'
-        gitlab_rails['redis_port'] = 6379
-
-        # Performance optimizations
-        puma['worker_processes'] = 2
-        sidekiq['concurrency'] = 5
-        prometheus_monitoring['enable'] = false
-        grafana['enable'] = false
-    ports:
-      - "$($Script:Config.Ports.GitLab):$($Script:Config.Ports.GitLab)"
-      - "$($Script:Config.Ports.GitLabSSH):22"
-    volumes:
-      - gitlab_config:/etc/gitlab
-      - gitlab_logs:/var/log/gitlab
-      - gitlab_data:/var/opt/gitlab
-    networks:
-      - claudia-network
-    depends_on:
-      postgresql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    shm_size: '256m'
-
-  # n8n Workflow Automation
-  n8n:
-    image: n8nio/n8n:latest
-    container_name: claudia-n8n
-    restart: unless-stopped
-    environment:
-      - N8N_HOST=$($Script:Config.N8nDomain)
-      - N8N_PORT=$($Script:Config.Ports.N8n)
-      - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://$($Script:Config.N8nDomain):$($Script:Config.Ports.N8n)/
-      - GENERIC_TIMEZONE=America/New_York
-      - N8N_ENCRYPTION_KEY=claudia-coder-n8n-encryption-key
-    ports:
-      - "$($Script:Config.Ports.N8n):$($Script:Config.Ports.N8n)"
-    volumes:
-      - n8n_data:/home/node/.n8n
-    networks:
-      - claudia-network
-
-  # Whisper Speech-to-Text
-  whisper:
-    image: onerahmet/openai-whisper-asr-webservice:latest
-    container_name: claudia-whisper
-    restart: unless-stopped
-    environment:
-      - ASR_MODEL=base
-      - ASR_ENGINE=openai_whisper
-    ports:
-      - "$($Script:Config.Ports.Whisper):9000"
-    volumes:
-      - whisper_data:/root/.cache/whisper
-    networks:
-      - claudia-network
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-
-networks:
-  claudia-network:
-    driver: bridge
-
-volumes:
-  postgresql_data:
-  redis_data:
-  gitlab_config:
-  gitlab_logs:
-  gitlab_data:
-  n8n_data:
-  whisper_data:
-"@
-
-    $dockerCompose | Out-File -FilePath $composeFile -Encoding UTF8 -Force
-    Write-Success "Created docker-compose.yml"
-}
 
 function New-EnvironmentFile {
     Write-Step "Creating Environment Configuration"
@@ -805,25 +799,15 @@ HOST=localhost
 JWT_SECRET=$jwtSecret
 SESSION_SECRET=$sessionSecret
 
-# GitLab Configuration
+# GitLab Configuration (optional, for GitLab integration)
 GITLAB_URL=http://$($Script:Config.GitLabDomain):$($Script:Config.Ports.GitLab)
 GITLAB_SSH_PORT=$($Script:Config.Ports.GitLabSSH)
 
-# n8n Configuration
+# n8n Configuration (optional, for workflow automation)
 N8N_URL=http://$($Script:Config.N8nDomain):$($Script:Config.Ports.N8n)
-
-# Whisper Configuration
-WHISPER_URL=http://localhost:$($Script:Config.Ports.Whisper)
-
-# Ganesha2 Configuration
-GANESHA2_PATH=$($Script:Config.InstallDir)\bin\ganesha2.exe
-
-# Database (for future use)
-DATABASE_URL=postgresql://gitlab:gitlab_password@localhost:$($Script:Config.Ports.PostgreSQL)/claudia_coder
 
 # Logging
 LOG_LEVEL=info
-LOG_DIR=$($Script:Config.InstallDir)\logs
 "@
 
     $envContent | Out-File -FilePath $envFile -Encoding UTF8 -Force
@@ -1022,19 +1006,17 @@ while (`$waited -lt `$maxWait) {
     }
 }
 
-# Start Docker Compose services
-Set-Location "$($Script:Config.InstallDir)\config"
+# Start Docker Compose services from the install directory
+Set-Location "$($Script:Config.InstallDir)"
 docker-compose up -d
 
 Write-Host ""
 Write-Host "Services starting..." -ForegroundColor Green
-Write-Host "GitLab: http://$($Script:Config.GitLabDomain):$($Script:Config.Ports.GitLab) (may take 2-5 minutes to fully start)"
-Write-Host "n8n: http://$($Script:Config.N8nDomain):$($Script:Config.Ports.N8n)"
-Write-Host "Whisper: http://localhost:$($Script:Config.Ports.Whisper)"
+Write-Host "n8n: http://$($Script:Config.N8nDomain):$($Script:Config.Ports.N8n) (optional, requires --profile automation)"
 Write-Host ""
 
-# Start Claudia Coder
-Set-Location "$($Script:Config.InstallDir)\src\claudia-coder"
+# Start Claudia Coder (Next.js app)
+Set-Location "$($Script:Config.InstallDir)"
 Start-Process -FilePath "npm" -ArgumentList "start" -WindowStyle Hidden
 
 Write-Host "Claudia Coder: http://localhost:$($Script:Config.Ports.ClaudiaCoder)"
@@ -1056,7 +1038,7 @@ Write-Host "Stopping Claudia Coder Services..." -ForegroundColor Cyan
 Get-Process -Name "node" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # Stop Docker Compose services
-Set-Location "$($Script:Config.InstallDir)\config"
+Set-Location "$($Script:Config.InstallDir)"
 docker-compose down
 
 Write-Host ""
@@ -1113,10 +1095,17 @@ function Start-ClaudiaServices {
         return
     }
 
-    $configDir = Join-Path $Script:Config.InstallDir "config"
+    $installDir = $Script:Config.InstallDir
+
+    # Check if docker-compose.yml exists
+    $composeFile = Join-Path $installDir "docker-compose.yml"
+    if (-not (Test-Path $composeFile)) {
+        Write-Warning "docker-compose.yml not found. Skipping Docker services."
+        return
+    }
 
     Write-Info "Starting Docker Compose services..."
-    Push-Location $configDir
+    Push-Location $installDir
     try {
         docker-compose up -d
         Write-Success "Docker services started"
@@ -1125,25 +1114,13 @@ function Start-ClaudiaServices {
         Pop-Location
     }
 
-    # Wait for services to be ready
+    # Wait for the main application to be ready
     Write-Info "Waiting for services to initialize..."
-    Write-Info "(GitLab may take 2-5 minutes on first start)"
-
-    # Check n8n (usually starts faster)
-    $n8nReady = Wait-ForService -Url "http://localhost:$($Script:Config.Ports.N8n)" -TimeoutSeconds 60
-    if ($n8nReady) {
+    $appReady = Wait-ForService -Url "http://localhost:$($Script:Config.Ports.ClaudiaCoder)" -TimeoutSeconds 60
+    if ($appReady) {
         Write-Host ""
-        Write-Success "n8n is ready"
+        Write-Success "Claudia Coder is ready"
     }
-
-    # Check Whisper
-    $whisperReady = Wait-ForService -Url "http://localhost:$($Script:Config.Ports.Whisper)/health" -TimeoutSeconds 120
-    if ($whisperReady) {
-        Write-Host ""
-        Write-Success "Whisper is ready"
-    }
-
-    Write-Info "GitLab is starting in the background (check http://$($Script:Config.GitLabDomain):$($Script:Config.Ports.GitLab))"
 }
 
 function Open-Browser {
@@ -1158,10 +1135,10 @@ function Invoke-Uninstall {
     Write-Step "Uninstalling Claudia Coder"
 
     # Stop services
-    $configDir = Join-Path $Script:Config.InstallDir "config"
-    if (Test-Path (Join-Path $configDir "docker-compose.yml")) {
+    $installDir = $Script:Config.InstallDir
+    if (Test-Path (Join-Path $installDir "docker-compose.yml")) {
         Write-Info "Stopping Docker services..."
-        Push-Location $configDir
+        Push-Location $installDir
         try {
             docker-compose down -v
         }
@@ -1202,7 +1179,7 @@ function Invoke-Uninstall {
     }
 
     Write-Success "Claudia Coder uninstalled"
-    Write-Info "Note: Docker Desktop, Node.js, Git, and Rust were not removed."
+    Write-Info "Note: Docker Desktop and Node.js were not removed."
 }
 
 function Show-CompletionSummary {
@@ -1214,11 +1191,12 @@ Claudia Coder has been installed successfully!
 
 Install Directory: $($Script:Config.InstallDir)
 
-Services:
+Application:
   - Claudia Coder:  http://localhost:$($Script:Config.Ports.ClaudiaCoder)
-  - GitLab:         http://$($Script:Config.GitLabDomain):$($Script:Config.Ports.GitLab)
-  - n8n:            http://$($Script:Config.N8nDomain):$($Script:Config.Ports.N8n)
-  - Whisper:        http://localhost:$($Script:Config.Ports.Whisper)
+
+Optional Services (via Docker Compose profiles):
+  - n8n Workflows:  http://localhost:$($Script:Config.Ports.N8n)
+    Start with: docker-compose --profile automation up -d
 
 Shortcuts have been added to your Desktop and Start Menu.
 
@@ -1227,12 +1205,14 @@ Quick Commands:
   - Stop services:   $($Script:Config.InstallDir)\scripts\stop-services.ps1
   - Check status:    $($Script:Config.InstallDir)\scripts\status.ps1
 
-GitLab Initial Setup:
-  1. Wait for GitLab to fully start (2-5 minutes on first run)
-  2. Navigate to http://$($Script:Config.GitLabDomain):$($Script:Config.Ports.GitLab)
-  3. Get initial root password: docker exec -it claudia-gitlab grep 'Password:' /etc/gitlab/initial_root_password
+To run in development mode:
+  cd $($Script:Config.InstallDir)
+  npm run dev
 
-For help, visit: https://github.com/claudia-coder/claudia-coder
+To build for production:
+  cd $($Script:Config.InstallDir)
+  npm run build
+  npm start
 
 "@ -ForegroundColor White
 }
@@ -1273,6 +1253,9 @@ function Invoke-Installation {
     }
 
     try {
+        # Step 1: Detect the local repository
+        Find-RepoRoot
+
         # WSL2 check (required for Docker Desktop)
         $rebootNeeded = Enable-WSL2
         if ($rebootNeeded) {
@@ -1280,20 +1263,18 @@ function Invoke-Installation {
             return  # Will not reach here if user chose to reboot
         }
 
-        # Prerequisites
+        # Prerequisites (only Docker and Node.js needed for local install)
         Install-DockerDesktop
         Install-NodeJS
-        Install-Git
-        Install-Rust
 
-        # Installation
-        New-InstallDirectory
-        Get-ClaudiaCoderSource
-        Get-Ganesha2Source
-        Build-Ganesha2
+        # Installation: Copy local repo to install directory
+        Copy-RepoToInstallDir
+
+        # Install npm dependencies in the copied location
+        Install-NpmDependencies
 
         # Configuration
-        New-DockerCompose
+        Setup-DockerServices
         New-EnvironmentFile
         Update-HostsFile
         New-ServiceScripts

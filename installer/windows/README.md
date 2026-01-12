@@ -1,81 +1,36 @@
 # Claudia Coder - Windows Installer
 
-A complete local AI development environment for Windows. Get up and running in minutes with a professional installer.
+A complete local AI development environment for Windows. All files are included - no internet connection required after downloading the repository.
 
 ---
 
-## Download
+## Quick Start
 
-### Single-File Installer (Recommended)
+1. **Download** the claudia-admin repository (zip or clone from GitLab)
+2. **Extract/navigate** to `installer/windows/`
+3. **Run the installer** (choose one method):
+   - Right-click `install-claudia.ps1` → **Run with PowerShell** (as Admin)
+   - Or open PowerShell as Admin and run:
+     ```powershell
+     powershell -ExecutionPolicy Bypass -File install-claudia.ps1
+     ```
 
-Download the latest installer:
-
-**[Download ClaudiaCoderSetup.exe](https://github.com/claudia-coder/claudia-coder/releases/latest/download/ClaudiaCoderSetup.exe)**
-
-Then simply **double-click to install** - just like any Windows application!
+That's it! The installer handles everything automatically.
 
 ---
 
-## Installation Methods
+## Directory Structure
 
-### Method 1: GUI Installer (Recommended)
-
-1. **Download** `ClaudiaCoderSetup.exe` from the link above
-2. **Double-click** the installer
-3. **Follow the wizard** - accept license, choose location, click Install
-4. **Done!** Use the desktop shortcut to start Claudia Coder
-
-The installer handles everything:
-- Checks system requirements
-- Installs all files to your chosen location
-- Creates desktop and Start Menu shortcuts
-- Adds to Windows Add/Remove Programs
-- Prompts to install Docker Desktop if needed
-
-### Method 2: PowerShell Installer
-
-For automation or scripted deployments, use the PowerShell installer:
-
-```powershell
-# Run as Administrator
-.\ClaudiaInstaller.ps1
-
-# Or with custom install location
-.\ClaudiaInstaller.ps1 -InstallDir "D:\MyApps\Claudia"
-
-# Silent installation
-.\ClaudiaInstaller.ps1 -Silent
-
-# Uninstall
-.\ClaudiaInstaller.ps1 -Uninstall
+```
+claudia-admin/
+├── installer/
+│   ├── windows/        <- Windows installer here
+│   │   └── install-claudia.ps1
+│   └── docker/         <- Docker option here
+│       └── docker-run.sh
 ```
 
-### Method 3: Manual Installation
-
-Open **PowerShell as Administrator** and run:
-
-```powershell
-.\install.bat
-```
-
-This runs the comprehensive installation script that handles all prerequisites.
-
-### What Gets Installed
-
-- **Claudia Coder** - AI-powered coding assistant
-- **GitLab CE** - Git repository management
-- **n8n** - Workflow automation platform
-- **Whisper** - Speech-to-text transcription
-- **Ganesha2** - CLI tool for managing your environment
-
-### System Requirements
-
-| Requirement | Minimum |
-|-------------|---------|
-| Operating System | Windows 10 (version 1903+) or Windows 11 |
-| RAM | 16 GB |
-| Disk Space | 50 GB free |
-| Processor | 64-bit with virtualization support |
+All required files are included in the repository - no additional downloads needed.
 
 ---
 
@@ -90,9 +45,24 @@ After installation, you'll have access to the following services:
 | n8n | http://localhost:5678 | Visual workflow automation tool |
 | Whisper | http://localhost:8000 | OpenAI Whisper for audio transcription |
 
-### Ganesha2 CLI Tool
+### Components Installed
 
-The `ganesha2` command-line tool is installed globally and provides quick access to manage your Claudia environment from any terminal.
+- **Claudia Coder** - AI-powered coding assistant
+- **GitLab CE** - Git repository management
+- **n8n** - Workflow automation platform
+- **Whisper** - Speech-to-text transcription
+- **Ganesha2** - CLI tool for managing your environment
+
+---
+
+## System Requirements
+
+| Requirement | Minimum |
+|-------------|---------|
+| Operating System | Windows 10 (version 1903+) or Windows 11 |
+| RAM | 16 GB |
+| Disk Space | 50 GB free |
+| Processor | 64-bit with virtualization support |
 
 ---
 
@@ -104,7 +74,6 @@ The installer will check for and configure these automatically:
 
 - **Auto-installed** if not present on your system
 - Required for running all containerized services
-- The installer will download and install Docker Desktop for you
 
 ### Virtualization
 
@@ -152,13 +121,6 @@ systeminfo | findstr /i "Hyper-V"
 #### Claudia Coder
 
 No login required for local access. The interface is accessible immediately at http://localhost:3000.
-
-### Accessing Each Service
-
-1. **Claudia Coder**: Open your browser and navigate to http://localhost:3000
-2. **GitLab**: Navigate to http://localhost:8929 and log in with the root credentials
-3. **n8n**: Navigate to http://localhost:5678 to access the workflow editor
-4. **Whisper API**: Send audio files to http://localhost:8000/transcribe
 
 ### Configuring LM Studio Connection
 
@@ -347,15 +309,6 @@ View your current versions:
 docker-compose images
 ```
 
-### Major Version Updates
-
-For major version updates, check the release notes first:
-
-1. Visit the Claudia Admin releases page
-2. Review any breaking changes or migration steps
-3. Back up your data before updating
-4. Follow any version-specific upgrade instructions
-
 ---
 
 ## Getting Help
@@ -368,65 +321,6 @@ If you encounter issues not covered in this guide:
    - Your Windows version
    - Error messages from logs
    - Steps to reproduce the problem
-
----
-
-## Building the Installer
-
-For developers who want to build the installer from source:
-
-### Prerequisites
-
-- **NSIS** (Nullsoft Scriptable Install System) - Install via:
-  - winget: `winget install NSIS.NSIS`
-  - Chocolatey: `choco install nsis`
-  - Manual: [https://nsis.sourceforge.io/Download](https://nsis.sourceforge.io/Download)
-
-### Build Steps
-
-1. Ensure all required files are present in this directory
-2. Run the build script:
-
-```batch
-build-installer.bat
-```
-
-The script will:
-- Check for NSIS (and offer to install it)
-- Verify all required files are present
-- Compile the NSIS script
-- Output `ClaudiaCoderSetup.exe`
-
-### Alternative: PowerShell Single-File Installer
-
-The `ClaudiaInstaller.ps1` script is self-contained and embeds all files as base64. It can be:
-
-1. Run directly as a PowerShell script
-2. Converted to a standalone .exe using [ps2exe](https://github.com/MScholtes/PS2EXE):
-
-```powershell
-# Install ps2exe
-Install-Module ps2exe -Scope CurrentUser
-
-# Convert to .exe
-ps2exe .\ClaudiaInstaller.ps1 .\ClaudiaCoderSetup.exe -requireAdmin
-```
-
-### Files Included in Installer
-
-| File | Description |
-|------|-------------|
-| `ClaudiaInstaller.nsi` | NSIS installer script |
-| `ClaudiaInstaller.ps1` | Self-contained PowerShell installer |
-| `build-installer.bat` | Build automation script |
-| `LICENSE.txt` | End User License Agreement |
-| `docker-compose.yml` | Docker service configuration |
-| `config.json` | Application configuration |
-| `.env.template` | Environment variable template |
-| `start-claudia.bat` | Service start script |
-| `stop-claudia.bat` | Service stop script |
-| `status.bat` | Service status script |
-| `uninstall.bat` | Uninstallation script |
 
 ---
 
