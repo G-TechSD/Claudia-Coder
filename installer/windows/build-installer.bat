@@ -61,15 +61,18 @@ echo.
 echo [2/5] Checking for NSIS compiler...
 set "NSIS_PATH="
 
+:: Store program files paths (avoid parentheses issues in IF statements)
+set "PF86=%ProgramFiles(x86)%"
+set "PF=%ProgramFiles%"
+
 :: Check common installation paths
-if exist "%ProgramFiles(x86)%\NSIS\makensis.exe" (
-    set "NSIS_PATH=%ProgramFiles(x86)%\NSIS\makensis.exe"
-) else if exist "%ProgramFiles%\NSIS\makensis.exe" (
-    set "NSIS_PATH=%ProgramFiles%\NSIS\makensis.exe"
-) else (
-    :: Check PATH
+if exist "%PF86%\NSIS\makensis.exe" set "NSIS_PATH=%PF86%\NSIS\makensis.exe"
+if "!NSIS_PATH!"=="" if exist "%PF%\NSIS\makensis.exe" set "NSIS_PATH=%PF%\NSIS\makensis.exe"
+
+:: Check PATH if not found
+if "!NSIS_PATH!"=="" (
     where makensis.exe >nul 2>&1
-    if !errorLevel! equ 0 (
+    if !errorlevel! equ 0 (
         for /f "tokens=*" %%i in ('where makensis.exe') do set "NSIS_PATH=%%i"
     )
 )
@@ -96,13 +99,10 @@ if "!NSIS_PATH!"=="" (
             winget install NSIS.NSIS --accept-source-agreements --accept-package-agreements
 
             :: Refresh PATH and check again
-            set "PATH=%PATH%;%ProgramFiles(x86)%\NSIS;%ProgramFiles%\NSIS"
+            set "PATH=%PATH%;%PF86%\NSIS;%PF%\NSIS"
 
-            if exist "%ProgramFiles(x86)%\NSIS\makensis.exe" (
-                set "NSIS_PATH=%ProgramFiles(x86)%\NSIS\makensis.exe"
-            ) else if exist "%ProgramFiles%\NSIS\makensis.exe" (
-                set "NSIS_PATH=%ProgramFiles%\NSIS\makensis.exe"
-            )
+            if exist "%PF86%\NSIS\makensis.exe" set "NSIS_PATH=%PF86%\NSIS\makensis.exe"
+            if "!NSIS_PATH!"=="" if exist "%PF%\NSIS\makensis.exe" set "NSIS_PATH=%PF%\NSIS\makensis.exe"
 
             if "!NSIS_PATH!"=="" (
                 echo.
@@ -124,13 +124,10 @@ if "!NSIS_PATH!"=="" (
                 echo Installing NSIS via chocolatey...
                 choco install nsis -y
 
-                set "PATH=%PATH%;%ProgramFiles(x86)%\NSIS;%ProgramFiles%\NSIS"
+                set "PATH=%PATH%;%PF86%\NSIS;%PF%\NSIS"
 
-                if exist "%ProgramFiles(x86)%\NSIS\makensis.exe" (
-                    set "NSIS_PATH=%ProgramFiles(x86)%\NSIS\makensis.exe"
-                ) else if exist "%ProgramFiles%\NSIS\makensis.exe" (
-                    set "NSIS_PATH=%ProgramFiles%\NSIS\makensis.exe"
-                )
+                if exist "%PF86%\NSIS\makensis.exe" set "NSIS_PATH=%PF86%\NSIS\makensis.exe"
+                if "!NSIS_PATH!"=="" if exist "%PF%\NSIS\makensis.exe" set "NSIS_PATH=%PF%\NSIS\makensis.exe"
 
                 if "!NSIS_PATH!"=="" (
                     echo.
@@ -162,7 +159,7 @@ echo.
 echo [4/5] Checking NSIS plugins...
 
 :: Check for EnVar plugin (for PATH manipulation)
-set "NSIS_PLUGINS=%ProgramFiles(x86)%\NSIS\Plugins"
+set "NSIS_PLUGINS=%PF86%\NSIS\Plugins"
 if not exist "!NSIS_PLUGINS!\x86-unicode\EnVar.dll" (
     echo [INFO] EnVar plugin not found - PATH modification may not work
     echo        Download from: https://nsis.sourceforge.io/EnVar_plug-in
