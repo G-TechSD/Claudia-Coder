@@ -720,9 +720,11 @@ function Install-NpmDependencies {
             $npmPath = $npmCmd.Source
         }
 
-        # Run npm install using Start-Process for better path handling
-        $process = Start-Process -FilePath $npmPath `
-            -ArgumentList "install" `
+        Write-Info "Using npm from: $npmPath"
+
+        # Use cmd.exe to execute npm.cmd (fixes Win32 application error)
+        $process = Start-Process -FilePath "cmd.exe" `
+            -ArgumentList "/c", "`"$npmPath`"", "install" `
             -WorkingDirectory $installDir `
             -NoNewWindow `
             -Wait `

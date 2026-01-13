@@ -43,6 +43,13 @@ export interface InviteWithUsages extends BetaInvite {
  * Initialize the invites database schema
  */
 export function initializeInvitesDatabase() {
+  // Drop old beta_invites table if it exists (migration from old schema)
+  try {
+    db.exec(`DROP TABLE IF EXISTS beta_invites`)
+  } catch {
+    // Table doesn't exist
+  }
+
   // Beta invites table
   db.exec(`
     CREATE TABLE IF NOT EXISTS beta_invite (

@@ -7,8 +7,12 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 
-# Install dependencies for native modules
-RUN apk add --no-cache libc6-compat
+# Install dependencies for native modules (including Python and build tools for node-gyp)
+RUN apk add --no-cache \
+    libc6-compat \
+    python3 \
+    make \
+    g++
 
 # Copy package files
 COPY package.json package-lock.json ./
