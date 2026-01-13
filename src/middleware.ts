@@ -131,6 +131,7 @@ const publicPaths = [
   "/auth/access-revoked", // Access revoked page
   "/maintenance", // System maintenance page
   "/api/auth", // Better Auth API routes
+  "/api/dev/disable-auth", // Dev endpoint to disable auth
   "/landing",
   "/legal",
 ]
@@ -249,6 +250,10 @@ function getBetaRestrictionMessage(pathname: string): string {
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+
+  // TEMPORARY: Bypass all authentication for beta testing
+  // TODO: Remove this before production release
+  return NextResponse.next()
 
   // Allow static assets
   if (staticPaths.some((path) => pathname.startsWith(path))) {
