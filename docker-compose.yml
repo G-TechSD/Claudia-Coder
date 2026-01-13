@@ -32,7 +32,7 @@ services:
       retries: 3
       start_period: 40s
 
-  # Optional: n8n for workflow automation
+  # n8n for workflow automation
   n8n:
     image: n8nio/n8n:latest
     container_name: claudia-n8n
@@ -42,12 +42,13 @@ services:
     environment:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
+      - N8N_BASIC_AUTH_ACTIVE=false
       - WEBHOOK_URL=http://localhost:5678
-      - GENERIC_TIMEZONE=UTC
+      - GENERIC_TIMEZONE=America/Los_Angeles
     volumes:
       - n8n-data:/home/node/.n8n
-    profiles:
-      - automation
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   claudia-data:

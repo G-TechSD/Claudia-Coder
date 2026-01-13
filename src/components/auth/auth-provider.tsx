@@ -3,6 +3,29 @@
 import * as React from "react"
 import { useSession } from "@/lib/auth/client"
 
+// Check if we're in dev bypass mode (middleware bypasses auth)
+const DEV_BYPASS_MODE = process.env.NODE_ENV === "development"
+
+// Mock session for dev bypass mode
+const DEV_BYPASS_SESSION = {
+  user: {
+    id: "dev-admin",
+    name: "Dev Admin",
+    email: "admin@localhost",
+    image: null,
+    emailVerified: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  session: {
+    id: "dev-session",
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    token: "dev-bypass-token",
+    ipAddress: "127.0.0.1",
+    userAgent: "Dev Bypass",
+  },
+}
+
 // User type matching Better Auth
 export interface User {
   id: string
@@ -67,10 +90,13 @@ const AuthContext = React.createContext<AuthContextType>({
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { data: session, isPending } = useSession()
+  const { data: realSession, isPending } = useSession()
   const [userRole, setUserRole] = React.useState<string | null>(null)
   const [betaLimits, setBetaLimits] = React.useState<BetaLimits | null>(null)
   const [roleSynced, setRoleSynced] = React.useState(false)
+
+  // Use dev bypass session if no real session and in dev mode
+  const session = realSession || (DEV_BYPASS_MODE ? DEV_BYPASS_SESSION : null)
 
   // Sync role cookie when session changes
   React.useEffect(() => {
@@ -128,13 +154,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isBetaTester = userRole === "beta" || userRole === "beta_tester"
 
+  // In dev bypass mode with no real session, skip the loading state
+  const isLoading = DEV_BYPASS_MODE && !realSession ? false : isPending
+
   const value = React.useMemo<AuthContextType>(() => ({
     user: session?.user ? {
       id: session.user.id,
       name: session.user.name,
       email: session.user.email,
       image: session.user.image,
-      role: userRole || undefined,
+      role: userRole || (DEV_BYPASS_MODE ? "admin" : undefined),
       emailVerified: session.user.emailVerified,
       createdAt: session.user.createdAt,
       updatedAt: session.user.updatedAt,
@@ -145,7 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: session.user.name,
         email: session.user.email,
         image: session.user.image,
-        role: userRole || undefined,
+        role: userRole || (DEV_BYPASS_MODE ? "admin" : undefined),
         emailVerified: session.user.emailVerified,
         createdAt: session.user.createdAt,
         updatedAt: session.user.updatedAt,
@@ -158,12 +187,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         userAgent: session.session.userAgent,
       },
     } : null,
-    isLoading: isPending,
+    isLoading,
     isAuthenticated: !!session?.user,
     isBetaTester,
     betaLimits,
     refreshBetaLimits,
-  }), [session, isPending, userRole, isBetaTester, betaLimits, refreshBetaLimits])
+  }), [session, isLoading, userRole, isBetaTester, betaLimits, refreshBetaLimits])
 
   return (
     <AuthContext.Provider value={value}>
