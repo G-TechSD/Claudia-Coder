@@ -204,8 +204,77 @@ export async function POST(request: NextRequest) {
       existingPackets = [] as ExistingPacketInfo[],  // Existing packets to integrate with (avoid duplicates)
       monetization = false,  // When true, also generate business dev analysis
       nuanceContext = null as NuanceContext | null,  // Extracted context from comments/discussions
-      useRetryLogic = false  // When true, uses retry with simplified prompts for smaller models
+      useRetryLogic = false,  // When true, uses retry with simplified prompts for smaller models
+      // Source selection parameters
+      includeSources = {
+        existingPackets: true,
+        userUploads: true,
+        interviewData: true
+      } as { existingPackets?: boolean; userUploads?: boolean; interviewData?: boolean },
+      userUploads = [] as Array<{ filename: string; content?: string }>,
+      interviewSessions = [] as Array<{ sessionId: string; title?: string; summary?: string }>
     } = body
+
+    // Build sourcesUsed tracking object
+    const sourcesUsed = {
+      existingPackets: {
+        count: includeSources.existingPackets !== false ? existingPackets.length : 0,
+        analyzed: includeSources.existingPackets !== false && existingPackets.length > 0
+      },
+      userUploads: {
+        count: includeSources.userUploads !== false ? userUploads.length : 0,
+        files: includeSources.userUploads !== false ? userUploads.map((u: { filename: string }) => u.filename) : []
+      },
+      interviewData: {
+        count: includeSources.interviewData !== false ? interviewSessions.length : 0,
+        sessions: includeSources.interviewData !== false ? interviewSessions.map((s: { sessionId: string; title?: string }) => s.title || s.sessionId) : []
+      }
+    }
+
+    // Build sources context section for prompts
+    const sourcesContextParts: string[] = []
+
+    if (sourcesUsed.existingPackets.analyzed) {
+      if (existingPackets.length >= 50) {
+        // Batch summarization for large packet counts
+        const batchSize = 10
+        const batches = Math.ceil(existingPackets.length / batchSize)
+        sourcesContextParts.push(`EXISTING WORK PACKETS: Analyzed ${existingPackets.length} work packets across ${batches} batches.`)
+
+        // Add summary by status/priority
+        const byStatus: Record<string, number> = {}
+        const byPriority: Record<string, number> = {}
+        existingPackets.forEach((p: ExistingPacketInfo) => {
+          byStatus[p.status || 'unknown'] = (byStatus[p.status || 'unknown'] || 0) + 1
+          byPriority[(p as any).priority || 'medium'] = (byPriority[(p as any).priority || 'medium'] || 0) + 1
+        })
+        sourcesContextParts.push(`  - By status: ${Object.entries(byStatus).map(([s, c]) => `${s}: ${c}`).join(', ')}`)
+        sourcesContextParts.push(`  - By priority: ${Object.entries(byPriority).map(([p, c]) => `${p}: ${c}`).join(', ')}`)
+      } else {
+        sourcesContextParts.push(`EXISTING WORK PACKETS: ${existingPackets.length} packets analyzed.`)
+        existingPackets.forEach((p: ExistingPacketInfo, i: number) => {
+          sourcesContextParts.push(`  ${i + 1}. [${p.id}] ${p.title} (${p.status || 'unknown'}, ${(p as any).priority || 'medium'})`)
+        })
+      }
+    }
+
+    if (sourcesUsed.userUploads.count > 0) {
+      sourcesContextParts.push(`USER UPLOADS: ${sourcesUsed.userUploads.count} documents included.`)
+      sourcesUsed.userUploads.files.forEach((f: string, i: number) => {
+        sourcesContextParts.push(`  ${i + 1}. ${f}`)
+      })
+    }
+
+    if (sourcesUsed.interviewData.count > 0) {
+      sourcesContextParts.push(`INTERVIEW DATA: ${sourcesUsed.interviewData.count} sessions included.`)
+      sourcesUsed.interviewData.sessions.forEach((s: string, i: number) => {
+        sourcesContextParts.push(`  ${i + 1}. ${s}`)
+      })
+    }
+
+    const sourcesContextSection = sourcesContextParts.length > 0
+      ? `\n\n## SOURCES CONTEXT\nThe following sources were used to inform this build plan:\n${sourcesContextParts.join('\n')}\n`
+      : ''
 
     // Support both `model` and `preferredModel` parameters for model selection
     // `model` is the simpler API, `preferredModel` is kept for backwards compatibility
@@ -224,14 +293,20 @@ export async function POST(request: NextRequest) {
       console.log(`[build-plan] Received nuance context: ${nuanceContext.decisions?.length || 0} decisions, ${nuanceContext.requirements?.length || 0} requirements, ${nuanceContext.concerns?.length || 0} concerns`)
     }
 
-    const userPrompt = generateBuildPlanPrompt(
+    // Generate the base build plan prompt
+    let userPrompt = generateBuildPlanPrompt(
       projectName,
       projectDescription,
       availableModels,
       constraints,
-      existingPackets,
+      includeSources.existingPackets !== false ? existingPackets : [],
       nuanceContext || undefined
     )
+
+    // Append sources context section to the prompt
+    if (sourcesContextSection) {
+      userPrompt = sourcesContextSection + userPrompt
+    }
 
     // Handle ChatGPT / OpenAI
     if (preferredProvider === "chatgpt" && process.env.OPENAI_API_KEY) {
@@ -285,6 +360,7 @@ export async function POST(request: NextRequest) {
               requestedModel: requestedModel || "gpt-4o",
               availableModels: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
               packetSummary: result.packetSummary,
+              sourcesUsed,
               ...(businessDev && { businessDev })
             })
           }
@@ -352,6 +428,7 @@ export async function POST(request: NextRequest) {
               requestedModel: requestedModel || "gemini-1.5-pro",
               availableModels: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash"],
               packetSummary: result.packetSummary,
+              sourcesUsed,
               ...(businessDev && { businessDev })
             })
           }
@@ -412,6 +489,7 @@ export async function POST(request: NextRequest) {
             requestedModel: requestedModel || "claude-opus-4",
             availableModels: ["claude-opus-4", "claude-sonnet-4", "claude-haiku-3"],
             packetSummary: result.packetSummary,
+            sourcesUsed,
             ...(businessDev && { businessDev })
           })
         }
@@ -475,6 +553,7 @@ export async function POST(request: NextRequest) {
             requestedModel: requestedModel || "claude-sonnet-4",
             availableModels: ["claude-sonnet-4", "claude-opus-4", "claude-haiku-3"],
             packetSummary: result.packetSummary,
+            sourcesUsed,
             ...(businessDev && { businessDev })
           })
         }
@@ -564,6 +643,7 @@ export async function POST(request: NextRequest) {
           requestedModel: requestedModel || null,
           availableModels: localAvailableModels,
           packetSummary: result.packetSummary,
+          sourcesUsed,
           nuanceContextProvided: !!nuanceContext,
           ...(businessDev && { businessDev })
         })
@@ -624,6 +704,7 @@ export async function POST(request: NextRequest) {
             requestedModel: requestedModel || null,
             availableModels: localAvailableModels,
             packetSummary: retryResult.packetSummary,
+            sourcesUsed,
             usedSimplifiedPrompt: true,
             nuanceContextProvided: !!nuanceContext,
             ...(businessDev && { businessDev })
@@ -686,6 +767,7 @@ export async function POST(request: NextRequest) {
             availableModels: ["claude-sonnet-4", "claude-opus-4", "claude-haiku-3"],
             warning: "Using paid API - local LLM unavailable",
             packetSummary: result.packetSummary,
+            sourcesUsed,
             ...(businessDev && { businessDev })
           })
         }

@@ -490,44 +490,224 @@ export function useLegacyPacketExecution(): LegacyUsePacketExecutionReturn {
 }
 
 /**
- * Hook for batch packet execution
+ * Batch execution options with concurrency control
  */
-export function useBatchExecution() {
+export interface BatchExecutionOptions extends ExecutionOptions {
+  /**
+   * Number of packets to execute concurrently
+   * - 1: Sequential execution (default)
+   * - n > 1: Run n packets in parallel
+   * - -1 or "all": Run all packets in parallel
+   */
+  concurrency?: number | "all"
+  /** Stop execution on first failure */
+  stopOnError?: boolean
+}
+
+/**
+ * Progress state for batch execution
+ */
+export interface BatchProgress {
+  /** Number of completed packets */
+  current: number
+  /** Total number of packets to execute */
+  total: number
+  /** Number of currently running executions */
+  running: number
+  /** Number of failed executions */
+  failed: number
+}
+
+/**
+ * Return type for useBatchExecution hook
+ */
+export interface UseBatchExecutionReturn {
+  executeBatch: (
+    packetIds: string[],
+    projectId: string,
+    options?: BatchExecutionOptions
+  ) => Promise<ExecutionResult[]>
+  cancelBatch: () => void
+  isExecuting: boolean
+  progress: BatchProgress
+  results: ExecutionResult[]
+}
+
+/**
+ * Simple semaphore implementation for concurrency control
+ */
+class Semaphore {
+  private permits: number
+  private waiting: Array<() => void> = []
+
+  constructor(permits: number) {
+    this.permits = permits
+  }
+
+  async acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve) => {
+      this.waiting.push(resolve)
+    })
+  }
+
+  release(): void {
+    this.permits++
+    const next = this.waiting.shift()
+    if (next) {
+      this.permits--
+      next()
+    }
+  }
+}
+
+/**
+ * Hook for batch packet execution with concurrency control
+ */
+export function useBatchExecution(): UseBatchExecutionReturn {
   const [isExecuting, setIsExecuting] = useState(false)
-  const [progress, setProgress] = useState({ current: 0, total: 0 })
+  const [progress, setProgress] = useState<BatchProgress>({
+    current: 0,
+    total: 0,
+    running: 0,
+    failed: 0
+  })
   const [results, setResults] = useState<ExecutionResult[]>([])
   const { execute } = useLegacyPacketExecution()
 
+  // Ref to track cancellation
+  const cancelledRef = useRef(false)
+  // Ref to store abort functions for running executions
+  const runningExecutionsRef = useRef<Set<string>>(new Set())
+
+  /**
+   * Cancel all running batch executions
+   */
+  const cancelBatch = useCallback(() => {
+    cancelledRef.current = true
+    runningExecutionsRef.current.clear()
+  }, [])
+
+  /**
+   * Execute a batch of packets with concurrency control
+   */
   const executeBatch = useCallback(async (
     packetIds: string[],
     projectId: string,
-    options?: ExecutionOptions
+    options?: BatchExecutionOptions
   ): Promise<ExecutionResult[]> => {
+    // Reset cancellation flag
+    cancelledRef.current = false
+    runningExecutionsRef.current.clear()
+
     setIsExecuting(true)
-    setProgress({ current: 0, total: packetIds.length })
+    setProgress({ current: 0, total: packetIds.length, running: 0, failed: 0 })
     setResults([])
 
-    const batchResults: ExecutionResult[] = []
+    const batchResults: ExecutionResult[] = new Array(packetIds.length)
+    let completedCount = 0
+    let failedCount = 0
+    let runningCount = 0
 
-    for (let i = 0; i < packetIds.length; i++) {
-      setProgress({ current: i + 1, total: packetIds.length })
+    // Determine concurrency level
+    const concurrency = options?.concurrency
+    const maxConcurrent =
+      concurrency === "all" || concurrency === -1
+        ? packetIds.length
+        : (concurrency && concurrency > 0 ? concurrency : 1)
 
-      const result = await execute(packetIds[i], projectId, options)
-      batchResults.push(result)
-      setResults([...batchResults])
+    const stopOnError = options?.stopOnError ?? false
+    const semaphore = new Semaphore(maxConcurrent)
 
-      // Stop on failure if configured
-      if (!result.success && options?.branchName) {
-        break
+    // Create a flag to signal stop on error
+    let shouldStop = false
+
+    /**
+     * Execute a single packet with semaphore control
+     */
+    const executeWithSemaphore = async (packetId: string, index: number): Promise<void> => {
+      // Check if cancelled or should stop
+      if (cancelledRef.current || shouldStop) {
+        return
+      }
+
+      await semaphore.acquire()
+
+      // Check again after acquiring semaphore
+      if (cancelledRef.current || shouldStop) {
+        semaphore.release()
+        return
+      }
+
+      try {
+        // Track this execution
+        runningExecutionsRef.current.add(packetId)
+        runningCount++
+        setProgress(prev => ({ ...prev, running: runningCount }))
+
+        const result = await execute(packetId, projectId, options)
+
+        // Check if cancelled during execution
+        if (cancelledRef.current) {
+          return
+        }
+
+        batchResults[index] = result
+        runningExecutionsRef.current.delete(packetId)
+        runningCount--
+        completedCount++
+
+        if (!result.success) {
+          failedCount++
+          if (stopOnError) {
+            shouldStop = true
+          }
+        }
+
+        // Update progress
+        setProgress({
+          current: completedCount,
+          total: packetIds.length,
+          running: runningCount,
+          failed: failedCount
+        })
+
+        // Update results array (filter out undefined entries)
+        setResults(batchResults.filter((r): r is ExecutionResult => r !== undefined))
+
+      } finally {
+        semaphore.release()
       }
     }
 
+    // Sequential execution (concurrency = 1)
+    if (maxConcurrent === 1) {
+      for (let i = 0; i < packetIds.length; i++) {
+        if (cancelledRef.current || shouldStop) {
+          break
+        }
+        await executeWithSemaphore(packetIds[i], i)
+      }
+    } else {
+      // Parallel execution with concurrency control
+      const promises = packetIds.map((packetId, index) =>
+        executeWithSemaphore(packetId, index)
+      )
+      await Promise.all(promises)
+    }
+
     setIsExecuting(false)
-    return batchResults
+
+    // Return only the completed results
+    return batchResults.filter((r): r is ExecutionResult => r !== undefined)
   }, [execute])
 
   return {
     executeBatch,
+    cancelBatch,
     isExecuting,
     progress,
     results

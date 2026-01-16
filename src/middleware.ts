@@ -370,7 +370,7 @@ export function middleware(request: NextRequest) {
   const response = NextResponse.next()
   const currentUserId = getCurrentUserId(request)
   if (currentUserId) {
-    response.headers.set("x-claudia-user-id", currentUserId)
+    response.headers.set("x-claudia-user-id", currentUserId as string)
   }
 
   return response

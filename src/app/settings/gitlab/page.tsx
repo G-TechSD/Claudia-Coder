@@ -8,6 +8,13 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import {
   getUserGitLabConfig,
@@ -16,6 +23,9 @@ import {
   type UserGitLabConfig,
   type GitLabInstanceMode,
 } from "@/lib/data/user-gitlab"
+
+// Git provider type for personal instances
+type GitProvider = "gitlab" | "gitea" | "auto"
 import {
   createUserProjectService,
   type UserProject,
@@ -49,8 +59,10 @@ export default function GitLabSettingsPage() {
 
   // Form state
   const [mode, setMode] = useState<GitLabInstanceMode>("shared")
-  const [personalUrl, setPersonalUrl] = useState("")
+  const [personalUrl, setPersonalUrl] = useState("http://localhost:8929") // Default to local Gitea
   const [personalToken, setPersonalToken] = useState("")
+  const [gitProvider, setGitProvider] = useState<GitProvider>("auto")
+  const [detectedProvider, setDetectedProvider] = useState<GitProvider | null>(null)
   const [showToken, setShowToken] = useState(false)
   const [defaultVisibility, setDefaultVisibility] = useState<"private" | "internal" | "public">("private")
   const [autoCreate, setAutoCreate] = useState(true)
@@ -115,10 +127,11 @@ export default function GitLabSettingsPage() {
     }
   }, [user?.id, config, loadProjects])
 
-  // Test connection
+  // Test connection using the new multi-provider API
   const handleTestConnection = async () => {
     setIsTesting(true)
     setTestResult(null)
+    setDetectedProvider(null)
 
     const testUrl = mode === "personal" ? personalUrl : (process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1")
     const testToken = mode === "personal" ? personalToken : (typeof window !== "undefined" ? localStorage.getItem("gitlab_token") || "" : "")
@@ -127,7 +140,7 @@ export default function GitLabSettingsPage() {
     if (mode === "personal" && !personalUrl) {
       setTestResult({
         success: false,
-        message: "Please enter a GitLab URL",
+        message: "Please enter a Git server URL",
       })
       setIsTesting(false)
       return
@@ -148,28 +161,58 @@ export default function GitLabSettingsPage() {
     } catch {
       setTestResult({
         success: false,
-        message: "Invalid URL format. Please enter a valid GitLab URL (e.g., https://gitlab.com)",
+        message: "Invalid URL format. Please enter a valid URL (e.g., http://localhost:8929 or https://gitlab.com)",
       })
       setIsTesting(false)
       return
     }
 
     try {
-      console.log(`Testing GitLab connection to: ${testUrl}`)
-      const result = await testGitLabConnection(testUrl, testToken)
+      console.log(`Testing Git server connection to: ${testUrl} (provider: ${gitProvider})`)
 
-      setTestResult({
-        success: result.healthy,
-        message: result.message,
-        username: result.user?.username,
-      })
+      // Use new multi-provider validation API for personal instances
+      if (mode === "personal") {
+        const response = await fetch("/api/git/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            baseUrl: testUrl,
+            token: testToken,
+            provider: gitProvider,
+          }),
+        })
 
-      if (!result.healthy) {
-        console.error("GitLab connection test failed:", result.message, result.details)
+        const result = await response.json()
+
+        if (result.valid) {
+          setDetectedProvider(result.provider)
+          setTestResult({
+            success: true,
+            message: `Connected as ${result.user?.username} (${result.provider === "gitea" ? "Gitea" : "GitLab"})`,
+            username: result.user?.username,
+          })
+        } else {
+          setTestResult({
+            success: false,
+            message: result.error || "Connection failed",
+          })
+        }
+      } else {
+        // Use existing function for shared GitLab instance
+        const result = await testGitLabConnection(testUrl, testToken)
+        setTestResult({
+          success: result.healthy,
+          message: result.message,
+          username: result.user?.username,
+        })
+
+        if (!result.healthy) {
+          console.error("Git connection test failed:", result.message, result.details)
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Connection test failed"
-      console.error("GitLab connection error:", errorMessage)
+      console.error("Git connection error:", errorMessage)
       setTestResult({
         success: false,
         message: errorMessage,
@@ -268,9 +311,9 @@ export default function GitLabSettingsPage() {
             <GitBranch className="h-6 w-6 text-orange-500" />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">GitLab Settings</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Git Server Settings</h1>
             <p className="text-sm text-muted-foreground">
-              Configure your source control and repository management
+              Configure your source control and repository management (GitLab or Gitea)
             </p>
           </div>
         </div>
@@ -303,10 +346,10 @@ export default function GitLabSettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Server className="h-5 w-5" />
-            GitLab Instance
+            Git Server
           </CardTitle>
           <CardDescription>
-            Choose how you want to connect to GitLab for source control
+            Choose how you want to connect to your Git server (GitLab or Gitea)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

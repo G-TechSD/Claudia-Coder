@@ -4,6 +4,11 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { EventEmitter } from "events"
 import path from "path"
 
+// Force dynamic rendering - prevents Next.js from pre-rendering this route during build
+// This is required because node-pty is a native module that cannot be loaded during static analysis
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 // Import sandbox security module
 import {
   validateProjectPath,

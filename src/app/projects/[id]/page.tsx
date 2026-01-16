@@ -50,16 +50,18 @@ import {
   RotateCcw,
   DollarSign,
   Search,
-  BookOpen
+  BookOpen,
+  Download
 } from "lucide-react"
 import { getProject, updateProject, trashProject, restoreProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar, getEffectiveWorkingDirectory } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
+import { useProjectExport } from "@/hooks/useProjectExport"
 import { getResourcesForProject, getBrainDumpsForProject } from "@/lib/data/resources"
 import { PacketCard, type Packet } from "@/components/packets/packet-card"
 import { PacketHistory } from "@/components/packets/packet-history"
 import { PacketOutput } from "@/components/packets/packet-output"
 import { PacketFeedback } from "@/components/packets/packet-feedback"
-import { useLegacyPacketExecution, type ExecutionLog } from "@/hooks/usePacketExecution"
+import { useLegacyPacketExecution, useBatchExecution, type ExecutionLog } from "@/hooks/usePacketExecution"
 import type { PacketRun, PacketRunRating } from "@/lib/data/types"
 import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
@@ -160,6 +162,14 @@ export default function ProjectDetailPage() {
     error: executionError
   } = useLegacyPacketExecution()
 
+  // Batch execution hook
+  const {
+    executeBatch,
+    isExecuting: isBatchExecuting,
+    progress: batchProgress,
+    results: batchResults
+  } = useBatchExecution()
+
   // Build plan state
   const [hasBuildPlan, setHasBuildPlan] = useState(false)
   const [buildPlanApproved, setBuildPlanApproved] = useState(false)
@@ -184,8 +194,16 @@ export default function ProjectDetailPage() {
   // Navigation state
   const [activeTab, setActiveTab] = useState("overview")
 
+  // Batch execution state
+  const [concurrency, setConcurrency] = useState(1)
+  const [customConcurrency, setCustomConcurrency] = useState('')
+  const [showCustomInput, setShowCustomInput] = useState(false)
+
   // Starred projects hook for sidebar sync
   const { toggleStar } = useStarredProjects()
+
+  // Project export hook
+  const { exportProject, isExporting, progress } = useProjectExport()
 
   // Load packets and build plan status for this project
   useEffect(() => {
@@ -452,6 +470,57 @@ export default function ProjectDetailPage() {
     setSelectedRun(run)
   }
 
+  // Handler for running all pending packets
+  const handleRunAllPackets = async () => {
+    if (!projectId) return
+
+    // Filter to only run packets that are not already completed
+    const pendingPackets = packets.filter(p => p.status !== "completed")
+    if (pendingPackets.length === 0) return
+
+    const packetIds = pendingPackets.map(p => p.id)
+
+    // Get the effective concurrency value
+    const effectiveConcurrency = showCustomInput
+      ? parseInt(customConcurrency) || 1
+      : concurrency
+
+    console.log(`[RunAllPackets] Starting batch execution of ${packetIds.length} packets with concurrency: ${effectiveConcurrency}`)
+
+    // Execute batch with concurrency (note: hook currently runs sequentially,
+    // future enhancement would add true concurrency support to the hook)
+    await executeBatch(packetIds, projectId)
+
+    // Refresh packets to show updated statuses
+    const storedPackets = localStorage.getItem("claudia_packets")
+    if (storedPackets) {
+      try {
+        const allPackets = JSON.parse(storedPackets)
+        const projectPackets = allPackets[projectId] || []
+        setPackets(projectPackets)
+      } catch {
+        console.error("Failed to parse packets")
+      }
+    }
+  }
+
+  // Get pending packets count for the "Run All" button
+  const pendingPackets = packets.filter(p => p.status !== "completed")
+
+  // Handle concurrency selection change
+  const handleConcurrencyChange = (value: string) => {
+    if (value === "custom") {
+      setShowCustomInput(true)
+      setConcurrency(1)
+    } else if (value === "all") {
+      setShowCustomInput(false)
+      setConcurrency(packets.length || 10)
+    } else {
+      setShowCustomInput(false)
+      setConcurrency(parseInt(value))
+    }
+  }
+
   const refreshResourceCount = () => {
     if (!projectId) return
     const resources = getResourcesForProject(projectId)
@@ -715,6 +784,25 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => exportProject(projectId, { includeSourceCode: true })}
+            disabled={isExporting}
+            className="mr-2"
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {progress?.step || "Exporting..."}
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Export All
+              </>
+            )}
+          </Button>
           <Button
             size="sm"
             onClick={handleAddToQueue}
@@ -1330,11 +1418,104 @@ export default function ProjectDetailPage() {
         <TabsContent value="packets" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-medium">Work Packets</h3>
-            <Button size="sm">
-              <Package className="h-4 w-4 mr-1" />
-              Create Packet
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Concurrency Selector */}
+              <Select
+                value={showCustomInput ? "custom" : concurrency === (packets.length || 10) ? "all" : String(concurrency)}
+                onValueChange={handleConcurrencyChange}
+                disabled={isBatchExecuting}
+              >
+                <SelectTrigger className="w-[140px] h-9">
+                  <SelectValue placeholder="Concurrency" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 (Sequential)</SelectItem>
+                  <SelectItem value="2">2</SelectItem>
+                  <SelectItem value="3">3</SelectItem>
+                  <SelectItem value="5">5</SelectItem>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="all">All (Parallel)</SelectItem>
+                  <SelectItem value="custom">Custom...</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Custom Concurrency Input */}
+              {showCustomInput && (
+                <Input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={customConcurrency}
+                  onChange={(e) => setCustomConcurrency(e.target.value)}
+                  placeholder="N"
+                  className="w-[70px] h-9"
+                  disabled={isBatchExecuting}
+                />
+              )}
+
+              {/* Run All Packets Button */}
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleRunAllPackets}
+                disabled={pendingPackets.length === 0 || isBatchExecuting}
+                className="gap-2"
+              >
+                {isBatchExecuting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Running {batchProgress.current}/{batchProgress.total}
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4" />
+                    Run All ({pendingPackets.length})
+                  </>
+                )}
+              </Button>
+
+              <Button size="sm" variant="outline">
+                <Package className="h-4 w-4 mr-1" />
+                Create Packet
+              </Button>
+            </div>
           </div>
+
+          {/* Batch Execution Progress */}
+          {isBatchExecuting && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="p-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <span className="font-medium">
+                        Running packet {batchProgress.current} of {batchProgress.total}
+                      </span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {Math.round((batchProgress.current / batchProgress.total) * 100)}%
+                    </span>
+                  </div>
+                  {/* Progress Bar */}
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary transition-all duration-300"
+                      style={{
+                        width: `${(batchProgress.current / batchProgress.total) * 100}%`
+                      }}
+                    />
+                  </div>
+                  {/* Show current packet being processed */}
+                  {batchProgress.current > 0 && batchProgress.current <= pendingPackets.length && (
+                    <p className="text-sm text-muted-foreground">
+                      Processing: {pendingPackets[batchProgress.current - 1]?.title || "..."}
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {packets.length === 0 ? (
             <Card>

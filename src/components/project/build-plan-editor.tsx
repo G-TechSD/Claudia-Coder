@@ -42,7 +42,9 @@ import {
   Rocket,
   Terminal,
   Search,
-  Code
+  Code,
+  Upload,
+  Mic
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { BuildPlan, ExistingPacketInfo } from "@/lib/ai/build-plan"
@@ -161,6 +163,13 @@ export function BuildPlanEditor({
   const [packetGenerationStatus, setPacketGenerationStatus] = useState("")
   const [userDefaultModel, setUserDefaultModel] = useState<EnabledInstance | null>(null)
   const [autoResearchPriorArt, setAutoResearchPriorArt] = useState(true)  // Auto-research prior art on acceptance
+
+  // Build plan generation sources - which data to include when generating
+  const [buildPlanSources, setBuildPlanSources] = useState({
+    existingPackets: true,
+    userUploads: true,
+    interviewData: true
+  })
 
   // Auto-save timer
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -447,7 +456,8 @@ export function BuildPlanEditor({
           projectDescription,
           preferredProvider: selectedProvider,
           preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
-          existingPackets,  // Pass existing packets so they're included in the build plan
+          existingPackets: buildPlanSources.existingPackets ? existingPackets : [],  // Only pass if enabled
+          sources: buildPlanSources,  // Pass source flags for API to handle user uploads and interview data
           constraints: {
             requireLocalFirst: true,
             requireHumanApproval: ["planning", "deployment"]
@@ -777,7 +787,8 @@ export function BuildPlanEditor({
           projectDescription,
           preferredProvider: preferredServer,  // The server/provider to use
           preferredModel: preferredModelId,     // The specific model ID to use
-          existingPackets,  // Pass existing packets so they're included in the build plan
+          existingPackets: buildPlanSources.existingPackets ? existingPackets : [],  // Only pass if enabled
+          sources: buildPlanSources,  // Pass source flags for API to handle user uploads and interview data
           allowPaidFallback: isPaidModel,
           constraints: {
             requireLocalFirst: regenerationModel === "auto",
@@ -1084,6 +1095,35 @@ export function BuildPlanEditor({
               </Button>
             </div>
 
+            {/* Build plan source checkboxes */}
+            <div className="flex items-center justify-center gap-4 mt-4 text-xs">
+              <span className="text-muted-foreground">Include:</span>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <Checkbox
+                  checked={buildPlanSources.existingPackets}
+                  onCheckedChange={(checked) => setBuildPlanSources(prev => ({ ...prev, existingPackets: checked === true }))}
+                />
+                <Package className="h-3 w-3 text-blue-500" />
+                <span>Existing Packets</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <Checkbox
+                  checked={buildPlanSources.userUploads}
+                  onCheckedChange={(checked) => setBuildPlanSources(prev => ({ ...prev, userUploads: checked === true }))}
+                />
+                <Upload className="h-3 w-3 text-green-500" />
+                <span>User Uploads</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <Checkbox
+                  checked={buildPlanSources.interviewData}
+                  onCheckedChange={(checked) => setBuildPlanSources(prev => ({ ...prev, interviewData: checked === true }))}
+                />
+                <Mic className="h-3 w-3 text-purple-500" />
+                <span>Interview Data</span>
+              </label>
+            </div>
+
             {/* Loading status */}
             {isGenerating && generationStatus && (
               <div className="mt-6 p-4 bg-primary/5 rounded-lg">
@@ -1251,6 +1291,30 @@ export function BuildPlanEditor({
                       )}
                       Regenerate
                     </Button>
+                    {/* Build plan source checkboxes - compact */}
+                    <div className="flex items-center gap-3 text-xs ml-2">
+                      <label className="flex items-center gap-1 cursor-pointer" title="Existing Work Packets">
+                        <Checkbox
+                          checked={buildPlanSources.existingPackets}
+                          onCheckedChange={(checked) => setBuildPlanSources(prev => ({ ...prev, existingPackets: checked === true }))}
+                        />
+                        <Package className="h-3 w-3 text-blue-500" />
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer" title="User Uploads">
+                        <Checkbox
+                          checked={buildPlanSources.userUploads}
+                          onCheckedChange={(checked) => setBuildPlanSources(prev => ({ ...prev, userUploads: checked === true }))}
+                        />
+                        <Upload className="h-3 w-3 text-green-500" />
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer" title="Interview Data">
+                        <Checkbox
+                          checked={buildPlanSources.interviewData}
+                          onCheckedChange={(checked) => setBuildPlanSources(prev => ({ ...prev, interviewData: checked === true }))}
+                        />
+                        <Mic className="h-3 w-3 text-purple-500" />
+                      </label>
+                    </div>
                   </div>
 
                   {/* Visual separator */}
@@ -1754,6 +1818,30 @@ export function BuildPlanEditor({
                         )}
                         Regenerate
                       </Button>
+                      {/* Build plan source checkboxes - compact */}
+                      <div className="flex items-center gap-3 text-xs ml-2">
+                        <label className="flex items-center gap-1 cursor-pointer" title="Existing Work Packets">
+                          <Checkbox
+                            checked={buildPlanSources.existingPackets}
+                            onCheckedChange={(checked) => setBuildPlanSources(prev => ({ ...prev, existingPackets: checked === true }))}
+                          />
+                          <Package className="h-3 w-3 text-blue-500" />
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer" title="User Uploads">
+                          <Checkbox
+                            checked={buildPlanSources.userUploads}
+                            onCheckedChange={(checked) => setBuildPlanSources(prev => ({ ...prev, userUploads: checked === true }))}
+                          />
+                          <Upload className="h-3 w-3 text-green-500" />
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer" title="Interview Data">
+                          <Checkbox
+                            checked={buildPlanSources.interviewData}
+                            onCheckedChange={(checked) => setBuildPlanSources(prev => ({ ...prev, interviewData: checked === true }))}
+                          />
+                          <Mic className="h-3 w-3 text-purple-500" />
+                        </label>
+                      </div>
                     </div>
 
                     {/* Visual separator */}

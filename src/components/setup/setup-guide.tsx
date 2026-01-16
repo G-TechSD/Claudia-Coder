@@ -21,7 +21,7 @@ import {
   Zap,
   GitBranch,
   Workflow,
-  MessageCircle
+  MessageSquare
 } from "lucide-react"
 import {
   getGlobalSettings,
@@ -160,7 +160,7 @@ export function SetupGuide() {
         description: currentServiceStatus.openwebui
           ? 'OpenWebUI chat interface is available'
           : 'Connect OpenWebUI for an alternative chat interface',
-        icon: <MessageCircle className="h-4 w-4" />,
+        icon: <MessageSquare className="h-4 w-4" />,
         isComplete: currentServiceStatus.openwebui,
         href: '/settings',
         action: 'Configure OpenWebUI'

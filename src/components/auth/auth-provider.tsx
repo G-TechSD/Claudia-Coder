@@ -3,26 +3,33 @@
 import * as React from "react"
 import { useSession } from "@/lib/auth/client"
 
-// Check if we're in dev bypass mode (middleware bypasses auth)
-const DEV_BYPASS_MODE = process.env.NODE_ENV === "development"
+// TEMPORARY: Force bypass mode for beta testing
+// TODO: Remove this and restore env var checks before production release
+// The middleware is also bypassing auth (see src/middleware.ts line ~196)
+const AUTH_BYPASS_MODE = true
 
-// Mock session for dev bypass mode
-const DEV_BYPASS_SESSION = {
+// Original check (restore when beta testing is complete):
+// const AUTH_BYPASS_MODE =
+//   process.env.NEXT_PUBLIC_BETA_AUTH_BYPASS === "true" ||
+//   process.env.NODE_ENV === "development"
+
+// Mock session for bypass mode (dev or beta testing)
+const BYPASS_SESSION = {
   user: {
-    id: "dev-admin",
-    name: "Dev Admin",
-    email: "admin@localhost",
+    id: "beta-admin",
+    name: "Beta Tester",
+    email: "beta@claudiacoder.com",
     image: null,
     emailVerified: true,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
   session: {
-    id: "dev-session",
+    id: "bypass-session",
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-    token: "dev-bypass-token",
+    token: "bypass-session-token",
     ipAddress: "127.0.0.1",
-    userAgent: "Dev Bypass",
+    userAgent: "Auth Bypass Mode",
   },
 }
 
@@ -96,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [roleSynced, setRoleSynced] = React.useState(false)
 
   // Use dev bypass session if no real session and in dev mode
-  const session = realSession || (DEV_BYPASS_MODE ? DEV_BYPASS_SESSION : null)
+  const session = realSession || (AUTH_BYPASS_MODE ? BYPASS_SESSION : null)
 
   // Sync role cookie when session changes
   React.useEffect(() => {
@@ -155,7 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isBetaTester = userRole === "beta" || userRole === "beta_tester"
 
   // In dev bypass mode with no real session, skip the loading state
-  const isLoading = DEV_BYPASS_MODE && !realSession ? false : isPending
+  const isLoading = AUTH_BYPASS_MODE && !realSession ? false : isPending
 
   const value = React.useMemo<AuthContextType>(() => ({
     user: session?.user ? {
@@ -163,7 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name: session.user.name,
       email: session.user.email,
       image: session.user.image,
-      role: userRole || (DEV_BYPASS_MODE ? "admin" : undefined),
+      role: userRole || (AUTH_BYPASS_MODE ? "admin" : undefined),
       emailVerified: session.user.emailVerified,
       createdAt: session.user.createdAt,
       updatedAt: session.user.updatedAt,
@@ -174,7 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: session.user.name,
         email: session.user.email,
         image: session.user.image,
-        role: userRole || (DEV_BYPASS_MODE ? "admin" : undefined),
+        role: userRole || (AUTH_BYPASS_MODE ? "admin" : undefined),
         emailVerified: session.user.emailVerified,
         createdAt: session.user.createdAt,
         updatedAt: session.user.updatedAt,

@@ -76,7 +76,7 @@ const toolsItems: NavItem[] = [
   { title: "Business Dev", href: "/business-dev", icon: Briefcase },
   { title: "Research", href: "/research", icon: Search },
   { title: "Patents", href: "/patents", icon: FileCheck },
-  { title: "GitLab", href: "https://gitlab.com", icon: GitBranch, external: true },
+  { title: "Source Control", href: "/gitea", icon: GitBranch, external: false },
   { title: "n8n", href: "/n8n", icon: Workflow, external: false },
 ]
 

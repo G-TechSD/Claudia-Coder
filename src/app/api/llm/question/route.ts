@@ -6,7 +6,7 @@ import { generateWithLocalLLM } from "@/lib/llm/local-llm"
  */
 export async function POST(request: NextRequest) {
   try {
-    const { systemPrompt, messages, context, allowPaidFallback = false } = await request.json()
+    const { systemPrompt, messages = [], context, allowPaidFallback = false } = await request.json()
 
     // Build conversation history as a single prompt
     const conversationHistory = messages
