@@ -63,6 +63,7 @@ import {
   getBusinessDev
 } from "@/lib/data/business-dev"
 import { getAllProjects, getProject } from "@/lib/data/projects"
+import { useAuth } from "@/components/auth/auth-provider"
 import type { BusinessDev, BusinessDevStatus, Project } from "@/lib/data/types"
 
 // Web Speech API types
@@ -188,6 +189,7 @@ interface BusinessDevWithProject extends BusinessDev {
 
 export default function BusinessDevPage() {
   const router = useRouter()
+  const { user } = useAuth()
   const [businessDevs, setBusinessDevs] = useState<BusinessDevWithProject[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [statusFilter, setStatusFilter] = useState<BusinessDevStatus | "all">("all")
@@ -289,7 +291,7 @@ export default function BusinessDevPage() {
     // Load business devs
     const allDevs = getAllBusinessDevs()
     const enrichedDevs: BusinessDevWithProject[] = allDevs.map(dev => {
-      const project = getProject(dev.projectId)
+      const project = getProject(dev.projectId, user?.id)
       return {
         ...dev,
         projectName: project?.name || "Unknown Project"
@@ -300,8 +302,8 @@ export default function BusinessDevPage() {
     setBusinessDevs(enrichedDevs)
 
     // Load projects for dropdown
-    const allProjects = getAllProjects({ includeTrashed: false })
-    setProjects(allProjects.filter(p => p.status !== "completed"))
+    const allProjects = getAllProjects({ userId: user?.id, includeTrashed: false })
+    setProjects(allProjects)
 
     setIsLoading(false)
   }
@@ -412,7 +414,7 @@ export default function BusinessDevPage() {
       // Get project context if selected
       let projectContext = ""
       if (selectedProjectId) {
-        const project = getProject(selectedProjectId)
+        const project = getProject(selectedProjectId, user?.id)
         if (project) {
           projectContext = `Project: ${project.name}\nDescription: ${project.description || "No description"}\n`
           const existingBizDev = getBusinessDev(selectedProjectId)

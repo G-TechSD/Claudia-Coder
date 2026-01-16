@@ -56,6 +56,44 @@ export async function verifyApiAuth(): Promise<AuthenticatedRequest | null> {
 }
 
 /**
+ * Get session with beta auth bypass support
+ * Returns a mock session when NEXT_PUBLIC_BETA_AUTH_BYPASS is enabled
+ */
+export async function getSessionWithBypass() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  })
+
+  if (session?.user) {
+    return session
+  }
+
+  // Allow bypass in beta mode
+  if (process.env.NEXT_PUBLIC_BETA_AUTH_BYPASS === "true") {
+    return {
+      user: {
+        id: "beta-tester",
+        name: "Beta Tester",
+        email: "beta@claudiacoder.com",
+        emailVerified: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      session: {
+        id: "bypass-session",
+        expiresAt: new Date(Date.now() + 86400000),
+        token: "bypass",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userId: "beta-tester"
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * Create an unauthorized JSON response
  */
 export function unauthorizedResponse(message = "Unauthorized") {

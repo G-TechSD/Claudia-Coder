@@ -70,10 +70,10 @@ const eventColors: Record<ActivityEvent["type"], string> = {
 export function ActivityStream({ events, isRunning, className }: ActivityStreamProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom when new events arrive
+  // Auto-scroll to top when new events arrive
   React.useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      scrollRef.current.scrollTop = 0
     }
   }, [events])
 
@@ -92,15 +92,7 @@ export function ActivityStream({ events, isRunning, className }: ActivityStreamP
       className={cn("h-full", className)}
     >
       <div className="space-y-3 p-4">
-        {events.map((event, index) => (
-          <ActivityEventCard
-            key={event.id}
-            event={event}
-            isLatest={index === events.length - 1 && isRunning}
-          />
-        ))}
-
-        {/* Thinking indicator when running */}
+        {/* Thinking indicator when running - at top for visibility */}
         {isRunning && (
           <div className="flex items-center gap-3 text-sm text-muted-foreground animate-pulse">
             <div className="flex gap-1">
@@ -111,6 +103,14 @@ export function ActivityStream({ events, isRunning, className }: ActivityStreamP
             <span>Claudia Coder is working...</span>
           </div>
         )}
+
+        {events.slice().reverse().map((event, index) => (
+          <ActivityEventCard
+            key={event.id}
+            event={event}
+            isLatest={index === 0 && isRunning}
+          />
+        ))}
       </div>
     </ScrollArea>
   )

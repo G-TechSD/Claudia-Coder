@@ -71,7 +71,7 @@ async function generateBusinessDevAnalysis(
   if (preferredProvider === "gemini" && process.env.GOOGLE_AI_API_KEY) {
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -378,7 +378,7 @@ export async function POST(request: NextRequest) {
     if (preferredProvider === "gemini" && process.env.GOOGLE_AI_API_KEY) {
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -400,7 +400,7 @@ export async function POST(request: NextRequest) {
           const data = await response.json()
           const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
 
-          const result = parseBuildPlanResponse(content, projectId, "google:gemini-1.5-pro")
+          const result = parseBuildPlanResponse(content, projectId, "google:gemini-2.5-pro")
 
           if (result) {
             const validation = validateBuildPlan(result.plan)
@@ -424,9 +424,9 @@ export async function POST(request: NextRequest) {
               validation,
               source: "google",
               server: "Google Gemini",
-              model: "gemini-1.5-pro",
-              requestedModel: requestedModel || "gemini-1.5-pro",
-              availableModels: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash"],
+              model: "gemini-2.5-pro",
+              requestedModel: requestedModel || "gemini-2.5-pro",
+              availableModels: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
               packetSummary: result.packetSummary,
               sourcesUsed,
               ...(businessDev && { businessDev })

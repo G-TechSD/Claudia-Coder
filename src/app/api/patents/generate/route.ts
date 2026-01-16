@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth/index"
+import { getSessionWithBypass } from "@/lib/auth/api-helpers"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
 import { cleanLLMResponse, parseLLMJson } from "@/lib/llm"
 import type {
@@ -270,9 +271,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // Verify authentication
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(
@@ -451,9 +450,7 @@ export async function PATCH(request: NextRequest) {
 
   try {
     // Verify authentication
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(
@@ -671,9 +668,7 @@ export async function PATCH(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     // Verify authentication
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(

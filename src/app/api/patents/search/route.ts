@@ -5,8 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { headers } from "next/headers"
-import { auth } from "@/lib/auth/index"
+import { getSessionWithBypass } from "@/lib/auth/api-helpers"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
 import type { PatentSearch, PriorArt } from "@/lib/data/types"
 
@@ -198,9 +197,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // Verify authentication
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(
@@ -344,9 +341,7 @@ function extractKeywords(title: string, description: string): string[] {
 export async function GET(request: NextRequest) {
   try {
     // Verify authentication
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(

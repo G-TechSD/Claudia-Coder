@@ -323,14 +323,32 @@ export function useProjectExport(): UseProjectExportReturn {
       if (includeSourceCode) {
         setProgress({ step: "Creating ZIP archive with source code...", percent: 85 })
 
-        const response = await fetch(`/api/projects/${projectId}/export-all`, {
+        // Build resource files array with base64 data for the API
+        const resourceFilesForApi = Object.entries(resourceBlobs).map(([key, data]) => {
+          const resource = resources.find(r => r.indexedDbKey === key)
+          return {
+            id: key,
+            name: resource?.name || key,
+            data: data,
+          }
+        })
+
+        // Send data in the format expected by the API (ExportRequestBody)
+        const response = await fetch(`/api/projects/${projectId}/export-all?includeSourceCode=true`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            exportData,
-            includeSourceCode: true,
+            project,
+            buildPlans: buildPlan ? [buildPlan, ...(buildPlanHistory || [])] : (buildPlanHistory || []),
+            packets: buildPlan?.originalPlan?.packets || [],
+            packetRuns: packetRuns || [],
+            brainDumps: brainDumps || [],
+            resources: resources || [],
+            resourceFiles: resourceFilesForApi,
+            businessDev: businessDev || null,
+            voiceRecordings: voiceRecordings || [],
           }),
         })
 

@@ -27,6 +27,7 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
 import { useWhisperVoiceInput } from "@/hooks/useWhisperVoiceInput"
 import { useSpeechSynthesis } from "@/hooks/useSpeechSynthesis"
 import { getProjects } from "@/lib/data/projects"
+import { useAuth } from "@/components/auth/auth-provider"
 import type { Project } from "@/lib/data/types"
 
 interface Message {
@@ -43,6 +44,7 @@ interface VoiceControlPanelProps {
 }
 
 export function VoiceControlPanel({ className, onClose }: VoiceControlPanelProps) {
+  const { user } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [textInput, setTextInput] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
@@ -67,8 +69,8 @@ export function VoiceControlPanel({ className, onClose }: VoiceControlPanelProps
 
   // Load projects on mount
   useEffect(() => {
-    setProjects(getProjects())
-  }, [])
+    setProjects(getProjects({ userId: user?.id }))
+  }, [user?.id])
 
   // Whisper voice input (local server)
   const whisperVoice = useWhisperVoiceInput({

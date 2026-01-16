@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useAuth } from "@/lib/auth/auth-context"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -33,6 +34,7 @@ import type { Project } from "@/lib/data/types"
 import { AddMCPServerDialog, MCPServerList, SystemRequirements } from "@/components/mcp"
 
 export default function MCPManagementPage() {
+  const { user } = useAuth()
   const [servers, setServers] = useState<MCPManagedServer[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -56,7 +58,7 @@ export default function MCPManagementPage() {
   const loadData = () => {
     setIsLoading(true)
     const loadedServers = getMCPServers()
-    const loadedProjects = getAllProjects()
+    const loadedProjects = getAllProjects({ userId: user?.id })
     setServers(loadedServers)
     setProjects(loadedProjects)
     setIsLoading(false)

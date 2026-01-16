@@ -56,6 +56,7 @@ import {
 import { getProject, updateProject, trashProject, restoreProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar, getEffectiveWorkingDirectory } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
 import { useProjectExport } from "@/hooks/useProjectExport"
+import { useAuth } from "@/components/auth/auth-provider"
 import { getResourcesForProject, getBrainDumpsForProject } from "@/lib/data/resources"
 import { PacketCard, type Packet } from "@/components/packets/packet-card"
 import { PacketHistory } from "@/components/packets/packet-history"
@@ -63,6 +64,7 @@ import { PacketOutput } from "@/components/packets/packet-output"
 import { PacketFeedback } from "@/components/packets/packet-feedback"
 import { useLegacyPacketExecution, useBatchExecution, type ExecutionLog } from "@/hooks/usePacketExecution"
 import type { PacketRun, PacketRunRating } from "@/lib/data/types"
+import { getPacketRunsForProject } from "@/lib/data/packet-runs"
 import { ModelAssignment } from "@/components/project/model-assignment"
 import { ResourceList } from "@/components/project/resource-list"
 import { ResourceUpload } from "@/components/project/resource-upload"
@@ -205,6 +207,9 @@ export default function ProjectDetailPage() {
   // Project export hook
   const { exportProject, isExporting, progress } = useProjectExport()
 
+  // Auth hook for user-scoped storage
+  const { user } = useAuth()
+
   // Load packets and build plan status for this project
   useEffect(() => {
     if (!projectId) return
@@ -244,7 +249,7 @@ export default function ProjectDetailPage() {
       return
     }
 
-    const found = getProject(projectId)
+    const found = getProject(projectId, user?.id)
     setProject(found || null)
     setLoading(false)
 
@@ -298,28 +303,18 @@ export default function ProjectDetailPage() {
     fetchProviders()
   }, [])
 
-  // Load packet runs from localStorage
+  // Load packet runs using user-scoped storage
   useEffect(() => {
     if (!projectId) return
 
-    const storedRuns = localStorage.getItem("claudia_packet_runs")
-    if (storedRuns) {
-      try {
-        const allRuns: Record<string, PacketRun[]> = JSON.parse(storedRuns)
-        // Filter runs for packets in this project
-        const projectPacketIds = packets.map(p => p.id)
-        const filteredRuns: Record<string, PacketRun[]> = {}
-        for (const [packetId, runs] of Object.entries(allRuns)) {
-          if (projectPacketIds.includes(packetId)) {
-            filteredRuns[packetId] = runs
-          }
-        }
-        setPacketRuns(filteredRuns)
-      } catch {
-        console.error("Failed to parse packet runs")
-      }
+    try {
+      // Use user-scoped storage function
+      const storedRuns = getPacketRunsForProject(projectId, user?.id)
+      setPacketRuns(storedRuns)
+    } catch {
+      console.error("Failed to load packet runs")
     }
-  }, [projectId, packets])
+  }, [projectId, packets, user?.id])
 
   // Get selected packet
   const selectedPacket = selectedPacketId
@@ -543,27 +538,27 @@ export default function ProjectDetailPage() {
 
   const refreshProject = () => {
     if (!projectId) return
-    const found = getProject(projectId)
+    const found = getProject(projectId, user?.id)
     if (found) setProject(found)
   }
 
   const handleStatusChange = (newStatus: ProjectStatus) => {
     if (!project) return
-    const updated = updateProject(project.id, { status: newStatus })
+    const updated = updateProject(project.id, { status: newStatus }, user?.id)
     if (updated) setProject(updated)
   }
 
   const handleTrash = () => {
     if (!project) return
     if (confirm("Send this project to trash?")) {
-      trashProject(project.id)
+      trashProject(project.id, user?.id)
       router.push("/projects")
     }
   }
 
   const handleRestore = () => {
     if (!project) return
-    const restored = restoreProject(project.id)
+    const restored = restoreProject(project.id, user?.id)
     if (restored) {
       setProject(restored)
     }
@@ -658,7 +653,7 @@ export default function ProjectDetailPage() {
   const handleFolderInitialized = (workingDirectory: string) => {
     // Update project with the new working directory
     if (project) {
-      const updated = updateProject(project.id, { workingDirectory })
+      const updated = updateProject(project.id, { workingDirectory }, user?.id)
       if (updated) {
         setProject(updated)
       }
@@ -1141,7 +1136,7 @@ export default function ProjectDetailPage() {
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && newBasePath.trim()) {
-                        const updated = updateProject(project.id, { basePath: newBasePath.trim() })
+                        const updated = updateProject(project.id, { basePath: newBasePath.trim() }, user?.id)
                         if (updated) setProject(updated)
                         setEditingBasePath(false)
                         setNewBasePath("")
@@ -1158,7 +1153,7 @@ export default function ProjectDetailPage() {
                     className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
                     onClick={() => {
                       if (newBasePath.trim()) {
-                        const updated = updateProject(project.id, { basePath: newBasePath.trim() })
+                        const updated = updateProject(project.id, { basePath: newBasePath.trim() }, user?.id)
                         if (updated) setProject(updated)
                       }
                       setEditingBasePath(false)
@@ -1406,7 +1401,7 @@ export default function ProjectDetailPage() {
             basePath={project.basePath || getEffectiveWorkingDirectory(project)}
             onSetBasePath={(newPath) => {
               // Update project with new basePath
-              const updated = updateProject(project.id, { basePath: newPath })
+              const updated = updateProject(project.id, { basePath: newPath }, user?.id)
               if (updated) {
                 setProject(updated)
               }

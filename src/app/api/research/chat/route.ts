@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { headers } from "next/headers"
-import { auth } from "@/lib/auth/index"
+import { getSessionWithBypass } from "@/lib/auth/api-helpers"
 import {
   getConfiguredServers,
   checkServerStatus,
@@ -231,15 +230,9 @@ async function* streamAnthropicCompletion(
 export async function POST(request: NextRequest) {
   try {
     // Verify authentication
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
-
+    const session = await getSessionWithBypass()
     if (!session?.user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const { messages, researchContext } = await request.json() as {

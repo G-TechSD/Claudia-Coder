@@ -7,8 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { headers } from "next/headers"
-import { auth } from "@/lib/auth"
+import { getSessionWithBypass } from "@/lib/auth/api-helpers"
 import {
   getPatentResearchById,
   getPatentClaimsByPatentId,
@@ -51,9 +50,7 @@ export async function GET(
   { params }: RouteParams
 ) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(
@@ -97,9 +94,7 @@ export async function POST(
   { params }: RouteParams
 ) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(
@@ -170,9 +165,7 @@ export async function PUT(
   { params }: RouteParams
 ) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(
@@ -256,9 +249,7 @@ export async function DELETE(
   { params }: RouteParams
 ) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(

@@ -34,6 +34,7 @@ import {
   FolderPlus,
 } from "lucide-react"
 import Link from "next/link"
+import { useAuth } from "@/components/auth/auth-provider"
 import { getMCPServers } from "@/lib/mcp/storage"
 import { MCPManagedServer } from "@/lib/mcp/types"
 import { getAllProjects, getEffectiveWorkingDirectory, updateProject } from "@/lib/data/projects"
@@ -44,7 +45,7 @@ import { ClaudeCodeTerminal } from "@/components/claude-code/terminal"
 const CUSTOM_FOLDER_ID = "__custom_folder__"
 
 // Helper to ensure working directory exists via API
-async function ensureWorkingDirectory(project: Project): Promise<string> {
+async function ensureWorkingDirectory(project: Project, userId?: string): Promise<string> {
   const repoWithPath = project.repos.find(r => r.localPath)
 
   const response = await fetch("/api/projects/ensure-working-directory", {
@@ -67,13 +68,14 @@ async function ensureWorkingDirectory(project: Project): Promise<string> {
 
   // Update project with working directory if it was newly set
   if (!project.workingDirectory && data.workingDirectory) {
-    updateProject(project.id, { workingDirectory: data.workingDirectory })
+    updateProject(project.id, { workingDirectory: data.workingDirectory }, userId)
   }
 
   return data.workingDirectory
 }
 
 export default function ClaudeCodePage() {
+  const { user } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string>("")
   const [bypassPermissions, setBypassPermissions] = useState(false)
@@ -96,7 +98,7 @@ export default function ClaudeCodePage() {
 
   const loadData = () => {
     setIsLoading(true)
-    const allProjects = getAllProjects()
+    const allProjects = getAllProjects({ userId: user?.id })
     const servers = getMCPServers()
     setProjects(allProjects)
     setMcpServers(servers)
@@ -200,7 +202,7 @@ export default function ClaudeCodePage() {
 
     try {
       // Ensure working directory exists on filesystem
-      const workDir = await ensureWorkingDirectory(selectedProject)
+      const workDir = await ensureWorkingDirectory(selectedProject, user?.id)
       setResolvedWorkingDirectory(workDir)
 
       // Mark terminal as started (this triggers showing the terminal)

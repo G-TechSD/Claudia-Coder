@@ -228,6 +228,26 @@ export function getProjectRuns(projectId: string, userId?: string): PacketRun[] 
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
 }
 
+/**
+ * Get all runs for a project grouped by packet ID
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
+ * @returns Object with packetId keys and arrays of runs as values
+ */
+export function getPacketRunsForProject(projectId: string, userId?: string): Record<string, PacketRun[]> {
+  const runs = getProjectRuns(projectId, userId)
+  const grouped: Record<string, PacketRun[]> = {}
+
+  for (const run of runs) {
+    if (!grouped[run.packetId]) {
+      grouped[run.packetId] = []
+    }
+    grouped[run.packetId].push(run)
+  }
+
+  return grouped
+}
+
 // ============ Additional Utilities ============
 
 /**

@@ -40,7 +40,6 @@ import {
   Info,
   Package,
   Rocket,
-  Terminal,
   Search,
   Code,
   Upload,
@@ -109,8 +108,8 @@ interface PacketFeedback {
 const REGENERATION_MODEL_OPTIONS = [
   // Auto - let system decide
   { value: "auto", label: "Auto (let system decide)", type: "auto", icon: "sparkles", server: null, model: null },
-  // Claudia Coder (special paid option)
-  { value: "paid_claudecode", label: "Claudia Coder (Paid)", type: "paid", icon: "terminal", server: "paid_claudecode", model: null },
+  // Claudia Coder (special paid option) - FUTURE: Not yet available as a service
+  // { value: "paid_claudecode", label: "Claudia Coder (Paid)", type: "paid", icon: "terminal", server: "paid_claudecode", model: null },
   // Paid cloud models
   { value: "chatgpt", label: "ChatGPT (OpenAI)", type: "paid", icon: "cloud", server: "chatgpt", model: null },
   { value: "gemini", label: "Gemini (Google)", type: "paid", icon: "cloud", server: "gemini", model: null },
@@ -1242,11 +1241,7 @@ export function BuildPlanEditor({
                         {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "paid").map(model => (
                           <SelectItem key={model.value} value={model.value}>
                             <div className="flex items-center gap-2">
-                              {model.icon === "terminal" ? (
-                                <Terminal className="h-3 w-3 text-purple-500" />
-                              ) : (
-                                <Cloud className="h-3 w-3 text-blue-500" />
-                              )}
+                              <Cloud className="h-3 w-3 text-blue-500" />
                               <span>{model.label}</span>
                             </div>
                           </SelectItem>
@@ -1769,11 +1764,7 @@ export function BuildPlanEditor({
                           {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "paid").map(model => (
                             <SelectItem key={model.value} value={model.value}>
                               <div className="flex items-center gap-2">
-                                {model.icon === "terminal" ? (
-                                  <Terminal className="h-3 w-3 text-purple-500" />
-                                ) : (
-                                  <Cloud className="h-3 w-3 text-blue-500" />
-                                )}
+                                <Cloud className="h-3 w-3 text-blue-500" />
                                 <span>{model.label}</span>
                               </div>
                             </SelectItem>

@@ -5,8 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { headers } from "next/headers"
-import { auth } from "@/lib/auth"
+import { getSessionWithBypass } from "@/lib/auth/api-helpers"
 import {
   getPatentResearchByUserId,
   createPatentResearch,
@@ -133,9 +132,7 @@ function calculateStats(patents: DbPatentResearch[]): {
  */
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(
@@ -199,9 +196,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(

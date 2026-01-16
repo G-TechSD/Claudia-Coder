@@ -12,7 +12,7 @@ import {
  *
  * This test suite covers EVERY navigation item in the sidebar:
  * - Projects Category: Dashboard, Projects, Business Ideas, Voice
- * - Tools Category: Claude Code, Open Web UI, Business Dev, Research, Patents, Source Control, n8n
+ * - Tools Category: Claude Code, Open Web UI, Business Dev, Research, Patents, Gitea, n8n
  * - Admin Category: Admin Panel, Users, Sessions, Invites, Referrals, Migration, Cleanup, Settings, Security
  * - Bottom Navigation: Trash
  */
@@ -40,7 +40,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { name: 'Business Dev', href: '/business-dev', category: 'Tools', expectedContent: ['Business', 'Development'] },
   { name: 'Research', href: '/research', category: 'Tools', expectedContent: ['Research'] },
   { name: 'Patents', href: '/patents', category: 'Tools', expectedContent: ['Patent'] },
-  { name: 'Source Control', href: '/gitea', category: 'Tools', expectedContent: ['Gitea', 'Source', 'Control', 'Git'] },
+  { name: 'Gitea', href: '/gitea', category: 'Tools', expectedContent: ['Gitea', 'Git'] },
   { name: 'n8n', href: '/n8n', category: 'Tools', expectedContent: ['n8n', 'Workflow', 'Automation'] },
 
   // Admin Category (requires admin role)

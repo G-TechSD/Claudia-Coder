@@ -41,8 +41,8 @@ test.describe('Integration Pages Tests', () => {
       // Expand Tools section
       await expandSidebarSection(page, 'Tools');
 
-      // Click on Source Control (which links to /gitea)
-      await navigateViaSidebar(page, 'Source Control');
+      // Click on Gitea (which links to /gitea)
+      await navigateViaSidebar(page, 'Gitea');
 
       // App stays at /gitea
       await expect(page).toHaveURL(/\/gitea/);
@@ -189,8 +189,8 @@ test.describe('Integration Pages Tests', () => {
     });
   });
 
-  test.describe('Source Control Sidebar Item', () => {
-    test('should have Source Control in Tools section', async ({ page }) => {
+  test.describe('Gitea Sidebar Item', () => {
+    test('should have Gitea in Tools section', async ({ page }) => {
       await page.goto('/');
       await waitForAppReady(page);
 
@@ -199,43 +199,43 @@ test.describe('Integration Pages Tests', () => {
 
       await page.waitForTimeout(500);
 
-      // Look for Source Control link
-      const sourceControlLink = page.locator('aside a:has-text("Source Control")');
+      // Look for Gitea link
+      const giteaLink = page.locator('aside a:has-text("Gitea")');
 
-      await takeScreenshot(page, 'source-control-in-sidebar');
+      await takeScreenshot(page, 'gitea-in-sidebar');
 
-      await expect(sourceControlLink).toBeVisible();
+      await expect(giteaLink).toBeVisible();
     });
 
-    test('should Source Control link point to /gitea', async ({ page }) => {
+    test('should Gitea link point to /gitea', async ({ page }) => {
       await page.goto('/');
       await waitForAppReady(page);
 
       // Expand Tools section
       await expandSidebarSection(page, 'Tools');
 
-      const sourceControlLink = page.locator('aside a:has-text("Source Control")');
+      const giteaLink = page.locator('aside a:has-text("Gitea")');
 
       // Check href attribute points to /gitea
-      const href = await sourceControlLink.getAttribute('href');
+      const href = await giteaLink.getAttribute('href');
       expect(href).toBe('/gitea');
     });
 
-    test('should navigate from Source Control to Gitea page', async ({ page }) => {
+    test('should navigate from Gitea sidebar to Gitea page', async ({ page }) => {
       await page.goto('/');
       await waitForAppReady(page);
 
       // Expand Tools section
       await expandSidebarSection(page, 'Tools');
 
-      // Click Source Control
-      await page.click('aside a:has-text("Source Control")');
+      // Click Gitea
+      await page.click('aside a:has-text("Gitea")');
       await waitForAppReady(page);
 
       // App stays at /gitea
       await expect(page).toHaveURL(/\/gitea/);
 
-      await takeScreenshot(page, 'source-control-navigates-to-gitea');
+      await takeScreenshot(page, 'gitea-sidebar-navigates-to-gitea');
     });
   });
 
@@ -255,7 +255,7 @@ test.describe('Integration Pages Tests', () => {
       const expectedTools = [
         'Claude Code',
         'Open Web UI',
-        'Source Control',
+        'Gitea',
         'n8n',
       ];
 
@@ -270,7 +270,7 @@ test.describe('Integration Pages Tests', () => {
       const toolPages = [
         { name: 'Claude Code', url: '/claude-code' },
         { name: 'Open Web UI', url: '/openwebui' },
-        { name: 'Source Control', url: '/gitea' },
+        { name: 'Gitea', url: '/gitea' },
         { name: 'n8n', url: '/n8n' },
       ];
 
