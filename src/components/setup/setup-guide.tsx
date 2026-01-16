@@ -18,7 +18,10 @@ import {
   Loader2,
   ExternalLink,
   Settings,
-  Zap
+  Zap,
+  GitBranch,
+  Workflow,
+  MessageCircle
 } from "lucide-react"
 import {
   getGlobalSettings,
@@ -41,9 +44,11 @@ export function SetupGuide() {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isChecking, setIsChecking] = useState(true)
   const [steps, setSteps] = useState<SetupStep[]>([])
+  const [serviceStatus, setServiceStatus] = useState<{n8n: boolean, gitea: boolean, openwebui: boolean}>({n8n: false, gitea: false, openwebui: false})
 
   useEffect(() => {
     checkSetupStatus()
+    checkServiceStatus()
   }, [])
 
   async function checkSetupStatus() {
@@ -61,7 +66,7 @@ export function SetupGuide() {
 
     // Check actual setup status
     const settings = getGlobalSettings()
-    const newSteps = await buildSetupSteps(settings)
+    const newSteps = await buildSetupSteps(settings, serviceStatus)
     setSteps(newSteps)
 
     // Show if any steps are incomplete
@@ -70,7 +75,7 @@ export function SetupGuide() {
     setIsChecking(false)
   }
 
-  async function buildSetupSteps(settings: ReturnType<typeof getGlobalSettings>): Promise<SetupStep[]> {
+  async function buildSetupSteps(settings: ReturnType<typeof getGlobalSettings>, currentServiceStatus: {n8n: boolean, gitea: boolean, openwebui: boolean}): Promise<SetupStep[]> {
     // Check local server status
     let localServerOnline = false
     try {
@@ -125,8 +130,69 @@ export function SetupGuide() {
         isComplete: hasDefaultModel,
         href: "/settings/providers",
         action: "Select"
+      },
+      // Services section
+      {
+        id: 'n8n',
+        title: 'n8n Workflows',
+        description: currentServiceStatus.n8n
+          ? 'n8n automation server is connected'
+          : 'Connect n8n for AI workflow automation',
+        icon: <Workflow className="h-4 w-4" />,
+        isComplete: currentServiceStatus.n8n,
+        href: '/workflows',
+        action: 'Open Workflows'
+      },
+      {
+        id: 'gitea',
+        title: 'Gitea Git Server',
+        description: currentServiceStatus.gitea
+          ? 'Gitea is connected and ready'
+          : 'Connect Gitea for Git repository management',
+        icon: <GitBranch className="h-4 w-4" />,
+        isComplete: currentServiceStatus.gitea,
+        href: '/settings/gitea',
+        action: 'Configure Gitea'
+      },
+      {
+        id: 'openwebui',
+        title: 'OpenWebUI Chat',
+        description: currentServiceStatus.openwebui
+          ? 'OpenWebUI chat interface is available'
+          : 'Connect OpenWebUI for an alternative chat interface',
+        icon: <MessageCircle className="h-4 w-4" />,
+        isComplete: currentServiceStatus.openwebui,
+        href: '/settings',
+        action: 'Configure OpenWebUI'
       }
     ]
+  }
+
+  // Check status of external services (n8n, Gitea, OpenWebUI)
+  const checkServiceStatus = async () => {
+    try {
+      const [n8nRes, giteaRes, openwebuiRes] = await Promise.all([
+        fetch('/api/n8n-status').then(r => r.ok ? r.json() : { healthy: false }).catch(() => ({ healthy: false })),
+        fetch('/api/gitea/health', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: 'http://localhost:3001' })
+        }).then(r => r.ok ? r.json() : { healthy: false }).catch(() => ({ healthy: false })),
+        fetch('/api/openwebui/health', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: 'http://localhost:8080' })
+        }).then(r => r.ok ? r.json() : { healthy: false }).catch(() => ({ healthy: false }))
+      ])
+
+      setServiceStatus({
+        n8n: n8nRes.healthy === true,
+        gitea: giteaRes.healthy === true,
+        openwebui: openwebuiRes.healthy === true
+      })
+    } catch (error) {
+      console.error('Failed to check service status:', error)
+    }
   }
 
   function handleDismiss() {
@@ -263,6 +329,27 @@ export function SetupGuide() {
               </div>
             ))}
           </div>
+
+          {/* Ready to go celebration */}
+          {allComplete && (
+            <div className="mt-6 p-6 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-xl">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="h-16 w-16 rounded-full bg-green-500/20 flex items-center justify-center">
+                  <CheckCircle2 className="h-10 w-10 text-green-500" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-green-400 mb-2">Ready to go!</h3>
+                  <p className="text-muted-foreground">All systems connected and ready!</p>
+                </div>
+                <Button asChild size="lg" className="bg-green-600 hover:bg-green-700 text-white">
+                  <a href="/projects/new">
+                    <Sparkles className="h-5 w-5 mr-2" />
+                    Create Your First Project
+                  </a>
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex items-center justify-between pt-4 mt-4 border-t">
