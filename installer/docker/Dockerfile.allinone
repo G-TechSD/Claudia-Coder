@@ -91,6 +91,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     # Network utilities
     netcat-openbsd \
+    # Compression utilities (required for Ollama)
+    zstd \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================
