@@ -910,7 +910,7 @@ export default function ProjectDetailPage() {
           onTabChange={setActiveTab}
           resourceCount={resourceCount}
           repoCount={project.repos.length}
-          packetCount={project.packetIds.length}
+          packetCount={packets.length}
           hasInterview={!!project.creationInterview}
         />
 
@@ -1071,7 +1071,7 @@ export default function ProjectDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{project.packetIds.length}</div>
+                <div className="text-2xl font-bold">{packets.length}</div>
               </CardContent>
             </Card>
             <Card>

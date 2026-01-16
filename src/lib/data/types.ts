@@ -53,6 +53,22 @@ export type ProjectStatus = "planning" | "active" | "paused" | "completed" | "ar
 export type ProjectPriority = "low" | "medium" | "high" | "critical"
 export type LinearSyncMode = "none" | "imported" | "two_way"
 
+// Project category determines whether game/creative detection should apply
+// Game/creative categories: "game", "vr", "creative", "interactive"
+// Non-game categories: "web", "mobile", "desktop", "api", "library", "tool", "standard"
+export type ProjectCategory =
+  | "game"
+  | "vr"
+  | "creative"
+  | "interactive"
+  | "web"
+  | "mobile"
+  | "desktop"
+  | "api"
+  | "library"
+  | "tool"
+  | "standard"
+
 export interface LinearSyncConfig {
   mode: LinearSyncMode
   projectId?: string
@@ -115,6 +131,10 @@ export interface Project {
   tags: string[]
   estimatedEffort?: string
   color?: string
+
+  // Project category - explicitly set to control game/creative detection
+  // If set to a non-game category (web, mobile, api, etc.), game detection is skipped
+  category?: ProjectCategory
 
   // User preferences
   starred?: boolean

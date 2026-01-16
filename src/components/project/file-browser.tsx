@@ -340,6 +340,7 @@ export function FileBrowser({ projectId, basePath, className, onSetBasePath }: F
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [errorCode, setErrorCode] = useState<string | null>(null)
+  const [attemptedPath, setAttemptedPath] = useState<string | null>(null)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [previewFile, setPreviewFile] = useState<FileNode | null>(null)
   const [downloading, setDownloading] = useState(false)
@@ -352,6 +353,7 @@ export function FileBrowser({ projectId, basePath, className, onSetBasePath }: F
       setLoading(true)
       setError(null)
       setErrorCode(null)
+      setAttemptedPath(null)
 
       const url = new URL(`/api/projects/${projectId}/files`, window.location.origin)
       if (basePath) {
@@ -363,6 +365,7 @@ export function FileBrowser({ projectId, basePath, className, onSetBasePath }: F
       if (!response.ok) {
         const data = await response.json()
         setErrorCode(data.code || null)
+        setAttemptedPath(data.attemptedPath || null)
         throw new Error(data.message || data.error || "Failed to load files")
       }
 
@@ -480,6 +483,7 @@ export function FileBrowser({ projectId, basePath, className, onSetBasePath }: F
   if (error) {
     // Special UI when basePath is not configured
     if (errorCode === "BASEPATH_NOT_SET") {
+      const folderDoesNotExist = !!attemptedPath
       return (
         <Card className={className}>
           <CardHeader>
@@ -488,16 +492,38 @@ export function FileBrowser({ projectId, basePath, className, onSetBasePath }: F
               Project Files
             </CardTitle>
             <CardDescription>
-              Configure the project folder location to browse files
+              {folderDoesNotExist
+                ? "The configured folder does not exist on disk"
+                : "Configure the project folder location to browse files"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex flex-col items-center justify-center text-center py-4">
-              <Settings className="h-12 w-12 text-muted-foreground/50 mb-4" />
-              <h3 className="font-medium mb-2">Project Folder Not Configured</h3>
-              <p className="text-muted-foreground mb-4 max-w-md">
-                To browse files, you need to set the project folder path. This is the directory containing your project&apos;s source code.
-              </p>
+              {folderDoesNotExist ? (
+                <AlertCircle className="h-12 w-12 text-orange-500/50 mb-4" />
+              ) : (
+                <Settings className="h-12 w-12 text-muted-foreground/50 mb-4" />
+              )}
+              <h3 className="font-medium mb-2">
+                {folderDoesNotExist ? "Folder Does Not Exist" : "Project Folder Not Configured"}
+              </h3>
+              {folderDoesNotExist ? (
+                <>
+                  <p className="text-muted-foreground mb-2 max-w-md">
+                    The configured path does not exist on disk:
+                  </p>
+                  <code className="text-sm bg-muted px-3 py-1.5 rounded font-mono mb-4 text-orange-600 dark:text-orange-400">
+                    {attemptedPath}
+                  </code>
+                  <p className="text-muted-foreground text-sm max-w-md">
+                    Create this folder manually, or configure a different path below.
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground mb-4 max-w-md">
+                  To browse files, you need to set the project folder path. This is the directory containing your project&apos;s source code.
+                </p>
+              )}
             </div>
 
             {showPathInput ? (
@@ -541,11 +567,15 @@ export function FileBrowser({ projectId, basePath, className, onSetBasePath }: F
                 </div>
               </div>
             ) : (
-              <div className="flex justify-center">
+              <div className="flex flex-col items-center gap-4">
                 <Button onClick={() => setShowPathInput(true)}>
                   <Settings className="h-4 w-4 mr-2" />
                   Configure Project Folder
                 </Button>
+                <p className="text-xs text-muted-foreground max-w-sm text-center">
+                  Set the path to an existing project folder on your local filesystem.
+                  If you need to create a new folder, use the &quot;Initialize Folder&quot; option in the Build Plan tab.
+                </p>
               </div>
             )}
           </CardContent>

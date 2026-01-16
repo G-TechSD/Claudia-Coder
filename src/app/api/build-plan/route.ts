@@ -130,12 +130,14 @@ async function generateBusinessDevAnalysis(
       ? preferredProvider
       : undefined
 
+  // Use larger max_tokens for local LLM (Beast has 131072 context, free to use)
+  // Paid APIs keep 4096 to minimize costs
   const localResponse = await generateWithLocalLLM(
     BUSINESS_DEV_SYSTEM_PROMPT,
     businessDevPrompt,
     {
       temperature: 0.7,
-      max_tokens: 4096,
+      max_tokens: 16384,
       preferredServer: localPreferredServer,
       preferredModel: preferredModel || undefined
     }
@@ -591,12 +593,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Use larger max_tokens for local LLM (Beast has 131072 context, free to use)
+    // Paid APIs above keep 4096 to minimize costs
     const localResponse = await generateWithLocalLLM(
       BUILD_PLAN_SYSTEM_PROMPT,
       userPrompt,
       {
         temperature: 0.7,
-        max_tokens: 4096,
+        max_tokens: 16384,
         preferredServer: localPreferredServer,
         preferredModel: preferredModel || undefined  // Pass specific model ID to use
       }

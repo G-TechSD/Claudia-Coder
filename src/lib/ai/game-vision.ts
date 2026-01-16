@@ -11,12 +11,35 @@
 
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
 import type { ExtractedNuance } from "./nuance-extraction"
+import type { ProjectCategory } from "@/lib/data/types"
+
+// Categories that are explicitly game/creative - vision packets apply
+export const GAME_CREATIVE_CATEGORIES: ProjectCategory[] = ["game", "vr", "creative", "interactive"]
+
+// Categories that are explicitly NOT game/creative - skip game detection entirely
+export const NON_GAME_CATEGORIES: ProjectCategory[] = ["web", "mobile", "desktop", "api", "library", "tool"]
+
+/**
+ * Helper function to check if a category is game/creative
+ */
+export function isGameCreativeCategory(category: ProjectCategory | undefined): boolean {
+  return !!category && GAME_CREATIVE_CATEGORIES.includes(category)
+}
+
+/**
+ * Helper function to check if a category is explicitly non-game
+ */
+export function isNonGameCategory(category: ProjectCategory | undefined): boolean {
+  return !!category && NON_GAME_CATEGORIES.includes(category)
+}
 
 /**
  * Keywords that indicate a game or creative project
  */
 export const GAME_CREATIVE_KEYWORDS = {
-  // Primary indicators (strong signal)
+  // Primary indicators (strong signal) - these are unambiguous game/creative terms
+  // NOTE: Avoid adding terms that are commonly used in non-game software
+  // (e.g., "story" for user stories, "demo" for product demos, "alpha/beta" for releases)
   primary: [
     "game",
     "games",
@@ -32,12 +55,12 @@ export const GAME_CREATIVE_KEYWORDS = {
     "player",
     "players",
     "playable",
-    "story",
+    // "story" moved to secondary - conflicts with "user story" in agile
     "storyline",
     "plot",
-    "narrative",
-    "character",
-    "characters",
+    // "narrative" moved to secondary - too generic
+    // "character" moved to secondary - conflicts with "character encoding"
+    "characters",  // plural is more game-specific
     "protagonist",
     "antagonist",
     "npc",
@@ -50,9 +73,11 @@ export const GAME_CREATIVE_KEYWORDS = {
     "platformer",
     "puzzle game",
     "adventure game",
-    "simulation",
-    "sim",
-    "sandbox",
+    // "simulation" moved to secondary - too generic (business simulation, etc.)
+    "game simulation",  // more specific
+    // "sim" moved to secondary - too generic
+    // "sandbox" moved to secondary - conflicts with dev sandbox
+    "sandbox game",  // more specific
     "open world",
     "steam",
     "epic games",
@@ -64,7 +89,17 @@ export const GAME_CREATIVE_KEYWORDS = {
     "rpgmaker",
   ],
   // Secondary indicators (moderate signal)
+  // These need to combine with other signals to indicate a game project
+  // Includes terms moved from primary that are ambiguous in isolation
   secondary: [
+    // Moved from primary (ambiguous in isolation)
+    "story",        // conflicts with "user story" in agile - needs other game context
+    "narrative",    // too generic alone
+    "character",    // conflicts with "character encoding" - needs other game context
+    "simulation",   // could be business simulation
+    "sim",          // too short/generic
+    "sandbox",      // conflicts with dev sandbox
+    // Original secondary keywords
     "level",
     "levels",
     "quest",
@@ -97,12 +132,12 @@ export const GAME_CREATIVE_KEYWORDS = {
     "pixel art",
     "sprite",
     "sprites",
-    "animation",
+    "animation",    // Note: also ambiguous (CSS animation) but combined with others is ok
     "cinematics",
     "trailer",
-    "demo",
-    "alpha",
-    "beta",
+    "demo",         // Note: ambiguous (product demo) but combined with others is ok
+    "alpha",        // Note: ambiguous (software release) but combined with others is ok
+    "beta",         // Note: ambiguous (software release) but combined with others is ok
     "early access",
     "dlc",
     "expansion",
@@ -218,12 +253,57 @@ export interface GeneratedVision {
 
 /**
  * Detect if a project is a game or creative project
+ *
+ * @param projectName - The project name
+ * @param projectDescription - The project description
+ * @param issueContent - Optional array of issue content strings
+ * @param explicitCategory - Optional explicit project category that overrides keyword detection
+ *
+ * If explicitCategory is set:
+ * - Game/creative categories (game, vr, creative, interactive) -> isGameOrCreative = true
+ * - Non-game categories (web, mobile, desktop, api, library, tool) -> isGameOrCreative = false
+ * - "standard" or undefined -> fall back to keyword detection
  */
 export function detectGameOrCreativeProject(
   projectName: string,
   projectDescription: string,
-  issueContent?: string[]
+  issueContent?: string[],
+  explicitCategory?: ProjectCategory
 ): GameProjectDetection {
+  // PRIORITY 1: Explicit category overrides keyword detection
+  // This prevents false positives for non-game projects that happen to have game-ish keywords
+  if (explicitCategory && NON_GAME_CATEGORIES.includes(explicitCategory)) {
+    // Explicitly marked as non-game project - skip game detection entirely
+    return {
+      isGameOrCreative: false,
+      confidence: "high",
+      matchedKeywords: [],
+      projectType: "standard",
+      suggestedCategory: explicitCategory === "web" ? "Web Application"
+        : explicitCategory === "mobile" ? "Mobile App"
+        : explicitCategory === "desktop" ? "Desktop Application"
+        : explicitCategory === "api" ? "API/Backend Service"
+        : explicitCategory === "library" ? "Library/Package"
+        : explicitCategory === "tool" ? "Developer Tool"
+        : "Software",
+    }
+  }
+
+  if (explicitCategory && GAME_CREATIVE_CATEGORIES.includes(explicitCategory)) {
+    // Explicitly marked as game/creative project
+    return {
+      isGameOrCreative: true,
+      confidence: "high",
+      matchedKeywords: [`explicit:${explicitCategory}`],
+      projectType: explicitCategory as "game" | "vr" | "creative" | "interactive",
+      suggestedCategory: explicitCategory === "game" ? "Video Game"
+        : explicitCategory === "vr" ? "VR/AR Experience"
+        : explicitCategory === "creative" ? "Creative Project"
+        : "Interactive Experience",
+    }
+  }
+
+  // PRIORITY 2: Fall back to keyword detection for "standard" or undefined category
   const allText = [
     projectName,
     projectDescription,
@@ -263,22 +343,29 @@ export function detectGameOrCreativeProject(
   }
 
   // Calculate confidence and determine type
+  // Scoring: primary keywords are strong indicators, secondary/creative need to combine
   const totalScore = primaryMatches * 3 + secondaryMatches * 2 + creativeMatches * 2
   let confidence: "high" | "medium" | "low"
   let isGameOrCreative = false
   let projectType: "game" | "vr" | "creative" | "interactive" | "standard" = "standard"
   let suggestedCategory = "Software"
 
+  // IMPORTANT: Only classify as game/creative with sufficient evidence
+  // A single keyword match is NOT enough - requires multiple signals
+  // This prevents false positives from common terms like "story", "demo", "animation"
   if (totalScore >= 10 || primaryMatches >= 3) {
     confidence = "high"
     isGameOrCreative = true
   } else if (totalScore >= 5 || primaryMatches >= 2) {
     confidence = "medium"
     isGameOrCreative = true
-  } else if (totalScore >= 2 || primaryMatches >= 1) {
+  } else if (totalScore >= 3 && primaryMatches >= 1 && (secondaryMatches >= 1 || creativeMatches >= 1)) {
+    // Low confidence requires BOTH a primary match AND supporting evidence
+    // This prevents single-keyword false positives
     confidence = "low"
     isGameOrCreative = true
   } else {
+    // Not enough evidence - don't classify as game/creative
     confidence = "low"
     isGameOrCreative = false
   }

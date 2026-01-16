@@ -175,6 +175,12 @@ export function PriorArtSection({
 
   // Perform research
   const performResearch = async () => {
+    // Validate required fields before calling API
+    if (!projectDescription || projectDescription.trim() === "") {
+      setError("Please add a project description before researching. The description helps identify relevant competitors and market analysis.")
+      return
+    }
+
     setIsResearching(true)
     setError(null)
     setResearchStatus("Searching for existing solutions...")

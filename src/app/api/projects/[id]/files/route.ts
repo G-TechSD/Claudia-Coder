@@ -12,10 +12,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { headers } from "next/headers"
 import { promises as fs } from "fs"
 import path from "path"
-import { auth } from "@/lib/auth"
+import { getSessionWithBypass } from "@/lib/auth/api-helpers"
 
 // Maximum file size for reading content (5MB)
 const MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -228,8 +227,8 @@ export async function GET(
   { params }: RouteParams
 ) {
   try {
-    // Authenticate user via session
-    const session = await auth.api.getSession({ headers: await headers() })
+    // Authenticate user via session (with beta auth bypass support)
+    const session = await getSessionWithBypass()
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
@@ -254,10 +253,15 @@ export async function GET(
       return NextResponse.json(
         {
           error: "Project folder not configured",
-          message: "No project folder path is set for this project.",
-          suggestion: "Go to the project's Files tab and set the project folder path, or edit the project settings to add a basePath.",
+          message: basePath
+            ? `The specified folder does not exist: ${basePath}`
+            : "No project folder path is set for this project.",
+          suggestion: basePath
+            ? "The folder path is set but the directory doesn't exist on disk. Either create the folder manually, use the 'Initialize Folder' feature in the Build Plan tab, or update the path to an existing directory."
+            : "Go to the project's Files tab and set the project folder path, or edit the project settings to add a basePath.",
           helpUrl: `/projects/${projectId}?tab=files`,
-          code: "BASEPATH_NOT_SET"
+          code: "BASEPATH_NOT_SET",
+          attemptedPath: basePath || undefined
         },
         { status: 404 }
       )

@@ -197,9 +197,18 @@ export async function POST(request: NextRequest) {
       allowPaidFallback = false
     } = body
 
-    if (!projectId || !projectName || !projectDescription) {
+    // Validate required fields - check for both missing and empty values
+    const missingFields: string[] = []
+    if (!projectId || projectId.trim() === "") missingFields.push("projectId")
+    if (!projectName || projectName.trim() === "") missingFields.push("projectName")
+    if (!projectDescription || projectDescription.trim() === "") missingFields.push("projectDescription")
+
+    if (missingFields.length > 0) {
       return NextResponse.json(
-        { error: "projectId, projectName, and projectDescription are required" },
+        {
+          error: `Missing required fields: ${missingFields.join(", ")}. Please ensure the project has a name and description before researching.`,
+          missingFields
+        },
         { status: 400 }
       )
     }

@@ -328,8 +328,28 @@ export function ClaudiaSyncStatus({ projectId, projectPath, className }: Claudia
 
   // Fetch sync status from API
   const fetchSyncStatus = useCallback(async () => {
+    // Skip API call if projectPath is empty - API requires workingDirectory
+    if (!projectPath) {
+      setSyncStatus({
+        watchStatus: "disconnected",
+        lastScanAt: null,
+        isScanning: false,
+        updates: [],
+        pendingRequests: [],
+        stats: {
+          totalUpdates: 0,
+          unreadUpdates: 0,
+          pendingRequests: 0,
+          completedToday: 0
+        }
+      })
+      setIsLoading(false)
+      return
+    }
+
     try {
-      const response = await fetch(`/api/claudia-sync?projectId=${projectId}`)
+      // Both projectId and workingDirectory are required by the API
+      const response = await fetch(`/api/claudia-sync?projectId=${projectId}&workingDirectory=${encodeURIComponent(projectPath)}`)
 
       if (!response.ok) {
         // If 404, return mock data for development

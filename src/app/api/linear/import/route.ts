@@ -298,7 +298,9 @@ export async function POST(request: NextRequest) {
       generateImplementationPackets = true, // Auto-generate implementation packets for game projects
       saveToMarkdown = true,  // Save vision/story as markdown documents
       preferredServer,  // For nuance extraction LLM
-      preferredModel    // For nuance extraction LLM
+      preferredModel,   // For nuance extraction LLM
+      explicitCategory  // Optional: explicit project category to override keyword detection
+                        // Values: "game", "vr", "creative", "interactive", "web", "mobile", "desktop", "api", "library", "tool", "standard"
     } = body
 
     // Support both single projectId (legacy) and multiple projectIds
@@ -332,13 +334,15 @@ export async function POST(request: NextRequest) {
     const issueContent = allIssues.map(i => `${i.title} ${i.description || ""}`).join("\n")
 
     // Detect if this is a game/creative project
+    // If explicitCategory is provided, it overrides keyword detection
     const gameDetection = detectGameOrCreativeProject(
       projectNames,
       projectDescriptions,
-      [issueContent]
+      [issueContent],
+      explicitCategory  // Pass explicit category to override keyword detection
     )
 
-    console.log(`[Linear Import] Game/creative detection: isGameOrCreative=${gameDetection.isGameOrCreative}, confidence=${gameDetection.confidence}, type=${gameDetection.projectType}, matchedKeywords=${gameDetection.matchedKeywords.length}`)
+    console.log(`[Linear Import] Game/creative detection: isGameOrCreative=${gameDetection.isGameOrCreative}, confidence=${gameDetection.confidence}, type=${gameDetection.projectType}, matchedKeywords=${gameDetection.matchedKeywords.length}, explicitCategory=${explicitCategory || 'none'}`)
 
     // Extract nuance from comments if enabled
     const nuanceMap: Map<string, ExtractedNuance> = new Map()

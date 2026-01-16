@@ -294,6 +294,16 @@ export default function ResearchPage() {
     const entry = getResearch(id, userId)
     if (!entry) return
 
+    // Validate required fields before calling API
+    if (!entry.description || entry.description.trim() === "") {
+      updateResearch(id, {
+        status: "failed",
+        notes: "Research failed: Please add a description for this research topic. The description helps identify relevant competitors and market analysis."
+      }, userId)
+      loadEntries()
+      return
+    }
+
     setResearchingId(id)
     setResearchStatus("Starting research...")
 
