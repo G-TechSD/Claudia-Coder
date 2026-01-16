@@ -130,11 +130,13 @@ RUN python3 -m venv /opt/whisper-venv \
 
 # ============================================
 # Install OpenWebUI
+# TEMPORARILY DISABLED - pip hash mismatch errors
+# OpenWebUI can be added later as a separate container
 # ============================================
-RUN python3 -m venv /opt/openwebui-venv \
-    && /opt/openwebui-venv/bin/pip install --no-cache-dir \
-        open-webui \
-    && mkdir -p /data/openwebui
+# RUN python3 -m venv /opt/openwebui-venv \
+#     && /opt/openwebui-venv/bin/pip install --no-cache-dir \
+#         open-webui \
+#     && mkdir -p /data/openwebui
 
 # ============================================
 # Install Ollama (Local LLM Server)
