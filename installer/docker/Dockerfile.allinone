@@ -9,6 +9,8 @@
 # - Gitea (lightweight Git server)
 # - n8n (workflow automation)
 # - faster-whisper (speech-to-text)
+# - OpenWebUI (chat interface)
+# - Ollama (local LLM server with tinyllama)
 # - PostgreSQL
 # - Redis
 # - Supervisor (process manager)
@@ -17,17 +19,16 @@
 # ============================================
 # Stage 1: Build Claudia Coder Application
 # ============================================
-FROM node:20-alpine AS claudia-builder
+FROM node:20-bookworm AS claudia-builder
 
 WORKDIR /build
 
 # Install build dependencies for native modules
-RUN apk add --no-cache \
-    libc6-compat \
+RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
-    linux-headers
+    build-essential && rm -rf /var/lib/apt/lists/*
 
 # Copy package files from the project root
 COPY package.json package-lock.json ./
@@ -35,6 +36,7 @@ COPY package.json package-lock.json ./
 # Install dependencies
 RUN npm ci --ignore-scripts && \
     npm rebuild better-sqlite3 && \
+    npm rebuild node-pty && \
     npm cache clean --force
 
 # Copy source code
@@ -56,7 +58,7 @@ RUN npm run build
 FROM debian:bookworm-slim
 
 LABEL maintainer="Claudia Coder Team"
-LABEL description="All-in-One Claudia Coder with Gitea, n8n, Whisper, PostgreSQL, Redis"
+LABEL description="All-in-One Claudia Coder with Gitea, n8n, OpenWebUI, Whisper, Ollama, PostgreSQL, Redis"
 LABEL version="1.0.0"
 
 # Prevent interactive prompts during package installation
@@ -82,7 +84,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     redis-server \
     # Python for faster-whisper
     python3 \
-    python3-pip \
     python3-venv \
     # Build tools for native modules
     build-essential \
@@ -126,6 +127,21 @@ RUN python3 -m venv /opt/whisper-venv \
     && mkdir -p /data/whisper/models
 
 # ============================================
+# Install OpenWebUI
+# ============================================
+RUN python3 -m venv /opt/openwebui-venv \
+    && /opt/openwebui-venv/bin/pip install --no-cache-dir \
+        open-webui \
+    && mkdir -p /data/openwebui
+
+# ============================================
+# Install Ollama (Local LLM Server)
+# Provides pre-configured local LLM for AI features
+# ============================================
+RUN curl -fsSL https://ollama.com/install.sh | sh \
+    && mkdir -p /data/ollama
+
+# ============================================
 # Setup PostgreSQL
 # ============================================
 RUN mkdir -p /data/postgresql /run/postgresql \
@@ -136,6 +152,12 @@ RUN mkdir -p /data/postgresql /run/postgresql \
 # ============================================
 RUN mkdir -p /data/redis \
     && chown -R redis:redis /data/redis
+
+# ============================================
+# Create claudia user for the application
+# ============================================
+RUN groupadd --gid 1000 claudia \
+    && useradd --uid 1000 --gid claudia --shell /bin/bash --create-home claudia
 
 # ============================================
 # Copy Claudia Coder Application
@@ -153,7 +175,7 @@ RUN mkdir -p ./src/lib/db
 
 # Create data directories
 RUN mkdir -p /data/claudia /app/.local-storage /app/data \
-    && chown -R node:node /app /data/claudia
+    && chown -R claudia:claudia /app /data/claudia
 
 # ============================================
 # Copy Configuration Files
@@ -171,11 +193,14 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Service URLs (internal)
+# Service URLs (internal) - Pre-configured for all-in-one container
+# These URLs enable integrations to show "Connected" immediately after install
 ENV NEXT_PUBLIC_WHISPER_URL=http://localhost:8000
 ENV NEXT_PUBLIC_N8N_URL=http://localhost:5678
-ENV NEXT_PUBLIC_GITEA_URL=http://localhost:8929
+ENV NEXT_PUBLIC_GITEA_URL=http://localhost:3000
+ENV NEXT_PUBLIC_OPENWEBUI_URL=http://localhost:8080
 ENV NEXT_PUBLIC_APP_URL=http://localhost:3000
+ENV NEXT_PUBLIC_OLLAMA_URL=http://localhost:11434
 
 # PostgreSQL
 ENV POSTGRES_USER=claudia
@@ -209,6 +234,25 @@ ENV WHISPER_MODEL=base
 ENV WHISPER_DEVICE=cpu
 ENV WHISPER_COMPUTE_TYPE=int8
 
+# Better Auth - REQUIRED for authentication
+# Generate a secure secret for production: openssl rand -base64 32
+ENV BETTER_AUTH_SECRET=claudia-docker-default-secret-change-in-production
+ENV DATABASE_URL=postgresql://claudia:claudia_secure_password@localhost:5432/claudia
+
+# OpenWebUI - Pre-configured to connect to Claudia's API
+ENV OPENAI_API_BASE_URL=http://localhost:3000/api/v1
+ENV OPENAI_API_KEY=claudia-internal
+ENV ENABLE_OLLAMA_API=false
+ENV WEBUI_AUTH=false
+ENV DATA_DIR=/data/openwebui
+ENV PORT_OPENWEBUI=8080
+ENV OPENWEBUI_DATABASE_URL=postgresql://claudia:claudia_secure_password@localhost:5432/openwebui
+
+# Ollama - Local LLM Server (pre-configured with tinyllama)
+ENV OLLAMA_HOST=0.0.0.0
+ENV OLLAMA_PORT=11434
+ENV OLLAMA_MODELS=/data/ollama
+
 # ============================================
 # Expose Ports
 # ============================================
@@ -216,7 +260,9 @@ ENV WHISPER_COMPUTE_TYPE=int8
 # 8929 - Gitea (Git server)
 # 5678 - n8n (Workflow automation)
 # 8000 - Whisper (Speech-to-text API)
-EXPOSE 3000 8929 5678 8000
+# 8080 - OpenWebUI (Chat interface)
+# 11434 - Ollama (Local LLM API)
+EXPOSE 3000 8929 5678 8000 8080 11434
 
 # ============================================
 # Volumes

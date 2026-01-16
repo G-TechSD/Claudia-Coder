@@ -36,6 +36,12 @@ while ! nc -z localhost 8000; do
 done
 echo "Whisper is ready!"
 
+echo "Waiting for Ollama..."
+while ! nc -z localhost 11434; do
+    sleep 1
+done
+echo "Ollama is ready!"
+
 echo "All services are ready! Starting Claudia Coder..."
 
 # Set environment variables
@@ -49,6 +55,7 @@ export NEXT_PUBLIC_WHISPER_URL="${NEXT_PUBLIC_WHISPER_URL:-http://localhost:8000
 export NEXT_PUBLIC_N8N_URL="${NEXT_PUBLIC_N8N_URL:-http://localhost:5678}"
 export NEXT_PUBLIC_GITEA_URL="${NEXT_PUBLIC_GITEA_URL:-http://localhost:8929}"
 export NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-http://localhost:3000}"
+export NEXT_PUBLIC_OLLAMA_URL="${NEXT_PUBLIC_OLLAMA_URL:-http://localhost:11434}"
 
 # Database connection (for future use if Claudia needs PostgreSQL)
 export DATABASE_URL="${DATABASE_URL:-postgresql://claudia:claudia_secure_password@localhost:5432/claudia}"

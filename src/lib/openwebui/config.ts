@@ -47,9 +47,15 @@ function getStorageKey(userId: string): string {
 
 // ============ Default Configuration ============
 
+/**
+ * Default OpenWebUI URL for all-in-one container
+ * OpenWebUI runs on port 8080 in the bundled container
+ */
+export const DEFAULT_OPENWEBUI_URL = process.env.NEXT_PUBLIC_OPENWEBUI_URL || "http://localhost:8080"
+
 export function createDefaultOpenWebUIConfig(): OpenWebUIConfig {
   return {
-    baseUrl: "",  // Must be configured by user
+    baseUrl: DEFAULT_OPENWEBUI_URL,  // Pre-configured for all-in-one container
     enabled: true,
     autoConnect: true,
     defaultFullscreen: false,

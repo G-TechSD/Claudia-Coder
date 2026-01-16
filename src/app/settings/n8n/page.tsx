@@ -208,7 +208,7 @@ export default function N8NSettingsPage() {
     )
   }
 
-  const sharedN8NUrl = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
+  const sharedN8NUrl = process.env.NEXT_PUBLIC_N8N_URL || "http://localhost:5678"
 
   return (
     <div className="flex flex-col gap-6 p-6 h-full overflow-auto">
