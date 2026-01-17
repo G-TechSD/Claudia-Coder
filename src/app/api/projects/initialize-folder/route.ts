@@ -32,8 +32,30 @@ import {
   generateSlug
 } from "@/lib/project-files/generators"
 import { getSessionWithBypass, unauthorizedResponse } from "@/lib/auth/api-helpers"
+import { getUserGitLabToken, getUserGitLabUrl } from "@/lib/data/user-gitlab"
 
 const execAsync = promisify(exec)
+
+/**
+ * Get authenticated clone URL by embedding the GitLab token
+ * Converts https://host/path/repo.git to https://oauth2:TOKEN@host/path/repo.git
+ */
+function getAuthenticatedCloneUrl(repoUrl: string, token: string | null): string {
+  if (!token) return repoUrl
+
+  try {
+    const url = new URL(repoUrl)
+    // Only add credentials for HTTPS URLs
+    if (url.protocol === "https:") {
+      url.username = "oauth2"
+      url.password = token
+      return url.toString()
+    }
+  } catch {
+    // Invalid URL, return as-is
+  }
+  return repoUrl
+}
 
 // Base directory for all Claudia project working directories
 const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || "/home/bill/claudia-projects"
@@ -175,17 +197,22 @@ function generateWorkingDirectoryPath(projectName: string, projectId?: string): 
 
 /**
  * Clone a git repository
+ * @param repoUrl - The repository URL to clone
+ * @param targetDir - Target directory to clone into
+ * @param token - Optional GitLab token for authentication
  */
 async function cloneRepository(
   repoUrl: string,
-  targetDir: string
-): Promise<{ success: boolean; error?: string; path?: string }> {
+  targetDir: string,
+  token?: string | null
+): Promise<{ success: boolean; error?: string; path?: string; authFailed?: boolean }> {
   const repoPath = path.join(targetDir, "repo")
 
   try {
-    // Create repo directory if it doesn't exist
+    // Always create the repo directory first (even if clone fails)
     if (!existsSync(repoPath)) {
       await mkdir(repoPath, { recursive: true })
+      console.log(`[initialize-folder] Created repo directory: ${repoPath}`)
     }
 
     // Check if already cloned
@@ -194,21 +221,58 @@ async function cloneRepository(
       return { success: true, path: repoPath }
     }
 
-    // Clone the repository
+    // Get authenticated URL if token is available
+    const cloneUrl = getAuthenticatedCloneUrl(repoUrl, token || null)
+
+    // Log without exposing token
     console.log(`[initialize-folder] Cloning repository: ${repoUrl}`)
-    const { stderr } = await execAsync(`git clone "${repoUrl}" "${repoPath}"`, {
-      timeout: 120000 // 2 minute timeout
+    console.log(`[initialize-folder] Using token authentication: ${!!token}`)
+
+    // Clone with GIT_TERMINAL_PROMPT=0 to prevent interactive auth prompts
+    const { stderr } = await execAsync(`git clone "${cloneUrl}" "${repoPath}"`, {
+      timeout: 120000, // 2 minute timeout
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",  // Prevent interactive prompts
+        GIT_ASKPASS: "",           // Disable askpass
+      }
     })
 
     // Git outputs progress to stderr, check for actual errors
     if (stderr && stderr.includes("fatal:")) {
-      return { success: false, error: stderr }
+      // Check for authentication errors
+      if (stderr.includes("Authentication failed") ||
+          stderr.includes("could not read Username") ||
+          stderr.includes("could not read Password") ||
+          stderr.includes("Invalid username or password")) {
+        return {
+          success: false,
+          error: "Git authentication failed. Please ensure your GitLab token is configured in Settings > GitLab, and has 'read_repository' scope.",
+          path: repoPath,
+          authFailed: true
+        }
+      }
+      return { success: false, error: stderr, path: repoPath }
     }
 
     return { success: true, path: repoPath }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Clone failed"
-    return { success: false, error: message }
+
+    // Check for authentication errors in exception
+    if (message.includes("Authentication failed") ||
+        message.includes("could not read Username") ||
+        message.includes("could not read Password") ||
+        message.includes("No such device or address")) {
+      return {
+        success: false,
+        error: "Git authentication failed. Please configure your GitLab token in Settings > GitLab with 'read_repository' scope, or use SSH URL.",
+        path: repoPath,
+        authFailed: true
+      }
+    }
+
+    return { success: false, error: message, path: repoPath }
   }
 }
 
@@ -493,17 +557,26 @@ export async function POST(request: NextRequest) {
     }
 
     // Clone git repository if one is linked
-    let cloneResult: { success: boolean; error?: string; path?: string } | null = null
+    let cloneResult: { success: boolean; error?: string; path?: string; authFailed?: boolean } | null = null
     const repoToClone = project.repos.find(r => r.url && !r.localPath)
 
     if (repoToClone) {
       console.log(`[initialize-folder] Cloning repository: ${repoToClone.url}`)
-      cloneResult = await cloneRepository(repoToClone.url, workingDirectory)
+
+      // Get the user's GitLab token for authentication
+      const userId = session.user.id || session.user.email || "anonymous"
+      const gitlabToken = getUserGitLabToken(userId)
+
+      cloneResult = await cloneRepository(repoToClone.url, workingDirectory, gitlabToken)
 
       if (cloneResult.success && cloneResult.path) {
         createdFiles.push({ path: cloneResult.path, description: `Cloned repository: ${repoToClone.name}` })
         console.log(`[initialize-folder] Cloned repository to: ${cloneResult.path}`)
       } else if (cloneResult.error) {
+        // Still record the repo path even if clone failed (folder was created)
+        if (cloneResult.path) {
+          createdFiles.push({ path: cloneResult.path, description: `Repository folder (clone pending): ${repoToClone.name}` })
+        }
         errors.push(`Git clone failed: ${cloneResult.error}`)
         console.error(`[initialize-folder] Git clone error: ${cloneResult.error}`)
       }
