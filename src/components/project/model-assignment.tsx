@@ -617,7 +617,7 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                           onChange={(e) => setCustomName(e.target.value)}
                         />
                         <Input
-                          placeholder="URL (e.g., http://192.168.1.100:1234)"
+                          placeholder="URL (e.g., http://localhost:1234)"
                           value={customUrl}
                           onChange={(e) => setCustomUrl(e.target.value)}
                         />

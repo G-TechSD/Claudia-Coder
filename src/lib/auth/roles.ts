@@ -267,7 +267,7 @@ export function hasRoleLevel(userRole: Role, requiredRole: Role): boolean {
 
 /**
  * Determine the appropriate role for a new user
- * - bill@gtechsd.com always gets admin
+ * - the configured admin email always gets admin
  * - Users invited via code get beta_tester
  * - Other users get "user" role
  */

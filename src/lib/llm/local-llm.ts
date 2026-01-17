@@ -33,25 +33,25 @@ export interface ChatCompletionResponse {
 
 // Get configured LM Studio servers from environment
 // IMPORTANT: Do NOT change models or try to load others - use what's configured:
-// - Beast: gpt-oss-20b
-// - Bedroom: ministral-3-3b
+// - local-llm-server: gpt-oss-20b
+// - local-llm-server-2: ministral-3-3b
 export function getConfiguredServers(): LLMServer[] {
   const servers: LLMServer[] = []
 
   // LM Studio servers
-  if (process.env.NEXT_PUBLIC_LMSTUDIO_BEAST) {
+  if (process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1) {
     servers.push({
-      name: "Beast",
-      url: process.env.NEXT_PUBLIC_LMSTUDIO_BEAST,
+      name: "local-llm-server",
+      url: process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1,
       type: "lmstudio",
       status: "unknown"
     })
   }
 
-  if (process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM) {
+  if (process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2) {
     servers.push({
-      name: "Bedroom",
-      url: process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM,
+      name: "local-llm-server-2",
+      url: process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2,
       type: "lmstudio",
       status: "unknown"
     })
@@ -321,26 +321,26 @@ export async function chatCompletion(
 }
 
 // High-level function: Generate with local LLM, with automatic server selection
-// Default preferred server is "beast" with gpt-oss-20b model
-// compared to bedroom which only has the 3B model (ministral-3-3b)
+// Default preferred server is "local-llm-server" with gpt-oss-20b model
+// compared to local-llm-server-2 which only has the 3B model (ministral-3-3b)
 export async function generateWithLocalLLM(
   systemPrompt: string,
   userPrompt: string,
   options?: {
     temperature?: number
     max_tokens?: number
-    preferredServer?: string  // Defaults to "beast" for code tasks
+    preferredServer?: string  // Defaults to "local-llm-server" for code tasks
     preferredModel?: string   // Specific model ID to use (e.g., "gpt-oss-20b")
   }
 ): Promise<{ content: string; server?: string; model?: string; error?: string }> {
   const servers = getConfiguredServers()
 
-  // Default to Beast server which has the better code model
-  const preferredServer = options?.preferredServer ?? "beast"
+  // Default to local-llm-server which has the better code model
+  const preferredServer = options?.preferredServer ?? "local-llm-server"
 
-  // Default to gpt-oss-20b when using Beast server (unless explicitly overridden)
+  // Default to gpt-oss-20b when using local-llm-server (unless explicitly overridden)
   const preferredModel = options?.preferredModel ??
-    (preferredServer.toLowerCase() === "beast" ? "gpt-oss-20b" : undefined)
+    (preferredServer.toLowerCase() === "local-llm-server" ? "gpt-oss-20b" : undefined)
 
   // Track if we've explicitly requested a server (not using default)
   const hasExplicitPreference = options?.preferredServer !== undefined
@@ -365,7 +365,7 @@ export async function generateWithLocalLLM(
     console.log(`[LLM] User explicitly selected: ${preferredServerObj.name} (${preferredServerObj.url})`)
 
     // Use longer timeout for explicitly preferred servers (20s)
-    // This gives Beast's larger model time to respond
+    // This gives the larger model time to respond
     // Pass preferredModel to use specific model instead of first available
     const status = await checkServerStatus(preferredServerObj, false, 20000, preferredModel)
 
@@ -406,7 +406,7 @@ export async function generateWithLocalLLM(
     }
   }
 
-  // No explicit preference - try servers in order (Beast first, then Bedroom)
+  // No explicit preference - try servers in order (local-llm-server first, then local-llm-server-2)
   let serversToTry = servers
   if (preferredServerObj) {
     serversToTry = [preferredServerObj, ...servers.filter(s => s.name.toLowerCase() !== preferredLower)]

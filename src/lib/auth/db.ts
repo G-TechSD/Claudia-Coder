@@ -183,7 +183,7 @@ export function initializeAuthDatabase() {
 initializeAuthDatabase()
 
 // Import and run admin role check after database is ready
-// This ensures bill@gtechsd.com always has admin role
+// This ensures the configured admin email always has admin role
 import("./roles").then(({ ensureAdminRole }) => {
   ensureAdminRole()
 }).catch(() => {

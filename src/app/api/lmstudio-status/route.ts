@@ -31,18 +31,18 @@ export const revalidate = 0
 export async function GET() {
   const servers = []
 
-  // Check BEAST server
-  const beastUrl = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
-  if (beastUrl) {
-    const beastStatus = await checkServer("BEAST", beastUrl)
-    servers.push(beastStatus)
+  // Check local-llm-server
+  const server1Url = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
+  if (server1Url) {
+    const server1Status = await checkServer("local-llm-server", server1Url)
+    servers.push(server1Status)
   }
 
-  // Check BEDROOM server
-  const bedroomUrl = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
-  if (bedroomUrl) {
-    const bedroomStatus = await checkServer("BEDROOM", bedroomUrl)
-    servers.push(bedroomStatus)
+  // Check local-llm-server-2
+  const server2Url = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2
+  if (server2Url) {
+    const server2Status = await checkServer("local-llm-server-2", server2Url)
+    servers.push(server2Status)
   }
 
   // Return with no-cache headers to ensure fresh status on each request

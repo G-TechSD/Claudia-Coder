@@ -29,8 +29,8 @@ function getWhisperEndpoint(): string | null {
 
   // Priority: Dedicated Whisper server > LM Studio > Ollama
   const whisperUrl = process.env.NEXT_PUBLIC_WHISPER_URL
-  const lmstudioBeast = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
-  const lmstudioBedroom = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
+  const lmstudioServer1 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
+  const lmstudioServer2 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2
   const ollamaUrl = process.env.NEXT_PUBLIC_OLLAMA_URL
 
   // Prefer dedicated Whisper server
@@ -38,13 +38,13 @@ function getWhisperEndpoint(): string | null {
     return `${whisperUrl}/v1/audio/transcriptions`
   }
 
-  // Fallback to LM Studio BEAST for performance
-  if (lmstudioBeast) {
-    return `${lmstudioBeast}/v1/audio/transcriptions`
+  // Fallback to LM Studio Server 1 for performance
+  if (lmstudioServer1) {
+    return `${lmstudioServer1}/v1/audio/transcriptions`
   }
 
-  if (lmstudioBedroom) {
-    return `${lmstudioBedroom}/v1/audio/transcriptions`
+  if (lmstudioServer2) {
+    return `${lmstudioServer2}/v1/audio/transcriptions`
   }
 
   // Try Ollama

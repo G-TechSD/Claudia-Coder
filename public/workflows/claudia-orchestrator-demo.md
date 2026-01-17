@@ -194,4 +194,4 @@ For issues with this workflow:
 
 ---
 
-*This workflow is part of the Claudia Coder platform by G-Tech SD.*
+*This workflow is part of the Claudia Coder platform.*

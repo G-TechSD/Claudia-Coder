@@ -212,17 +212,17 @@ async function fetchAllModels(): Promise<OpenAIModel[]> {
   allModels.push(...anthropicModels, ...openaiModels, ...googleModels)
 
   // Local providers
-  const lmStudioBeast = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
-  const lmStudioBedroom = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
+  const lmStudioServer1 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
+  const lmStudioServer2 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2
   const ollamaUrl = process.env.NEXT_PUBLIC_OLLAMA_URL
 
   const localPromises: Promise<OpenAIModel[]>[] = []
 
-  if (lmStudioBeast) {
-    localPromises.push(fetchLMStudioModels(lmStudioBeast, "beast"))
+  if (lmStudioServer1) {
+    localPromises.push(fetchLMStudioModels(lmStudioServer1, "local-llm-server"))
   }
-  if (lmStudioBedroom) {
-    localPromises.push(fetchLMStudioModels(lmStudioBedroom, "bedroom"))
+  if (lmStudioServer2) {
+    localPromises.push(fetchLMStudioModels(lmStudioServer2, "local-llm-server-2"))
   }
   if (ollamaUrl) {
     localPromises.push(fetchOllamaModels(ollamaUrl))

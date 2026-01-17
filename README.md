@@ -241,8 +241,6 @@ MIT License - see [LICENSE](LICENSE)
 
 ## 🙏 Acknowledgments
 
-Built with ❤️ by G-Tech SD
-
 Powered by:
 - Next.js
 - LM Studio / Ollama

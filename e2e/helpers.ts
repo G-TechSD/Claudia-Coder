@@ -189,5 +189,5 @@ export async function navigateViaSidebar(
  * Gets the base URL from environment or default
  */
 export function getBaseUrl(): string {
-  return process.env.CLAUDIA_TEST_URL || 'http://johnny-test:3000';
+  return process.env.CLAUDIA_TEST_URL || 'http://localhost:3000';
 }

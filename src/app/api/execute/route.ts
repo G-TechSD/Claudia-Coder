@@ -93,17 +93,17 @@ const GITLAB_URL = process.env.GITLAB_URL || ""
 // Get servers from environment
 function getServers() {
   const servers = []
-  if (process.env.NEXT_PUBLIC_LMSTUDIO_BEAST) {
+  if (process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1) {
     servers.push({
-      name: "Beast",
-      url: process.env.NEXT_PUBLIC_LMSTUDIO_BEAST,
+      name: "local-llm-server",
+      url: process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1,
       type: "lmstudio" as const
     })
   }
-  if (process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM) {
+  if (process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2) {
     servers.push({
-      name: "Bedroom",
-      url: process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM,
+      name: "local-llm-server-2",
+      url: process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2,
       type: "lmstudio" as const
     })
   }

@@ -151,5 +151,3 @@ If ports are in use, stop conflicting services or modify the install script.
 - Issues: https://github.com/claudiacoder/claudia-admin/issues
 
 ---
-
-Made with care by G-Tech SD

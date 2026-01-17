@@ -342,7 +342,7 @@ export const AI_PROVIDERS: AIProvider[] = [
     type: "local",
     description: "Local models via LM Studio - FREE, privacy-first",
     configurable: true,
-    baseUrlEnvVar: "NEXT_PUBLIC_LMSTUDIO_BEAST",
+    baseUrlEnvVar: "NEXT_PUBLIC_LMSTUDIO_SERVER_1",
     models: [], // Populated dynamically
     defaultModel: "loaded-model"
   },

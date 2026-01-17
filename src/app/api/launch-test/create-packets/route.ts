@@ -32,8 +32,8 @@ interface WorkPacket {
 
 // LLM Server config
 const LLM_SERVERS = [
-  { name: "Beast", url: process.env.NEXT_PUBLIC_LMSTUDIO_BEAST },
-  { name: "Bedroom", url: process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM }
+  { name: "local-llm-server", url: process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1 },
+  { name: "local-llm-server-2", url: process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2 }
 ].filter(s => s.url)
 
 // System prompt for converting feedback to work packets

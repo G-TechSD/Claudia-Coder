@@ -241,7 +241,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
   // Visual Testing VM config
   const VISUAL_TEST_VM = {
     host: "172.18.22.114",
-    user: "johnny-test",
+    user: "localhost",
     display: ":1"
   }
 

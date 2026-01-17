@@ -76,14 +76,14 @@ const REGENERATION_MODEL_OPTIONS = [
   { value: "chatgpt", label: "ChatGPT (OpenAI)", type: "paid", icon: "cloud", server: "chatgpt", model: null },
   { value: "gemini", label: "Gemini (Google)", type: "paid", icon: "cloud", server: "gemini", model: null },
   { value: "anthropic", label: "Anthropic Claude", type: "paid", icon: "cloud", server: "anthropic", model: null },
-  // Specific local models - Beast server
-  { value: "Beast:gpt-oss-20b", label: "gpt-oss-20b (Beast - larger, better structure)", type: "local-model", icon: "brain", server: "Beast", model: "gpt-oss-20b" },
-  { value: "Beast:phind-codellama-34b-v2", label: "phind-codellama-34b-v2 (Beast - code focused)", type: "local-model", icon: "code", server: "Beast", model: "phind-codellama-34b-v2" },
-  // Specific local models - Bedroom server
-  { value: "Bedroom:ministral-3-3b", label: "ministral-3-3b (Bedroom - smaller, faster)", type: "local-model", icon: "zap", server: "Bedroom", model: "ministral-3-3b" },
+  // Specific local models - Primary LLM server
+  { value: "PrimaryLLM:gpt-oss-20b", label: "gpt-oss-20b (Primary LLM - larger, better structure)", type: "local-model", icon: "brain", server: "PrimaryLLM", model: "gpt-oss-20b" },
+  { value: "PrimaryLLM:phind-codellama-34b-v2", label: "phind-codellama-34b-v2 (Primary LLM - code focused)", type: "local-model", icon: "code", server: "PrimaryLLM", model: "phind-codellama-34b-v2" },
+  // Specific local models - Vision LLM server
+  { value: "VisionLLM:ministral-3-3b", label: "ministral-3-3b (Vision LLM - smaller, faster)", type: "local-model", icon: "zap", server: "VisionLLM", model: "ministral-3-3b" },
   // Generic server selection (uses whatever model is loaded)
-  { value: "Beast", label: "Beast (use loaded model)", type: "local", icon: "server", server: "Beast", model: null },
-  { value: "Bedroom", label: "Bedroom (use loaded model)", type: "local", icon: "server", server: "Bedroom", model: null },
+  { value: "PrimaryLLM", label: "Primary LLM (use loaded model)", type: "local", icon: "server", server: "PrimaryLLM", model: null },
+  { value: "VisionLLM", label: "Vision LLM (use loaded model)", type: "local", icon: "server", server: "VisionLLM", model: null },
 ] as const
 
 export function BuildPlanReview({

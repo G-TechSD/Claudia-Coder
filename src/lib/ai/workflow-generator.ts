@@ -1,7 +1,7 @@
 /**
  * AI-Powered N8N Workflow Generator
  *
- * Uses local LLM (Beast server with gpt-oss-20b) to generate N8N workflow JSON
+ * Uses local LLM server (with gpt-oss-20b) to generate N8N workflow JSON
  * from natural language descriptions.
  *
  * Features:
@@ -544,7 +544,7 @@ function parseWorkflowResponse(response: string): { workflow?: N8NWorkflow; erro
 
 /**
  * Generate an N8N workflow from a natural language description
- * Uses Beast server with gpt-oss-20b model
+ * Uses local LLM server with gpt-oss-20b model
  */
 export async function generateWorkflow(
   request: WorkflowGenerationRequest
@@ -558,7 +558,7 @@ export async function generateWorkflow(
       {
         temperature: 0.3, // Lower temperature for more consistent JSON output
         max_tokens: 4096, // Allow for complex workflows
-        preferredServer: "beast",
+        preferredServer: "local-llm-server",
         preferredModel: "gpt-oss-20b"
       }
     )

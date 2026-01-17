@@ -6,19 +6,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
+  reporter: 'list',
   
   use: {
-    // Base URL for tests - use CLAUDIA_TEST_URL env var or fallback to localhost
     baseURL: process.env.CLAUDIA_TEST_URL || 'http://localhost:3000',
-    
-    // Capture screenshot on failure
     screenshot: 'only-on-failure',
-    
-    // Record video for all tests
     video: 'on',
-    
-    // Collect trace on failure
     trace: 'on-first-retry',
   },
 
@@ -28,12 +21,4 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-
-  // Run local dev server before tests if needed
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-  },
 });

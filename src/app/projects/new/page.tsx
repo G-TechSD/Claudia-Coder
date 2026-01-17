@@ -283,6 +283,65 @@ function NewProjectContent() {
     }
   }, [autoGenerateBuildPlan])
 
+  // Session persistence key
+  const SESSION_STORAGE_KEY = "claudia_new_project_session"
+  const SESSION_MAX_AGE_MS = 30 * 60 * 1000 // 30 minutes
+
+  // Restore session on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    try {
+      const stored = sessionStorage.getItem(SESSION_STORAGE_KEY)
+      if (stored) {
+        const session = JSON.parse(stored)
+        const now = Date.now()
+
+        // Only restore if session is less than 30 minutes old
+        if (session.timestamp && (now - session.timestamp) < SESSION_MAX_AGE_MS) {
+          // Only restore if we're in the initial "choose" mode (not already navigated elsewhere)
+          if (mode === "choose" && session.mode && session.mode !== "complete") {
+            setMode(session.mode)
+            if (session.quickDescription) {
+              setQuickDescription(session.quickDescription)
+            }
+          }
+        } else {
+          // Session expired, clear it
+          sessionStorage.removeItem(SESSION_STORAGE_KEY)
+        }
+      }
+    } catch {
+      // Invalid session data, clear it
+      sessionStorage.removeItem(SESSION_STORAGE_KEY)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only run on mount
+
+  // Save session when mode or quickDescription changes
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    // Clear session when project is successfully created
+    if (mode === "complete") {
+      sessionStorage.removeItem(SESSION_STORAGE_KEY)
+      return
+    }
+
+    // Don't save if we're still in the initial choose mode with no progress
+    if (mode === "choose" && !quickDescription) {
+      return
+    }
+
+    // Save current state to session storage
+    const session = {
+      mode,
+      quickDescription,
+      timestamp: Date.now()
+    }
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session))
+  }, [mode, quickDescription])
+
   // Load Linear projects when entering Linear mode
   useEffect(() => {
     if (mode === "linear") {
@@ -1397,9 +1456,15 @@ function NewProjectContent() {
                   pauseTimeout={2500}
                 />
                 {quickDescription && (
-                  <div className="mt-4 p-3 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">Captured:</p>
-                    <p className="text-sm">{quickDescription}</p>
+                  <div className="mt-4">
+                    <Label className="text-sm text-muted-foreground mb-1">Captured (editable):</Label>
+                    <Textarea
+                      value={quickDescription}
+                      onChange={(e) => setQuickDescription(e.target.value)}
+                      rows={4}
+                      className="text-sm mt-1"
+                      placeholder="Edit your description here..."
+                    />
                   </div>
                 )}
               </div>

@@ -66,7 +66,7 @@ The revised plan should address user concerns and remove rejected items.
 
 Return the plan in the same JSON format as before.`
 
-    // Only pass preferredServer for local providers (Beast, Bedroom, etc.)
+    // Only pass preferredServer for local providers (local-llm-server, local-llm-server-2, etc.)
     // Paid providers need to be handled separately
     const localPreferredServer = preferredProvider &&
       !["anthropic", "chatgpt", "gemini", "paid_claudecode"].includes(preferredProvider)

@@ -98,10 +98,10 @@ function categorizeConnection(service: ServiceStatus): CategorizedConnection {
   const url = service.url.toLowerCase()
 
   // AI Service Providers
-  if (name.includes("lm studio") || name.includes("beast") || name.includes("bedroom") ||
+  if (name.includes("lm studio") || name.includes("primary-llm") || name.includes("secondary-llm") ||
       name.includes("ollama") || service.serverType) {
-    const providerId = name.includes("beast") ? "beast" :
-                       name.includes("bedroom") ? "bedroom" :
+    const providerId = name.includes("primary-llm") ? "primary-llm" :
+                       name.includes("secondary-llm") ? "secondary-llm" :
                        service.id || name.replace(/\s+/g, "-").toLowerCase()
     return { service, category: "ai", providerId }
   }
@@ -215,8 +215,8 @@ export function ConnectionsTab({
       const isLocalServer = service.serverType ||
                             service.name.toLowerCase().includes("lm studio") ||
                             service.name.toLowerCase().includes("ollama") ||
-                            service.name.toLowerCase().includes("beast") ||
-                            service.name.toLowerCase().includes("bedroom")
+                            service.name.toLowerCase().includes("primary-llm") ||
+                            service.name.toLowerCase().includes("secondary-llm")
 
       // Only fetch for connected local servers that haven't been fetched yet
       if (isLocalServer && service.status === "connected" && providerId && !lmStudioModels[providerId]?.length) {
@@ -289,7 +289,7 @@ export function ConnectionsTab({
 
     // LM Studio / Ollama - use the server URL directly
     if (name.includes("lm studio") || name.includes("ollama") ||
-        name.includes("beast") || name.includes("bedroom") || service.serverType) {
+        name.includes("primary-llm") || name.includes("secondary-llm") || service.serverType) {
       return service.url
     }
 

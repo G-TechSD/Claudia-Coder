@@ -95,10 +95,10 @@ Revenue Streams: ${businessData.revenueStreams?.map((r: { name: string }) => r.n
 
     let suggestion = null
 
-    // Try LM Studio Beast first (if configured)
-    const lmStudioBeastUrl = process.env.LMSTUDIO_BEAST_URL || process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
-    if (lmStudioBeastUrl) try {
-      const response = await fetch(`${lmStudioBeastUrl}/v1/chat/completions`, {
+    // Try LM Studio Server 1 first (if configured)
+    const lmStudioServer1Url = process.env.LMSTUDIO_SERVER_1_URL || process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
+    if (lmStudioServer1Url) try {
+      const response = await fetch(`${lmStudioServer1Url}/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -117,14 +117,14 @@ Revenue Streams: ${businessData.revenueStreams?.map((r: { name: string }) => r.n
         suggestion = data.choices?.[0]?.message?.content?.trim()
       }
     } catch (lmError) {
-      console.log("[business-dev/suggest] LM Studio Beast not available:", lmError)
+      console.log("[business-dev/suggest] LM Studio Server 1 not available:", lmError)
     }
 
-    // Try LM Studio Bedroom if Beast failed (if configured)
-    const lmStudioBedroomUrl = process.env.LMSTUDIO_BEDROOM_URL || process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
-    if (!suggestion && lmStudioBedroomUrl) {
+    // Try LM Studio Server 2 if Server 1 failed (if configured)
+    const lmStudioServer2Url = process.env.LMSTUDIO_SERVER_2_URL || process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2
+    if (!suggestion && lmStudioServer2Url) {
       try {
-        const response = await fetch(`${lmStudioBedroomUrl}/v1/chat/completions`, {
+        const response = await fetch(`${lmStudioServer2Url}/v1/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -143,7 +143,7 @@ Revenue Streams: ${businessData.revenueStreams?.map((r: { name: string }) => r.n
           suggestion = data.choices?.[0]?.message?.content?.trim()
         }
       } catch (lmError) {
-        console.log("[business-dev/suggest] LM Studio Bedroom not available:", lmError)
+        console.log("[business-dev/suggest] LM Studio Server 2 not available:", lmError)
       }
     }
 

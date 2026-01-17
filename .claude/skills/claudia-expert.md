@@ -8,7 +8,6 @@ This skill provides comprehensive knowledge about Claudia Coder, the AI-powered 
 
 **Claudia Coder** is an AI-powered development orchestration platform designed to streamline the entire software development lifecycle from ideation to implementation.
 
-- **Developer**: Bill Griffith - G-Tech SD
 - **Purpose**: Transform ideas into working software through AI-assisted planning, development, and project management
 - **Philosophy**: Reduce friction between thinking and building by leveraging AI at every stage
 

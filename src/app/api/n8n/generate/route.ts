@@ -2,7 +2,7 @@
  * N8N Workflow Generation API
  *
  * POST: Generate N8N workflow from natural language description
- * Uses Beast LLM server with gpt-oss-20b model
+ * Uses local LLM server with gpt-oss-20b model
  *
  * Features:
  * - Natural language to workflow conversion

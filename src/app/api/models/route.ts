@@ -298,8 +298,8 @@ export async function GET(request: NextRequest) {
   // Local providers - get from env or request params
   if (!provider || provider === "lmstudio") {
     const lmStudioUrls = [
-      process.env.NEXT_PUBLIC_LMSTUDIO_BEAST,
-      process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM,
+      process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1,
+      process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2,
       searchParams.get("lmstudio_url")
     ].filter(Boolean) as string[]
 

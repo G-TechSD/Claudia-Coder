@@ -3,7 +3,7 @@
  * Generates professional patent submission content following USPTO format
  * Sections: Abstract, Background, Summary, Detailed Description, Claims
  *
- * Uses local LLM (Beast server with gpt-oss-20b by default) for generation
+ * Uses local LLM server (with gpt-oss-20b by default) for generation
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -319,7 +319,7 @@ export async function POST(request: NextRequest) {
     for (const section of sectionsToGenerate) {
       const prompt = generateSectionPrompt(section, body)
 
-      // Use Beast server with gpt-oss-20b by default for best quality
+      // Use local-llm-server with gpt-oss-20b by default for best quality
       // Falls back to other servers if preferred is unavailable
       const llmResponse = await generateWithLocalLLM(
         USPTO_FORMAT_SYSTEM_PROMPT,
@@ -327,7 +327,7 @@ export async function POST(request: NextRequest) {
         {
           temperature: 0.4,
           max_tokens: 8192,
-          preferredServer: preferredProvider || "beast",
+          preferredServer: preferredProvider || "local-llm-server",
           preferredModel: "gpt-oss-20b"
         }
       )
@@ -523,7 +523,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Track generation metadata
-    let generationServer = preferredServer || "beast"
+    let generationServer = preferredServer || "local-llm-server"
     let generationModel = preferredModel || "gpt-oss-20b"
 
     // Determine which sections to generate

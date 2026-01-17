@@ -115,13 +115,12 @@ Before using ANY tool, ask:
 
 ## Project Information
 
-- **Developer**: Bill Griffith - G-Tech SD
 - **Product**: Claudia Coder - AI-powered development orchestration platform
 - **Website**: claudiacoder.com
 
 ### Key Directories
 
-- `/home/bill/projects/claudia-admin/` - Main codebase
+- Project root directory - Main codebase
 - `src/components/` - React components
 - `src/app/api/` - API routes
 - `src/lib/` - Utilities and services

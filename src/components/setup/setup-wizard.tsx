@@ -654,7 +654,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                           onChange={(e) => setCustomName(e.target.value)}
                         />
                         <Input
-                          placeholder="http://192.168.1.100:1234"
+                          placeholder="http://localhost:1234"
                           value={customUrl}
                           onChange={(e) => setCustomUrl(e.target.value)}
                         />

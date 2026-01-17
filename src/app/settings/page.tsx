@@ -1500,7 +1500,7 @@ function SettingsPageContent() {
               <Label htmlFor="serverName">Server Name</Label>
               <Input
                 id="serverName"
-                placeholder="e.g., LM Studio Beast"
+                placeholder="e.g., My Local LLM"
                 value={newServerName}
                 onChange={(e) => setNewServerName(e.target.value)}
               />
@@ -1510,7 +1510,7 @@ function SettingsPageContent() {
               <div className="flex gap-2">
                 <Input
                   id="serverUrl"
-                  placeholder="http://192.168.1.100:1234"
+                  placeholder="http://localhost:1234"
                   value={newServerUrl}
                   onChange={(e) => setNewServerUrl(e.target.value)}
                 />
@@ -1956,7 +1956,7 @@ function SettingsPageContent() {
               <Label htmlFor="editName">Connection Name</Label>
               <Input
                 id="editName"
-                placeholder="e.g., LM Studio BEAST"
+                placeholder="e.g., My Local LLM"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
               />
@@ -1966,7 +1966,7 @@ function SettingsPageContent() {
               <div className="flex gap-2">
                 <Input
                   id="editUrl"
-                  placeholder="http://192.168.1.100:1234"
+                  placeholder="http://localhost:1234"
                   value={editUrl}
                   onChange={(e) => {
                     setEditUrl(e.target.value)

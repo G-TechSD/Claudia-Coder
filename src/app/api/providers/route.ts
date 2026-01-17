@@ -186,33 +186,33 @@ export async function GET() {
   const providers: ProviderInfo[] = []
 
   // Check local LM Studio servers
-  const lmstudioBeast = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
-  const lmstudioBedroom = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
+  const lmstudioServer1 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
+  const lmstudioServer2 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2
   const ollamaUrl = process.env.NEXT_PUBLIC_OLLAMA_URL
 
-  // LM Studio Beast
-  if (lmstudioBeast) {
-    const status = await checkLocalServer(lmstudioBeast, "lmstudio")
+  // LM Studio Server 1
+  if (lmstudioServer1) {
+    const status = await checkLocalServer(lmstudioServer1, "lmstudio")
     providers.push({
-      name: "Beast",
-      displayName: "Beast (LM Studio)",
+      name: "local-llm-server",
+      displayName: "Local LLM Server (LM Studio)",
       type: "local",
       status: status.online ? "online" : "offline",
-      baseUrl: lmstudioBeast,
+      baseUrl: lmstudioServer1,
       model: status.loadedModel,  // Currently loaded model (may be undefined)
       models: status.availableModels || []  // All available models
     })
   }
 
-  // LM Studio Bedroom
-  if (lmstudioBedroom) {
-    const status = await checkLocalServer(lmstudioBedroom, "lmstudio")
+  // LM Studio Server 2
+  if (lmstudioServer2) {
+    const status = await checkLocalServer(lmstudioServer2, "lmstudio")
     providers.push({
-      name: "Bedroom",
-      displayName: "Bedroom (LM Studio)",
+      name: "local-llm-server-2",
+      displayName: "Local LLM Server 2 (LM Studio)",
       type: "local",
       status: status.online ? "online" : "offline",
-      baseUrl: lmstudioBedroom,
+      baseUrl: lmstudioServer2,
       model: status.loadedModel,  // Currently loaded model (may be undefined)
       models: status.availableModels || []  // All available models
     })

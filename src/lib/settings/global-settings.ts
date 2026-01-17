@@ -86,38 +86,38 @@ export function saveGlobalSettings(settings: GlobalSettings): void {
 
 export function createDefaultSettings(): GlobalSettings {
   // Check for pre-configured servers from environment
-  const beastUrl = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
-  const bedroomUrl = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
+  const server1Url = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
+  const server2Url = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2
 
   const localServers: LocalServerConfig[] = []
 
-  if (beastUrl) {
+  if (server1Url) {
     localServers.push({
-      id: "beast",
-      name: "BEAST",
+      id: "local-llm-server",
+      name: "Local LLM Server",
       type: "lmstudio",
-      baseUrl: beastUrl,
+      baseUrl: server1Url,
       enabled: true,
-      defaultModel: "gpt-oss-20b"  // Default model for BEAST
+      defaultModel: "gpt-oss-20b"  // Default model for Local LLM Server
     })
   }
 
-  if (bedroomUrl) {
+  if (server2Url) {
     localServers.push({
-      id: "bedroom",
-      name: "Bedroom",
+      id: "local-llm-server-2",
+      name: "Local LLM Server 2",
       type: "lmstudio",
-      baseUrl: bedroomUrl,
+      baseUrl: server2Url,
       enabled: true
     })
   }
 
-  // Set default model to BEAST with gpt-oss-20b if available
-  const defaultModel: DefaultModelConfig | undefined = beastUrl ? {
+  // Set default model to local-llm-server with gpt-oss-20b if available
+  const defaultModel: DefaultModelConfig | undefined = server1Url ? {
     provider: "lmstudio",
-    serverId: "beast",
+    serverId: "local-llm-server",
     modelId: "gpt-oss-20b",
-    displayName: "GPT-OSS 20B (BEAST)"
+    displayName: "GPT-OSS 20B (Local LLM Server)"
   } : undefined
 
   return {

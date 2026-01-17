@@ -5,8 +5,8 @@
 
 import { NextRequest, NextResponse } from "next/server"
 
-const LMSTUDIO_BEAST = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
-const LMSTUDIO_BEDROOM = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
+const LMSTUDIO_SERVER_1 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
+const LMSTUDIO_SERVER_2 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2
 const OLLAMA_URL = process.env.NEXT_PUBLIC_OLLAMA_URL
 
 const SYSTEM_PROMPT = `You are an expert project analyst processing a voice recording transcript.
@@ -67,8 +67,8 @@ Return ONLY the JSON, no markdown code blocks.`
 async function callLLM(systemPrompt: string, userPrompt: string): Promise<string> {
   // Try endpoints in order
   const endpoints = [
-    LMSTUDIO_BEAST,
-    LMSTUDIO_BEDROOM,
+    LMSTUDIO_SERVER_1,
+    LMSTUDIO_SERVER_2,
     OLLAMA_URL
   ].filter(Boolean) as string[]
 

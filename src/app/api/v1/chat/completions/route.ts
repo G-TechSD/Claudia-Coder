@@ -108,10 +108,10 @@ function getProviderFromModel(modelId: string): {
 
     // Get base URL based on server name
     let baseUrl: string | undefined
-    if (serverName === "beast") {
-      baseUrl = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
-    } else if (serverName === "bedroom") {
-      baseUrl = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
+    if (serverName === "local-llm-server") {
+      baseUrl = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
+    } else if (serverName === "local-llm-server-2") {
+      baseUrl = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2
     }
 
     return { provider: "lmstudio", actualModel, serverName, baseUrl }
@@ -126,12 +126,12 @@ function getProviderFromModel(modelId: string): {
     }
   }
 
-  // Default to LM Studio Beast if no prefix
+  // Default to LM Studio local-llm-server if no prefix
   return {
     provider: "lmstudio",
     actualModel: modelId,
-    serverName: "beast",
-    baseUrl: process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
+    serverName: "local-llm-server",
+    baseUrl: process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
   }
 }
 

@@ -7,8 +7,8 @@
  */
 
 // LM Studio server URLs - configure via environment variables
-const BEAST_URL = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST || "http://localhost:1234"
-const BEDROOM_URL = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM || ""
+const SERVER_1_URL = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1 || "http://localhost:1234"
+const SERVER_2_URL = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2 || ""
 
 interface Message {
   role: "system" | "user" | "assistant"
@@ -177,17 +177,17 @@ async function main() {
 
   const results: { name: string; success: boolean }[] = []
 
-  // Test BEAST
-  const beastOk = await testLLMServer("BEAST", BEAST_URL)
-  results.push({ name: "BEAST", success: beastOk })
+  // Test local-llm-server
+  const server1Ok = await testLLMServer("local-llm-server", SERVER_1_URL)
+  results.push({ name: "local-llm-server", success: server1Ok })
 
-  // Test BEDROOM
-  const bedroomOk = await testLLMServer("BEDROOM", BEDROOM_URL)
-  results.push({ name: "BEDROOM", success: bedroomOk })
+  // Test local-llm-server-2
+  const server2Ok = await testLLMServer("local-llm-server-2", SERVER_2_URL)
+  results.push({ name: "local-llm-server-2", success: server2Ok })
 
-  // If BEAST works, test code generation
-  if (beastOk) {
-    await testCodeGeneration(BEAST_URL, "openai/gpt-oss-20b")
+  // If local-llm-server works, test code generation
+  if (server1Ok) {
+    await testCodeGeneration(SERVER_1_URL, "openai/gpt-oss-20b")
   }
 
   // Summary

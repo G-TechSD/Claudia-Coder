@@ -2,7 +2,6 @@
 
 **Version:** 1.0
 **Last Updated:** January 2026
-**Developer:** Bill Griffith - G-Tech SD
 
 ---
 
@@ -827,5 +826,4 @@ For additional help:
 
 *This guide covers Claudia Coder version 1.0. Features and interfaces may change in future versions.*
 
-**Developer:** Bill Griffith - G-Tech SD
 **Last Updated:** January 2026

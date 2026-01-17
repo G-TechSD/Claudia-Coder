@@ -67,7 +67,6 @@ interface NavCategory {
 const projectsItems: NavItem[] = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Projects", href: "/projects", icon: Layers },
-  { title: "Business Ideas", href: "/business-ideas", icon: Lightbulb },
   { title: "Voice", href: "/voice", icon: Mic },
 ]
 
@@ -78,6 +77,7 @@ const toolsItems: NavItem[] = [
 
 // Upcoming Features category items (in development)
 const upcomingFeaturesItems: NavItem[] = [
+  { title: "Business Ideas", href: "/business-ideas", icon: Lightbulb },
   { title: "Business Dev", href: "/business-dev", icon: Briefcase },
   { title: "Research", href: "/research", icon: Search },
   { title: "Patents", href: "/patents", icon: FileCheck },

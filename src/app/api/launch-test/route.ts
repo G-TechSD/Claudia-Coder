@@ -23,7 +23,7 @@ const execAsync = promisify(exec)
 // Visual Testing VM configuration
 const VISUAL_TEST_VM = {
   host: process.env.VISUAL_TEST_HOST || "172.18.22.114",
-  user: process.env.VISUAL_TEST_USER || "johnny-test",
+  user: process.env.VISUAL_TEST_USER || "localhost",
   sshKey: process.env.VISUAL_TEST_SSH_KEY || "~/.ssh/id_rsa",
   display: ":1"
 }

@@ -130,7 +130,7 @@ async function generateBusinessDevAnalysis(
       ? preferredProvider
       : undefined
 
-  // Use larger max_tokens for local LLM (Beast has 131072 context, free to use)
+  // Use larger max_tokens for local LLM (local-llm-server has 131072 context, free to use)
   // Paid APIs keep 4096 to minimize costs
   const localResponse = await generateWithLocalLLM(
     BUSINESS_DEV_SYSTEM_PROMPT,
@@ -189,7 +189,7 @@ async function generateBusinessDevAnalysis(
  * - Response includes: requestedModel (what was asked for), model (what was used), availableModels
  *
  * Supported providers:
- * - Local: "Beast", "Bedroom" (LM Studio servers)
+ * - Local: "local-llm-server", "local-llm-server-2" (LM Studio servers)
  * - Paid: "anthropic", "chatgpt", "gemini", "paid_claudecode"
  */
 export async function POST(request: NextRequest) {
@@ -202,7 +202,7 @@ export async function POST(request: NextRequest) {
       availableModels = [],
       constraints = {},
       allowPaidFallback = false,
-      preferredProvider = null,  // e.g., "Beast", "Bedroom", "anthropic", "chatgpt", "gemini", "paid_claudecode"
+      preferredProvider = null,  // e.g., "local-llm-server", "local-llm-server-2", "anthropic", "chatgpt", "gemini", "paid_claudecode"
       existingPackets = [] as ExistingPacketInfo[],  // Existing packets to integrate with (avoid duplicates)
       monetization = false,  // When true, also generate business dev analysis
       nuanceContext = null as NuanceContext | null,  // Extracted context from comments/discussions
@@ -569,7 +569,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Try local LLM (with preferred server if specified)
-    // Only pass preferredServer for local providers (Beast, Bedroom, etc.)
+    // Only pass preferredServer for local providers (local-llm-server, local-llm-server-2, etc.)
     // Paid providers are handled above and return early
     const localPreferredServer = preferredProvider &&
       !["anthropic", "chatgpt", "gemini", "paid_claudecode"].includes(preferredProvider)
@@ -593,7 +593,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Use larger max_tokens for local LLM (Beast has 131072 context, free to use)
+    // Use larger max_tokens for local LLM (local-llm-server has 131072 context, free to use)
     // Paid APIs above keep 4096 to minimize costs
     const localResponse = await generateWithLocalLLM(
       BUILD_PLAN_SYSTEM_PROMPT,

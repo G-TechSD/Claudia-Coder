@@ -70,7 +70,7 @@ export function getUserById(id: string): AdminUser | null {
 
 /**
  * Update user role
- * Note: bill@gtechsd.com cannot have their role changed from admin
+ * Note: the configured admin email cannot have their role changed from admin
  */
 export function updateUserRole(id: string, role: UserRole): boolean {
   const validRoles: Role[] = [ROLES.ADMIN, ROLES.BETA_TESTER, ROLES.USER]

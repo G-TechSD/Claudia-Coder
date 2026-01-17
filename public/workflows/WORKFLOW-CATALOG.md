@@ -2,11 +2,11 @@
 
 ## Summary
 
-**Total Workflows Found:** 18 (on N8N Server) + 55 (exported to orangepi/)
+**Total Workflows Found:** 18 (on N8N Server) + 55 (exported)
 **Workflow Locations:**
-- N8N API: `http://192.168.245.211:5678/api/v1/workflows`
-- Local exports: `/home/bill/projects/claudia-admin/public/workflows/orangepi/`
-- Claudia templates: `/home/bill/projects/claudia-admin/public/workflows/`
+- N8N API: `http://localhost:5678/api/v1/workflows`
+- Local exports: `./public/workflows/orangepi/`
+- Claudia templates: `./public/workflows/`
 
 ---
 
@@ -24,9 +24,9 @@ Chat Trigger --> Parse Command --> Route Command (Switch)
     |              |              |              |              |
 /build:      /issues:      /primary_free:   /paid_claude:   /ssh:
     |              |              |              |              |
-Prepare      Linear API    BEAST Agent    Claude Agent    SSH Exec
+Prepare      Linear API    Local Agent    Claude Agent    SSH Exec
 Build            |              |              |              |
-    |         Process       BEAST Model    Claude Model   OrangePi
+    |         Process       Local Model    Claude Model   Server
 Execute        Issues        (LMStudio)    (Anthropic)
 Builder            |              |              |
     +--------------+--------------+--------------+
@@ -39,13 +39,13 @@ Builder            |              |              |
 **Routes Available:**
 - `/build <project>` - Build a new project via master_orchestrator
 - `/issues` - Load Linear issues with pagination
-- `/primary_free: <prompt>` - Route to BEAST LMStudio (GPT-OSS-20b)
-- `/secondary_free: <prompt>` - Route to BEDROOM LMStudio (Qwen3-VL-8b)
-- `/paid_chatgpt: <prompt>` - Route to ChatGPT 5.1
-- `/paid_gemini: <prompt>` - Route to Gemini 3 Flash
-- `/paid_claude: <prompt>` - Route to Claude Opus 4.5
+- `/primary_free: <prompt>` - Route to primary local LMStudio
+- `/secondary_free: <prompt>` - Route to secondary local LMStudio
+- `/paid_chatgpt: <prompt>` - Route to ChatGPT
+- `/paid_gemini: <prompt>` - Route to Gemini Flash
+- `/paid_claude: <prompt>` - Route to Claude Opus
 - `/paid_claude_code: <prompt>` - Route to Claude Code via SSH
-- `/ssh: <command>` - Execute SSH command on OrangePi
+- `/ssh: <command>` - Execute SSH command on server
 - `/n8n: <prompt>` - Internal N8N operations
 
 ---
@@ -68,7 +68,7 @@ Webhook POST --> Validate Packet --> [valid?]
                                         |
                         Build Implementation Prompt
                                         |
-                   Execute Implementation (LLM - GPT-OSS-20b)
+                   Execute Implementation (Local LLM)
                                         |
                           Format Implementation Output
                                         |
@@ -123,9 +123,9 @@ Initial    Iteration
   |           |
 Build Prompt  Build Iteration Prompt
   |           |
-Execute (GPT-OSS-20b)
+Execute (Local LLM)
         |
-Format Output --> Save to NAS
+Format Output --> Save to Storage
         |
 Build Validation Prompt
         |
@@ -154,8 +154,8 @@ Tasks              Tasks                Task
 
 **Worker Types:**
 - `worker_bee_opus`: Complex/architectural tasks (Claude Opus distill via LMStudio)
-- `worker_bee_gptoss`: General coding (GPT-OSS-20b via BEAST)
-- `vision_worker`: Image analysis (Ministral-3-3b via BEDROOM)
+- `worker_bee_local`: General coding (Local LLM via LMStudio)
+- `vision_worker`: Image analysis (Vision model via LMStudio)
 - `claude_code`: Full-stack development (via SSH to Claude Code CLI)
 
 **Data Tables Used:**
@@ -176,15 +176,6 @@ Tasks              Tasks                Task
 - Label extraction (`taskForAi`, `taskForBill`)
 - Upsert to Data Table (prevents duplicates)
 - Parent issue tracking
-
-**Projects Tracked:**
-- Fresh Prints of La Mesa
-- GoldenEye
-- LM Studio Agentic Dev Tools
-- Project Unicorn
-- Ganesha
-- RoBox
-- LazLo
 
 ---
 
@@ -210,22 +201,22 @@ Tasks              Tasks                Task
 
 | Route | Model | Provider | Use Case |
 |-------|-------|----------|----------|
-| /primary_free | GPT-OSS-20b | BEAST LMStudio (192.168.245.155:1234) | General coding, fast iteration |
-| /secondary_free | Qwen3-VL-8b | BEDROOM LMStudio (192.168.27.182:1234) | Vision, fallback |
-| /paid_chatgpt | GPT-5.1 | OpenAI API | Complex tasks |
-| /paid_gemini | Gemini 3 Flash | Google API | Multimodal |
-| /paid_claude | Claude Opus 4.5 | Anthropic API | Deep reasoning, code review |
-| /paid_claude_code | Claude Code | SSH to OrangePi | Full agentic development |
+| /primary_free | Local LLM | LMStudio (local-llm-server) | General coding, fast iteration |
+| /secondary_free | Vision LLM | LMStudio (local-llm-server-2) | Vision, fallback |
+| /paid_chatgpt | GPT-4+ | OpenAI API | Complex tasks |
+| /paid_gemini | Gemini Flash | Google API | Multimodal |
+| /paid_claude | Claude Opus | Anthropic API | Deep reasoning, code review |
+| /paid_claude_code | Claude Code | SSH to server | Full agentic development |
 
 ---
 
 ## File Locations
 
 ```
-/home/bill/projects/claudia-admin/public/workflows/
+./public/workflows/
     claudia-execute.json          # Quality loop pipeline
     universal-issue-import.json   # Multi-source issue import
-    orangepi/                     # 55 exported workflows from N8N
+    orangepi/                     # Exported workflows from N8N
         autonomous-app-builder-v2.json
         dev-agent-local-first.json
         linear-issues-to-data-table.json
@@ -233,31 +224,30 @@ Tasks              Tasks                Task
         quality-first-app-builder.json
         task-queue-processor.json
         local-first-smart-escalation.json
-        ... and 48 more
+        ... and more
 ```
 
 ---
 
 ## Key Credentials Required
 
-- `BEAST LMStudio` - OpenAI-compatible API for GPT-OSS-20b
-- `BEDROOM LMStudio` - OpenAI-compatible API for Qwen3-VL
-- `OpenAi API account` - GPT-5.1
-- `Anthropic account` - Claude Opus 4.5
-- `Google Gemini(PaLM) Api account` - Gemini 3 Flash
+- `Local LMStudio` - OpenAI-compatible API for local models
+- `OpenAI API account` - GPT-4+
+- `Anthropic account` - Claude Opus
+- `Google Gemini API account` - Gemini Flash
 - `Linear account` - Linear API access
-- `OrangePi SSH Access` - SSH to local OrangePi server
+- `SSH Access` - SSH to local server (optional)
 
 ---
 
 ## Environment Variables
 
 ```bash
-N8N_URL="http://orangepi:5678"
-N8N_API_KEY="[JWT token]"
+N8N_URL="http://localhost:5678"
+N8N_API_KEY="[your-jwt-token]"
 LINEAR_API_KEY="lin_api_..."
-LMSTUDIO_BEAST="http://192.168.245.155:1234"
-LMSTUDIO_BEDROOM="http://192.168.27.182:1234"
-GITLAB_HOST="192.168.245.11"
-N8N_WORKFLOW_VERSIONS_DIR="/mnt/n8n-nas/n8n_dev_tool/workflow_versions"
+LMSTUDIO_SERVER_1="http://localhost:1234"
+LMSTUDIO_SERVER_2="http://localhost:1235"
+GITLAB_HOST="localhost"
+N8N_WORKFLOW_VERSIONS_DIR="/path/to/workflow_versions"
 ```

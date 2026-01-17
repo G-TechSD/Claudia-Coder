@@ -23,8 +23,8 @@ if (fs.existsSync(envPath)) {
     }
   }
   console.log('Loaded .env.local')
-  console.log('LMSTUDIO_BEAST:', process.env.NEXT_PUBLIC_LMSTUDIO_BEAST)
-  console.log('LMSTUDIO_BEDROOM:', process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM)
+  console.log('LMSTUDIO_SERVER_1:', process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1)
+  console.log('LMSTUDIO_SERVER_2:', process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2)
 }
 
 // Now dynamically import the LLM module after env is loaded
@@ -33,8 +33,8 @@ async function runTests() {
 
   // Configuration
   // LM Studio server URLs - configured via environment variables
-  const LM_STUDIO_BEAST = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST || 'http://localhost:1234'
-  const LM_STUDIO_BEDROOM = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM || ''
+  const LM_STUDIO_SERVER_1 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1 || 'http://localhost:1234'
+  const LM_STUDIO_SERVER_2 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2 || ''
 
   interface TestResult {
     test: string
@@ -78,7 +78,7 @@ async function runTests() {
     log(`  Found ${servers.length} configured servers`)
 
     if (servers.length === 0) {
-      throw new Error('No servers configured. Check NEXT_PUBLIC_LMSTUDIO_BEAST and NEXT_PUBLIC_LMSTUDIO_BEDROOM env vars')
+      throw new Error('No servers configured. Check NEXT_PUBLIC_LMSTUDIO_SERVER_1 and NEXT_PUBLIC_LMSTUDIO_SERVER_2 env vars')
     }
 
     for (const server of servers) {
@@ -202,7 +202,7 @@ Generate all the code needed to complete this feature.`
     const result = await generateWithLocalLLM(systemPrompt, userPrompt, {
       temperature: 0.3,
       max_tokens: 4096,
-      preferredServer: 'Beast'  // Use the larger model
+      preferredServer: 'local-llm-server'  // Use the larger model
     })
 
     if (result.error) {

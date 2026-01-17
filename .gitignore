@@ -56,3 +56,39 @@ generated/
 .local-storage/patents.db
 .local-storage/patents.db-shm
 .local-storage/patents.db-wal
+
+# Local storage data (user-specific)
+.local-storage/*.json
+.local-storage/sessions/
+.local-storage/voice-recordings/
+.local-storage/activity-archives/
+
+# Claude local settings
+.claude/settings.local.json
+.claude/settings.json.backup
+
+# Test results and reports
+test-results/
+playwright-report/
+playwright-report-localhost/
+playwright-report-admin/
+
+# Playwright state
+.auth/
+
+# Generated project data
+generated/
+
+# Personal/development scripts
+scripts/recover-*.ts
+scripts/create-test-projects.js
+scripts/load-*.js
+
+# Workflow exports with credentials
+public/workflows/*.json
+
+# Legal documents
+legal/
+
+# TypeScript build cache
+tsconfig.tsbuildinfo

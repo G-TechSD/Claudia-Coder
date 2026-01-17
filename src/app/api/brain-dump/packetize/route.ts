@@ -1,7 +1,7 @@
 /**
  * Brain Dump Packetize API
  * Extracts actionable items from brain dump transcripts for existing projects
- * Uses Beast LLM (gpt-oss-20b) to categorize and generate work packets
+ * Uses local LLM server (gpt-oss-20b) to categorize and generate work packets
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -346,14 +346,14 @@ export async function POST(request: NextRequest) {
       existingContext
     })
 
-    // Call Beast LLM with gpt-oss-20b
+    // Call local LLM server with gpt-oss-20b
     const llmResponse = await generateWithLocalLLM(
       SYSTEM_PROMPT,
       userPrompt,
       {
         temperature: 0.3,
         max_tokens: 4096,
-        preferredServer: "beast",
+        preferredServer: "local-llm-server",
         preferredModel: "gpt-oss-20b"
       }
     )
