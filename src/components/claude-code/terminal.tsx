@@ -798,7 +798,6 @@ export function ClaudeCodeTerminal({
         const { FitAddon } = await import("@xterm/addon-fit")
 
         // Import CSS - TypeScript doesn't recognize CSS module paths
-        // @ts-expect-error CSS import handled by bundler at runtime
         await import("@xterm/xterm/css/xterm.css")
 
         term = new Terminal({
