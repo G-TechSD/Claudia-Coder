@@ -251,6 +251,11 @@ function getBetaRestrictionMessage(pathname: string): string {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Redirect root to Easy Mode for demo
+  if (pathname === "/") {
+    return NextResponse.redirect(new URL("/easy-mode", request.url))
+  }
+
   // TEMPORARY: Bypass all authentication for beta testing
   // TODO: Remove this before production release
   return NextResponse.next()
