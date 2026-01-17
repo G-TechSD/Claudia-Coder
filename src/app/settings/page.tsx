@@ -241,7 +241,7 @@ function SettingsPageContent() {
             const serviceData: ServiceStatus = {
               name: cp.authMethod === "oauth" ? "Claude API (Max Plan)" : "Claude API",
               url: "api.anthropic.com",
-              status: cp.enabled ? "connected" : "disconnected",
+              status: cp.enabled ? (cp.apiKey || cp.authMethod === "oauth" ? "connected" : "not_configured") : "disconnected",
               apiKey: cp.apiKey,
               authMethod: cp.authMethod,
               oauthUser: cp.oauthUser
@@ -258,7 +258,7 @@ function SettingsPageContent() {
             const serviceData: ServiceStatus = {
               name: "OpenAI API",
               url: "api.openai.com",
-              status: cp.enabled ? "connected" : "disconnected",
+              status: cp.enabled ? (cp.apiKey ? "connected" : "not_configured") : "disconnected",
               apiKey: cp.apiKey
             }
             if (existingIdx >= 0) {
@@ -273,7 +273,7 @@ function SettingsPageContent() {
             const serviceData: ServiceStatus = {
               name: "Google AI",
               url: "generativelanguage.googleapis.com",
-              status: cp.enabled ? "connected" : "disconnected",
+              status: cp.enabled ? (cp.apiKey ? "connected" : "not_configured") : "disconnected",
               apiKey: cp.apiKey
             }
             if (existingIdx >= 0) {

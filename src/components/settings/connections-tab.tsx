@@ -191,7 +191,18 @@ export function ConnectionsTab({
   const categorizedServices = useMemo(() => {
     const categorized = services.map(categorizeConnection)
     return {
-      ai: categorized.filter(c => c.category === "ai"),
+      ai: categorized.filter(c => c.category === "ai").sort((a, b) => {
+        // Local servers first (have serverType or match local names)
+        const aIsLocal = a.service.serverType || ['lmstudio', 'ollama', 'local'].some(t =>
+          a.service.name?.toLowerCase().includes(t) || a.providerId?.includes(t)
+        );
+        const bIsLocal = b.service.serverType || ['lmstudio', 'ollama', 'local'].some(t =>
+          b.service.name?.toLowerCase().includes(t) || b.providerId?.includes(t)
+        );
+        if (aIsLocal && !bIsLocal) return -1;
+        if (!aIsLocal && bIsLocal) return 1;
+        return 0;
+      }),
       git: categorized.filter(c => c.category === "git"),
       automation: categorized.filter(c => c.category === "automation"),
       other: categorized.filter(c => c.category === "other")

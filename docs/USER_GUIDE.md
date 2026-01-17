@@ -633,7 +633,7 @@ This ensures consistent MCP server availability across tools.
 **Step 1:** Click **"Add Local Server"**
 
 **Step 2:** Enter server details:
-- Name (e.g., "LM Studio BEAST")
+- Name (e.g., "My Local LLM")
 - URL (e.g., "http://192.168.1.100:1234")
 
 **Step 3:** Test connection

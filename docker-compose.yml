@@ -9,8 +9,8 @@ services:
       - "3000:3000"
     environment:
       # LM Studio / Ollama endpoints (adjust to your setup)
-      - NEXT_PUBLIC_LMSTUDIO_BEAST=http://host.docker.internal:1234
-      - NEXT_PUBLIC_LMSTUDIO_BEDROOM=http://host.docker.internal:1235
+      - NEXT_PUBLIC_LMSTUDIO_SERVER_1=http://host.docker.internal:1234
+      - NEXT_PUBLIC_LMSTUDIO_SERVER_2=http://host.docker.internal:1235
       - NEXT_PUBLIC_OLLAMA_URL=http://host.docker.internal:11434
       # GitLab (self-hosted)
       - NEXT_PUBLIC_GITLAB_URL=https://your-gitlab-instance
