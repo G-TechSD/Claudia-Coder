@@ -120,8 +120,8 @@ configure_env() {
 # Edit this file to configure your Claudia installation
 
 # LM Studio endpoints (local LLM servers)
-NEXT_PUBLIC_LMSTUDIO_BEAST=http://localhost:1234
-NEXT_PUBLIC_LMSTUDIO_BEDROOM=http://localhost:1235
+NEXT_PUBLIC_LMSTUDIO_SERVER_1=http://localhost:1234
+NEXT_PUBLIC_LMSTUDIO_SERVER_2=http://localhost:1235
 
 # Ollama endpoint (alternative local LLM)
 NEXT_PUBLIC_OLLAMA_URL=http://localhost:11434
