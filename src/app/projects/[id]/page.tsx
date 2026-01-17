@@ -1222,7 +1222,7 @@ export default function ProjectDetailPage() {
                   <Input
                     value={newBasePath}
                     onChange={(e) => setNewBasePath(e.target.value)}
-                    placeholder="/home/bill/projects/my-project"
+                    placeholder="~/projects/my-project"
                     className="flex-1"
                     autoFocus
                     onKeyDown={(e) => {

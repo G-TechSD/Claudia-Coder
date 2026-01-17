@@ -21,6 +21,7 @@ import { existsSync } from "fs"
 import { exec } from "child_process"
 import { promisify } from "util"
 import path from "path"
+import os from "os"
 
 import {
   generatePRD,
@@ -58,7 +59,7 @@ function getAuthenticatedCloneUrl(repoUrl: string, token: string | null): string
 }
 
 // Base directory for all Claudia project working directories
-const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || "/home/bill/claudia-projects"
+const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
 
 // Types matching the data stores
 interface LinkedRepo {
