@@ -796,9 +796,8 @@ export function ClaudeCodeTerminal({
         // Dynamic import for client-side only
         const { Terminal } = await import("@xterm/xterm")
         const { FitAddon } = await import("@xterm/addon-fit")
-
-        // Import CSS - TypeScript doesn't recognize CSS module paths
         await import("@xterm/xterm/css/xterm.css")
+
 
         term = new Terminal({
           cursorBlink: true,
