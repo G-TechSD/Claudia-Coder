@@ -539,7 +539,8 @@ function NewProjectContent() {
       }> = []
 
       // Determine basePath - use explicitly set folder or create default
-      const basePath = projectFolderPath.trim() || localRepoPath.trim() || `/home/bill/claudia-projects/${toRepoName(projectName)}`
+      // The server will resolve ~/claudia-projects to the actual home directory path
+      const basePath = projectFolderPath.trim() || localRepoPath.trim() || `~/claudia-projects/${toRepoName(projectName)}`
 
       for (let i = 0; i < selectedRepos.length; i++) {
         const repo = selectedRepos[i]
@@ -1940,7 +1941,7 @@ function NewProjectContent() {
                         {selectedRepoIds.size === 1 ? "Repository" : `${selectedRepoIds.size} repositories`} will be cloned
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Repos will be cloned to: <code className="bg-muted px-1 rounded">{projectFolderPath.trim() || localRepoPath.trim() || `/home/bill/claudia-projects/${toRepoName(projectName)}`}/repos/</code>
+                        Repos will be cloned to: <code className="bg-muted px-1 rounded">{projectFolderPath.trim() || localRepoPath.trim() || `~/claudia-projects/${toRepoName(projectName)}`}/repos/</code>
                       </p>
                     </div>
                   </div>
@@ -2315,7 +2316,7 @@ function NewProjectContent() {
                     placeholder="my-project"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Will be created at: https://bill-dev-linux-1/gtechsd/{repoName}
+                    Will be created at: {process.env.NEXT_PUBLIC_GITLAB_URL || ""}/gtechsd/{repoName}
                   </p>
                 </div>
 
@@ -2352,62 +2353,25 @@ function NewProjectContent() {
         )}
       </Card>
 
-      {/* Project Folder Path - For File Browser */}
+      {/* Project Folder - Auto-managed based on project name */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <FolderOpen className="h-4 w-4" />
-            Project Folder Path
+            Project Folder
           </CardTitle>
           <CardDescription>
-            The folder containing your project files. This is used by the file browser and for Claude Code execution.
+            The project folder is automatically managed by Claudia Coder.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="projectFolderPath">Project Location</Label>
-            <Input
-              id="projectFolderPath"
-              value={projectFolderPath}
-              onChange={(e) => {
-                setProjectFolderPath(e.target.value)
-                // Also set local repo path if not already set
-                if (!localRepoPath.trim()) {
-                  setLocalRepoPath(e.target.value)
-                }
-              }}
-              placeholder="/home/bill/projects/my-project"
-            />
-            <p className="text-xs text-muted-foreground">
-              Full path to your project folder. If empty, a new folder will be created at <code className="bg-muted px-1 rounded">/home/bill/claudia-projects/{toRepoName(projectName) || 'project-name'}</code>
+        <CardContent>
+          <div className="p-3 rounded-lg bg-muted/50 border border-dashed">
+            <p className="text-sm text-muted-foreground">
+              Your project files will be stored at:
             </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Link Existing Local Repo (Legacy - for Git repositories) */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <GitBranch className="h-4 w-4" />
-            Local Git Repository
-          </CardTitle>
-          <CardDescription>
-            Optional: Link a local Git repository (can be different from project folder)
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="localRepoPath">Git Repository Path</Label>
-            <Input
-              id="localRepoPath"
-              value={localRepoPath}
-              onChange={(e) => setLocalRepoPath(e.target.value)}
-              placeholder="/home/bill/projects/my-app"
-            />
-            <p className="text-xs text-muted-foreground">
-              Path to a local Git repository. Leave empty to use the project folder path above.
-            </p>
+            <code className="text-sm font-mono mt-1 block text-primary">
+              ~/claudia-projects/{toRepoName(projectName) || 'project-name'}
+            </code>
           </div>
         </CardContent>
       </Card>

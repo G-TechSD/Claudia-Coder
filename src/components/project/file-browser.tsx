@@ -5,8 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import {
   Folder,
@@ -30,7 +28,6 @@ import {
   FolderTree,
   HardDrive,
   Settings,
-  Check,
   type LucideIcon,
 } from "lucide-react"
 
@@ -48,7 +45,6 @@ interface FileBrowserProps {
   projectId: string
   basePath?: string
   className?: string
-  onSetBasePath?: (path: string) => void
 }
 
 // Map file extensions to icon type keys
@@ -340,7 +336,7 @@ function FilePreviewModal({
   )
 }
 
-export function FileBrowser({ projectId, basePath, className, onSetBasePath }: FileBrowserProps) {
+export function FileBrowser({ projectId, basePath, className }: FileBrowserProps) {
   const [files, setFiles] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -350,8 +346,6 @@ export function FileBrowser({ projectId, basePath, className, onSetBasePath }: F
   const [previewFile, setPreviewFile] = useState<FileNode | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [stats, setStats] = useState<{ totalFiles: number; totalSize: number } | null>(null)
-  const [showPathInput, setShowPathInput] = useState(false)
-  const [newBasePath, setNewBasePath] = useState("")
 
   const loadFiles = useCallback(async () => {
     try {
@@ -531,58 +525,12 @@ export function FileBrowser({ projectId, basePath, className, onSetBasePath }: F
               )}
             </div>
 
-            {showPathInput ? (
-              <div className="space-y-4 max-w-md mx-auto">
-                <div className="space-y-2">
-                  <Label htmlFor="basePath">Project Folder Path</Label>
-                  <Input
-                    id="basePath"
-                    value={newBasePath}
-                    onChange={(e) => setNewBasePath(e.target.value)}
-                    placeholder="/home/bill/projects/my-project"
-                    autoFocus
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Enter the full path to your project folder (e.g., /home/bill/projects/my-app)
-                  </p>
-                </div>
-                <div className="flex gap-2 justify-center">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setShowPathInput(false)
-                      setNewBasePath("")
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      if (newBasePath.trim() && onSetBasePath) {
-                        onSetBasePath(newBasePath.trim())
-                      }
-                    }}
-                    disabled={!newBasePath.trim()}
-                  >
-                    <Check className="h-4 w-4 mr-2" />
-                    Set Path
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-4">
-                <Button onClick={() => setShowPathInput(true)}>
-                  <Settings className="h-4 w-4 mr-2" />
-                  Configure Project Folder
-                </Button>
-                <p className="text-xs text-muted-foreground max-w-sm text-center">
-                  Set the path to an existing project folder on your local filesystem.
-                  If you need to create a new folder, use the &quot;Initialize Folder&quot; option in the Build Plan tab.
-                </p>
-              </div>
-            )}
+            <div className="flex flex-col items-center gap-4">
+              <p className="text-sm text-muted-foreground max-w-sm text-center">
+                The project folder will be automatically created when you initialize the project.
+                Use the &quot;Initialize Folder&quot; option in the Build Plan tab to set up your project files.
+              </p>
+            </div>
           </CardContent>
         </Card>
       )

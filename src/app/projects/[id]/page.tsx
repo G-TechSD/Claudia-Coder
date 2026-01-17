@@ -1208,7 +1208,7 @@ export default function ProjectDetailPage() {
             </Card>
           )}
 
-          {/* Project Folder Path Settings */}
+          {/* Project Folder Path (Read-only) */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -1217,76 +1217,11 @@ export default function ProjectDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {editingBasePath ? (
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={newBasePath}
-                    onChange={(e) => setNewBasePath(e.target.value)}
-                    placeholder="~/projects/my-project"
-                    className="flex-1"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newBasePath.trim()) {
-                        const updated = updateProject(project.id, { basePath: newBasePath.trim() }, user?.id)
-                        if (updated) setProject(updated)
-                        setEditingBasePath(false)
-                        setNewBasePath("")
-                      }
-                      if (e.key === "Escape") {
-                        setEditingBasePath(false)
-                        setNewBasePath("")
-                      }
-                    }}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
-                    onClick={() => {
-                      if (newBasePath.trim()) {
-                        const updated = updateProject(project.id, { basePath: newBasePath.trim() }, user?.id)
-                        if (updated) setProject(updated)
-                      }
-                      setEditingBasePath(false)
-                      setNewBasePath("")
-                    }}
-                    disabled={!newBasePath.trim()}
-                  >
-                    <Check className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                    onClick={() => {
-                      setEditingBasePath(false)
-                      setNewBasePath("")
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono overflow-x-auto">
-                    {project.basePath || getEffectiveWorkingDirectory(project) || <span className="text-muted-foreground italic">Not configured</span>}
-                  </code>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => {
-                      setEditingBasePath(true)
-                      setNewBasePath(project.basePath || getEffectiveWorkingDirectory(project) || "")
-                    }}
-                    title="Edit project folder path"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
+              <code className="text-sm bg-muted px-2 py-1 rounded block font-mono overflow-x-auto">
+                {project.basePath || getEffectiveWorkingDirectory(project) || <span className="text-muted-foreground italic">~/claudia-projects/{project.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}</span>}
+              </code>
               <p className="text-xs text-muted-foreground">
-                The folder containing your project files. This is used by the file browser and Claude Code.
+                The folder containing your project files. This is automatically managed by Claudia Coder.
               </p>
             </CardContent>
           </Card>
@@ -1416,67 +1351,26 @@ export default function ProjectDetailPage() {
                         </Button>
                       </div>
                     </div>
-                    {/* Local Path Section */}
+                    {/* Local Path Section (Read-only) */}
                     <div className="flex items-center gap-2 pl-8 border-t pt-3">
                       <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                       <span className="text-sm text-muted-foreground flex-shrink-0">Local Path:</span>
-                      {editingRepoId === repo.id ? (
-                        <div className="flex items-center gap-2 flex-1">
-                          <Input
-                            value={editingLocalPath}
-                            onChange={(e) => setEditingLocalPath(e.target.value)}
-                            placeholder="/home/user/projects/repo-name"
-                            className="h-8 text-sm flex-1"
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSaveLocalPath(repo.id)
-                              if (e.key === "Escape") handleCancelEditLocalPath()
-                            }}
-                          />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
-                            onClick={() => handleSaveLocalPath(repo.id)}
-                          >
-                            <Check className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                            onClick={handleCancelEditLocalPath}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 flex-1">
-                          {repo.localPath ? (
-                            <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
-                              {repo.localPath}
-                            </code>
-                          ) : project.basePath ? (
-                            <code className="text-sm bg-green-500/10 text-green-600 px-2 py-1 rounded flex-1 font-mono">
-                              {project.basePath.replace(/\/+$/, "")}/repos/{repo.name}
-                              <span className="text-muted-foreground ml-2">(auto-mapped)</span>
-                            </code>
-                          ) : (
-                            <span className="text-sm text-orange-500 italic">
-                              Set project folder to auto-map path
-                            </span>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => handleStartEditLocalPath(repo.id, repo.localPath || (project.basePath ? `${project.basePath.replace(/\/+$/, "")}/repos/${repo.name}` : ""))}
-                            title="Edit local path"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2 flex-1">
+                        {repo.localPath ? (
+                          <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
+                            {repo.localPath}
+                          </code>
+                        ) : project.basePath ? (
+                          <code className="text-sm bg-green-500/10 text-green-600 px-2 py-1 rounded flex-1 font-mono">
+                            {project.basePath.replace(/\/+$/, "")}/repos/{repo.name}
+                            <span className="text-muted-foreground ml-2">(auto-mapped)</span>
+                          </code>
+                        ) : (
+                          <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono text-muted-foreground">
+                            ~/claudia-projects/{project.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}/repos/{repo.name}
+                          </code>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -1490,13 +1384,6 @@ export default function ProjectDetailPage() {
           <FileBrowser
             projectId={project.id}
             basePath={project.basePath || getEffectiveWorkingDirectory(project)}
-            onSetBasePath={(newPath) => {
-              // Update project with new basePath
-              const updated = updateProject(project.id, { basePath: newPath }, user?.id)
-              if (updated) {
-                setProject(updated)
-              }
-            }}
           />
         </TabsContent>
 
