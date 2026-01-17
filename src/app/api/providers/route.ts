@@ -190,46 +190,52 @@ export async function GET() {
   const lmstudioServer2 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2
   const ollamaUrl = process.env.NEXT_PUBLIC_OLLAMA_URL
 
-  // LM Studio Server 1
+  // LM Studio Server 1 - only include if online
   if (lmstudioServer1) {
     const status = await checkLocalServer(lmstudioServer1, "lmstudio")
-    providers.push({
-      name: "local-llm-server",
-      displayName: "Local LLM Server (LM Studio)",
-      type: "local",
-      status: status.online ? "online" : "offline",
-      baseUrl: lmstudioServer1,
-      model: status.loadedModel,  // Currently loaded model (may be undefined)
-      models: status.availableModels || []  // All available models
-    })
+    if (status.online) {
+      providers.push({
+        name: "local-llm-server",
+        displayName: "Local LLM Server (LM Studio)",
+        type: "local",
+        status: "online",
+        baseUrl: lmstudioServer1,
+        model: status.loadedModel,
+        models: status.availableModels || []
+      })
+    }
   }
 
-  // LM Studio Server 2
+  // LM Studio Server 2 - only include if online
   if (lmstudioServer2) {
     const status = await checkLocalServer(lmstudioServer2, "lmstudio")
-    providers.push({
-      name: "local-llm-server-2",
-      displayName: "Local LLM Server 2 (LM Studio)",
-      type: "local",
-      status: status.online ? "online" : "offline",
-      baseUrl: lmstudioServer2,
-      model: status.loadedModel,  // Currently loaded model (may be undefined)
-      models: status.availableModels || []  // All available models
-    })
+    if (status.online) {
+      providers.push({
+        name: "local-llm-server-2",
+        displayName: "Local LLM Server 2 (LM Studio)",
+        type: "local",
+        status: "online",
+        baseUrl: lmstudioServer2,
+        model: status.loadedModel,
+        models: status.availableModels || []
+      })
+    }
   }
 
-  // Ollama
+  // Ollama - only include if online
   if (ollamaUrl) {
     const status = await checkLocalServer(ollamaUrl, "ollama")
-    providers.push({
-      name: "ollama",
-      displayName: "Ollama",
-      type: "local",
-      status: status.online ? "online" : "offline",
-      baseUrl: ollamaUrl,
-      model: status.loadedModel,
-      models: status.availableModels || []
-    })
+    if (status.online) {
+      providers.push({
+        name: "ollama",
+        displayName: "Ollama",
+        type: "local",
+        status: "online",
+        baseUrl: ollamaUrl,
+        model: status.loadedModel,
+        models: status.availableModels || []
+      })
+    }
   }
 
   // Cloud Providers - actually test connectivity, don't just check for API keys
@@ -242,49 +248,39 @@ export async function GET() {
     (process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY) ? testCloudProvider("google") : Promise.resolve(notConfigured)
   ])
 
-  // Anthropic (Claude) - only show if API key configured
-  if (process.env.ANTHROPIC_API_KEY) {
-    // Use dynamically fetched models if available, otherwise use sensible defaults
-    const defaultModels = ["claude-opus-4-5-20251101", "claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
-    const models = anthropicStatus.models?.length ? anthropicStatus.models : defaultModels
-
+  // Anthropic (Claude) - only show if online with fetched models
+  if (anthropicStatus.online && anthropicStatus.models?.length) {
     providers.push({
       name: "anthropic",
       displayName: "Anthropic (Claude)",
       type: "cloud",
-      status: anthropicStatus.online ? "online" : "offline",
-      model: models[0],
-      models
+      status: "online",
+      model: anthropicStatus.models[0],
+      models: anthropicStatus.models
     })
   }
 
-  // OpenAI - only show if API key configured
-  if (process.env.OPENAI_API_KEY) {
-    const defaultModels = ["gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o3", "o3-mini", "o1", "o1-mini"]
-    const models = openaiStatus.models?.length ? openaiStatus.models : defaultModels
-
+  // OpenAI - only show if online with fetched models
+  if (openaiStatus.online && openaiStatus.models?.length) {
     providers.push({
       name: "openai",
       displayName: "OpenAI",
       type: "cloud",
-      status: openaiStatus.online ? "online" : "offline",
-      model: models[0],
-      models
+      status: "online",
+      model: openaiStatus.models[0],
+      models: openaiStatus.models
     })
   }
 
-  // Google (Gemini) - only show if API key configured
-  if (process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY) {
-    const defaultModels = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-thinking"]
-    const models = googleStatus.models?.length ? googleStatus.models : defaultModels
-
+  // Google (Gemini) - only show if online with fetched models
+  if (googleStatus.online && googleStatus.models?.length) {
     providers.push({
       name: "google",
       displayName: "Google (Gemini)",
       type: "cloud",
-      status: googleStatus.online ? "online" : "offline",
-      model: models[0],
-      models
+      status: "online",
+      model: googleStatus.models[0],
+      models: googleStatus.models
     })
   }
 
