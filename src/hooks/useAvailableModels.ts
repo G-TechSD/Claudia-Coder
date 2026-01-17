@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { getRecommendedModel, getRecommendedModels } from "@/lib/ai/providers"
+import { getGlobalSettings } from "@/lib/settings/global-settings"
 
 export interface AvailableModel {
   id: string
@@ -39,7 +40,25 @@ export function useAvailableModels(): UseAvailableModelsResult {
     setError(null)
 
     try {
-      const url = `/api/models${forceRefresh ? "?refresh=true" : ""}`
+      // Get local servers from global settings to pass to API
+      const globalSettings = getGlobalSettings()
+      const enabledLocalServers = globalSettings.localServers.filter(s => s.enabled)
+
+      const params = new URLSearchParams()
+      if (forceRefresh) params.set("refresh", "true")
+
+      // Pass local server URLs as JSON array
+      if (enabledLocalServers.length > 0) {
+        const serverUrls = enabledLocalServers.map(s => ({
+          id: s.id,
+          name: s.name,
+          type: s.type,
+          baseUrl: s.baseUrl
+        }))
+        params.set("localServers", JSON.stringify(serverUrls))
+      }
+
+      const url = `/api/models${params.toString() ? `?${params.toString()}` : ""}`
       const response = await fetch(url)
 
       if (!response.ok) {
@@ -116,6 +135,20 @@ export async function fetchAvailableModels(
     const params = new URLSearchParams()
     if (provider) params.set("provider", provider)
     if (refresh) params.set("refresh", "true")
+
+    // Get local servers from global settings to pass to API
+    const globalSettings = getGlobalSettings()
+    const enabledLocalServers = globalSettings.localServers.filter(s => s.enabled)
+
+    if (enabledLocalServers.length > 0) {
+      const serverUrls = enabledLocalServers.map(s => ({
+        id: s.id,
+        name: s.name,
+        type: s.type,
+        baseUrl: s.baseUrl
+      }))
+      params.set("localServers", JSON.stringify(serverUrls))
+    }
 
     const response = await fetch(`/api/models?${params}`)
     if (!response.ok) return []

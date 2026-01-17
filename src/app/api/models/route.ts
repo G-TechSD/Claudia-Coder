@@ -19,6 +19,9 @@ export interface FetchedModel {
     input?: number   // per 1M tokens
     output?: number  // per 1M tokens
   }
+  // Server info for local models
+  serverId?: string
+  serverUrl?: string
 }
 
 interface CachedModels {
@@ -261,13 +264,76 @@ async function fetchOllamaModels(baseUrl: string): Promise<FetchedModel[]> {
   }
 }
 
+// Interface for user-provided local servers from settings
+interface LocalServerParam {
+  id?: string
+  name?: string
+  type: "lmstudio" | "ollama" | "custom"
+  baseUrl: string
+}
+
+// Parse local servers from query param or POST body
+function parseLocalServers(param: string | null): LocalServerParam[] {
+  if (!param) return []
+  try {
+    const parsed = JSON.parse(param)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((s): s is LocalServerParam =>
+      typeof s === "object" &&
+      s !== null &&
+      typeof s.baseUrl === "string" &&
+      typeof s.type === "string"
+    )
+  } catch {
+    return []
+  }
+}
+
+// Get unique servers by URL (user servers override env servers)
+function mergeServers(
+  envServers: { url: string; type: "lmstudio" | "ollama" }[],
+  userServers: LocalServerParam[]
+): LocalServerParam[] {
+  const seenUrls = new Set<string>()
+  const result: LocalServerParam[] = []
+
+  // User servers take priority
+  for (const server of userServers) {
+    const normalizedUrl = server.baseUrl.replace(/\/$/, "")
+    if (!seenUrls.has(normalizedUrl)) {
+      seenUrls.add(normalizedUrl)
+      result.push(server)
+    }
+  }
+
+  // Add env servers that aren't already included
+  for (const server of envServers) {
+    const normalizedUrl = server.url.replace(/\/$/, "")
+    if (!seenUrls.has(normalizedUrl)) {
+      seenUrls.add(normalizedUrl)
+      result.push({
+        baseUrl: server.url,
+        type: server.type,
+        name: server.type === "ollama" ? "Ollama" : "LM Studio"
+      })
+    }
+  }
+
+  return result
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const provider = searchParams.get("provider")
   const refresh = searchParams.get("refresh") === "true"
 
-  // Check cache
-  const cacheKey = provider || "all"
+  // Parse user-added local servers from query params
+  const userLocalServers = parseLocalServers(searchParams.get("localServers"))
+
+  // Build unique cache key that includes local servers
+  const serverKey = userLocalServers.map(s => s.baseUrl).sort().join(",")
+  const cacheKey = `${provider || "all"}:${serverKey}`
+
   const cached = modelCache[cacheKey]
   if (!refresh && cached && Date.now() - cached.fetchedAt < cached.ttl) {
     return NextResponse.json({
@@ -278,45 +344,116 @@ export async function GET(request: NextRequest) {
   }
 
   const allModels: FetchedModel[] = []
+  const providerStatus: Record<string, "online" | "offline" | "invalid_key" | "no_key"> = {}
 
   // Fetch based on provider filter
   if (!provider || provider === "anthropic") {
-    const models = await fetchAnthropicModels()
-    allModels.push(...models)
+    const hasKey = !!process.env.ANTHROPIC_API_KEY
+    if (hasKey) {
+      const models = await fetchAnthropicModels()
+      if (models.length > 0) {
+        allModels.push(...models)
+        providerStatus.anthropic = "online"
+      } else {
+        providerStatus.anthropic = "offline"
+      }
+    } else {
+      providerStatus.anthropic = "no_key"
+    }
   }
 
   if (!provider || provider === "openai") {
-    const models = await fetchOpenAIModels()
-    allModels.push(...models)
+    const hasKey = !!process.env.OPENAI_API_KEY
+    if (hasKey) {
+      const models = await fetchOpenAIModels()
+      if (models.length > 0) {
+        allModels.push(...models)
+        providerStatus.openai = "online"
+      } else {
+        providerStatus.openai = "offline"
+      }
+    } else {
+      providerStatus.openai = "no_key"
+    }
   }
 
   if (!provider || provider === "google") {
-    const models = await fetchGoogleModels()
-    allModels.push(...models)
+    const hasKey = !!process.env.GOOGLE_AI_API_KEY
+    if (hasKey) {
+      const models = await fetchGoogleModels()
+      if (models.length > 0) {
+        allModels.push(...models)
+        providerStatus.google = "online"
+      } else {
+        providerStatus.google = "offline"
+      }
+    } else {
+      providerStatus.google = "no_key"
+    }
   }
 
-  // Local providers - get from env or request params
-  if (!provider || provider === "lmstudio") {
-    const lmStudioUrls = [
-      process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1,
-      process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2,
-      searchParams.get("lmstudio_url")
-    ].filter(Boolean) as string[]
+  // Build list of env-configured local servers
+  const envServers: { url: string; type: "lmstudio" | "ollama" }[] = []
 
-    for (const url of lmStudioUrls) {
-      const models = await fetchLMStudioModels(url)
-      // Tag models with their source server
-      allModels.push(...models.map(m => ({
-        ...m,
-        description: url
-      })))
+  if (!provider || provider === "lmstudio") {
+    if (process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1) {
+      envServers.push({ url: process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1, type: "lmstudio" })
+    }
+    if (process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2) {
+      envServers.push({ url: process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_2, type: "lmstudio" })
     }
   }
 
   if (!provider || provider === "ollama") {
-    const ollamaUrl = process.env.NEXT_PUBLIC_OLLAMA_URL || "http://localhost:11434"
-    const models = await fetchOllamaModels(ollamaUrl)
-    allModels.push(...models)
+    const ollamaUrl = process.env.NEXT_PUBLIC_OLLAMA_URL
+    if (ollamaUrl) {
+      envServers.push({ url: ollamaUrl, type: "ollama" })
+    }
+  }
+
+  // Merge env servers with user-provided servers (user servers take priority)
+  const allLocalServers = mergeServers(envServers, userLocalServers)
+
+  // Fetch models from all local servers in parallel
+  const localServerResults = await Promise.all(
+    allLocalServers.map(async (server) => {
+      const serverType = server.type === "ollama" ? "ollama" : "lmstudio"
+      const fetchFn = serverType === "ollama" ? fetchOllamaModels : fetchLMStudioModels
+
+      try {
+        const models = await fetchFn(server.baseUrl)
+        return {
+          server,
+          models,
+          status: models.length > 0 ? "online" as const : "offline" as const
+        }
+      } catch {
+        return {
+          server,
+          models: [] as FetchedModel[],
+          status: "offline" as const
+        }
+      }
+    })
+  )
+
+  // Add models from online local servers
+  for (const result of localServerResults) {
+    if (result.models.length > 0) {
+      // Tag models with their source server
+      const taggedModels = result.models.map(m => ({
+        ...m,
+        description: result.server.name || result.server.baseUrl,
+        // Add server info for routing
+        serverId: result.server.id,
+        serverUrl: result.server.baseUrl
+      }))
+      allModels.push(...taggedModels)
+    }
+
+    // Track status
+    const serverKey = result.server.name || result.server.baseUrl
+    providerStatus[serverKey] = result.status
   }
 
   // Sort: local first, then by provider, then by name
@@ -337,6 +474,7 @@ export async function GET(request: NextRequest) {
     models: allModels,
     cached: false,
     fetchedAt: new Date().toISOString(),
+    providerStatus,
     counts: {
       total: allModels.length,
       local: allModels.filter(m => m.type === "local").length,
@@ -350,4 +488,37 @@ export async function GET(request: NextRequest) {
       }
     }
   })
+}
+
+/**
+ * POST handler - accepts local servers via request body
+ * Body: { localServers: LocalServerParam[], provider?: string, refresh?: boolean }
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { localServers, provider, refresh } = body
+
+    // Build URL with query params to reuse GET logic
+    const url = new URL(request.url)
+    if (provider) url.searchParams.set("provider", provider)
+    if (refresh) url.searchParams.set("refresh", "true")
+    if (localServers && Array.isArray(localServers)) {
+      url.searchParams.set("localServers", JSON.stringify(localServers))
+    }
+
+    // Create a new request with the modified URL
+    const modifiedRequest = new NextRequest(url, {
+      method: "GET",
+      headers: request.headers
+    })
+
+    return GET(modifiedRequest)
+  } catch (error) {
+    console.error("Error in POST /api/models:", error)
+    return NextResponse.json(
+      { error: "Invalid request body" },
+      { status: 400 }
+    )
+  }
 }
