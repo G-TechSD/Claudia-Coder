@@ -365,14 +365,14 @@ export function VisionDisplay({ projectId, className }: VisionDisplayProps) {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Badge variant="outline" className="text-xs bg-purple-500/10 border-purple-500/30 text-purple-400">
                     {meta.projectType || "Game"}
                   </Badge>
                   <span className="text-xs text-muted-foreground">
                     {completionPercent}% complete
                   </span>
-                </CardDescription>
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-2">

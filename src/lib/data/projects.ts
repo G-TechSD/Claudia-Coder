@@ -331,10 +331,29 @@ export function getProject(id: string, userId?: string, isAdmin?: boolean): Proj
   }
 
   // Ensure workingDirectory is set (migrate older projects)
+  // Note: We directly update and save here to avoid infinite recursion with updateProject
   if (!project.workingDirectory) {
     const workingDir = generateWorkingDirectoryPath(project.name, project.id)
-    const updatedProject = updateProject(id, { workingDirectory: workingDir }, userId)
-    return updatedProject
+    project.workingDirectory = workingDir
+    project.updatedAt = new Date().toISOString()
+
+    // Save the updated project directly (not via updateProject to avoid recursion)
+    const ownerUserId = userId || project.userId
+    if (ownerUserId) {
+      const allProjects = getStoredProjectsForUser(ownerUserId)
+      const index = allProjects.findIndex(p => p.id === id)
+      if (index !== -1) {
+        allProjects[index] = project
+        saveProjectsForUser(ownerUserId, allProjects)
+      }
+    } else {
+      const allProjects = getStoredProjects()
+      const index = allProjects.findIndex(p => p.id === id)
+      if (index !== -1) {
+        allProjects[index] = project
+        saveProjects(allProjects)
+      }
+    }
   }
 
   return project
