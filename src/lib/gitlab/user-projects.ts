@@ -89,7 +89,7 @@ export function getGitLabCredentials(userId: string): UserGitLabCredentials | nu
 
   // Shared instance
   return {
-    baseUrl: process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1",
+    baseUrl: process.env.NEXT_PUBLIC_GITLAB_URL || "",
     personalAccessToken: token,
   }
 }

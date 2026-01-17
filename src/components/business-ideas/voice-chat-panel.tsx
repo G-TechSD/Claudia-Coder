@@ -45,12 +45,45 @@ interface ChatMessage {
  * - Auto-play responses
  * - Text fallback
  */
+// Storage key for localStorage persistence
+const VOICE_CHAT_STORAGE_KEY = "claudia_voice_chat_messages"
+
+function getStorageKey(ideaId: string): string {
+  return `${VOICE_CHAT_STORAGE_KEY}_${ideaId}`
+}
+
+function loadMessagesFromStorage(ideaId: string): ChatMessage[] {
+  if (typeof window === "undefined") return []
+  try {
+    const stored = localStorage.getItem(getStorageKey(ideaId))
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed)) {
+        return parsed
+      }
+    }
+  } catch (err) {
+    console.error("[VoiceChat] Failed to load messages from localStorage:", err)
+  }
+  return []
+}
+
+function saveMessagesToStorage(ideaId: string, messages: ChatMessage[]): void {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(getStorageKey(ideaId), JSON.stringify(messages))
+  } catch (err) {
+    console.error("[VoiceChat] Failed to save messages to localStorage:", err)
+  }
+}
+
 export function VoiceChatPanel({
   idea,
   onMessageSent,
   className
 }: VoiceChatPanelProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  // Initialize messages from localStorage
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessagesFromStorage(idea.id))
   const [textInput, setTextInput] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
   const [isCallActive, setIsCallActive] = useState(false)
@@ -210,6 +243,13 @@ export function VoiceChatPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
+  // Persist messages to localStorage when they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      saveMessagesToStorage(idea.id, messages)
+    }
+  }, [messages, idea.id])
+
   // Speak new assistant messages
   useEffect(() => {
     if (autoSpeak && messages.length > 0) {
@@ -358,14 +398,17 @@ export function VoiceChatPanel({
     setIsCallActive(true)
     startListening()
 
-    // Add welcome message
-    const welcomeMessage: ChatMessage = {
-      id: generateId(),
-      role: "assistant",
-      content: `Hi! I'm ready to discuss "${idea.title}" with you. What would you like to explore about this idea?`,
-      timestamp: new Date().toISOString()
+    // Only add welcome message if there are no existing messages
+    // (preserved messages from localStorage should be kept)
+    if (messages.length === 0) {
+      const welcomeMessage: ChatMessage = {
+        id: generateId(),
+        role: "assistant",
+        content: `Hi! I'm ready to discuss "${idea.title}" with you. What would you like to explore about this idea?`,
+        timestamp: new Date().toISOString()
+      }
+      setMessages([welcomeMessage])
     }
-    setMessages([welcomeMessage])
   }
 
   const endCall = () => {

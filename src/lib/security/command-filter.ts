@@ -176,7 +176,7 @@ export function analyzeCommand(commandStr: string): CommandAnalysis {
 /**
  * Expand tilde (~) in a path to the user's home directory
  */
-function expandTilde(pathStr: string, homeDir: string = "/home/bill"): string {
+function expandTilde(pathStr: string, homeDir: string = process.env.HOME || "/home/user"): string {
   if (pathStr.startsWith("~")) {
     return pathStr.replace(/^~/, homeDir)
   }

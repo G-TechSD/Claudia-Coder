@@ -1,0 +1,102 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - link "Claudia Coder Claudia Coder" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img "Claudia Coder" [ref=e7]
+          - generic [ref=e9]: Claudia Coder
+        - button [ref=e10] [cursor=pointer]:
+          - img
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - button "Projects" [expanded] [ref=e13] [cursor=pointer]:
+            - img [ref=e14]
+            - generic [ref=e16]: Projects
+            - img [ref=e17]
+          - navigation [ref=e20]:
+            - link "Dashboard" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Dashboard
+            - link "Projects" [ref=e28] [cursor=pointer]:
+              - /url: /projects
+              - img [ref=e29]
+              - generic [ref=e33]: Projects
+            - link "Business Ideas" [ref=e34] [cursor=pointer]:
+              - /url: /business-ideas
+              - img [ref=e35]
+              - generic [ref=e37]: Business Ideas
+            - link "Voice" [ref=e38] [cursor=pointer]:
+              - /url: /voice
+              - img [ref=e39]
+              - generic [ref=e42]: Voice
+        - generic [ref=e43]:
+          - button "Tools" [expanded] [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+            - generic [ref=e47]: Tools
+            - img [ref=e48]
+          - navigation [ref=e51]:
+            - link "Claude Code" [ref=e52] [cursor=pointer]:
+              - /url: /claude-code
+              - img [ref=e53]
+              - generic [ref=e55]: Claude Code
+        - button "Upcoming Features" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - generic [ref=e63]: Upcoming Features
+          - img [ref=e64]
+      - navigation [ref=e67]:
+        - link "Trash" [ref=e68] [cursor=pointer]:
+          - /url: /projects/trash
+          - img [ref=e69]
+          - generic [ref=e72]: Trash
+      - button "Search ⌘ K" [ref=e74] [cursor=pointer]:
+        - img
+        - generic [ref=e75]: Search
+        - generic:
+          - generic: ⌘
+          - text: K
+      - button "BT Beta Tester beta@claudiacoder.com" [ref=e77] [cursor=pointer]:
+        - generic [ref=e78]: BT
+        - generic [ref=e79]:
+          - generic [ref=e80]: Beta Tester
+          - generic [ref=e81]: beta@claudiacoder.com
+    - main [ref=e82]:
+      - generic [ref=e83]:
+        - img [ref=e84]
+        - paragraph [ref=e86]: Please sign in to manage security settings
+    - button [ref=e87] [cursor=pointer]:
+      - img
+    - generic [ref=e90]:
+      - generic [ref=e92]:
+        - generic [ref=e93]:
+          - img [ref=e95]
+          - generic [ref=e97]:
+            - heading "Voice Assistant" [level=3] [ref=e98]
+            - paragraph [ref=e99]: Ask questions about your projects
+        - generic [ref=e100]:
+          - button [ref=e101] [cursor=pointer]:
+            - img
+          - button [ref=e102] [cursor=pointer]:
+            - img
+      - button "Select projects" [ref=e104] [cursor=pointer]:
+        - generic [ref=e105]:
+          - img [ref=e106]
+          - generic [ref=e108]: Select projects
+        - img [ref=e109]
+      - generic [ref=e112]:
+        - img [ref=e113]
+        - paragraph [ref=e116]: Click the mic or type to ask about your projects
+        - paragraph [ref=e117]: Select projects above for context
+      - generic [ref=e118]:
+        - button [ref=e121] [cursor=pointer]:
+          - img [ref=e122]
+        - generic [ref=e125]:
+          - textbox "Or type your question..." [ref=e126]
+          - button [disabled]:
+            - img
+  - alert [ref=e127]
+```

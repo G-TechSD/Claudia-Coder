@@ -182,7 +182,7 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
           body: JSON.stringify({
             projectId: project.id,
             projectName: project.name,
-            repoPath: project.workingDirectory || project.repos[0]?.localPath || `/home/bill/claudia-projects/${project.name.toLowerCase().replace(/\s+/g, '-')}`,
+            repoPath: project.workingDirectory || project.repos[0]?.localPath || `~/claudia-projects/${project.name.toLowerCase().replace(/\s+/g, '-')}`,
             packet: {
               id: packet.id,
               title: packet.title,

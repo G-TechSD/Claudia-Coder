@@ -17,6 +17,7 @@ import { NextResponse } from "next/server"
 import { mkdir, writeFile, readFile } from "fs/promises"
 import { existsSync } from "fs"
 import * as path from "path"
+import os from "os"
 import type { WorkPacket, BuildPlan, PacketType } from "@/lib/ai/build-plan"
 
 // UUID generator that works in all contexts
@@ -34,11 +35,14 @@ function generateUUID(): string {
 // Spec file path
 const SPEC_PATH = path.join(process.cwd(), "generated/benchmark-app-spec.json")
 
+// Base directory for Claudia projects
+const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
+
 // TaskFlow project configuration
 const TASKFLOW_CONFIG = {
   name: "TaskFlow",
   description: "A modern task management application for benchmarking Claudia's end-to-end code generation. Features task CRUD, categories, priorities, filtering, and statistics.",
-  workingDirectory: "/home/bill/claudia-projects/taskflow-benchmark",
+  workingDirectory: path.join(CLAUDIA_PROJECTS_BASE, "taskflow-benchmark"),
   tags: ["benchmark", "react", "typescript", "nextjs", "task-management"],
   priority: "high" as const,
   status: "planning" as const
@@ -735,10 +739,9 @@ export async function POST() {
     const workingDir = TASKFLOW_CONFIG.workingDirectory
 
     // Ensure base directory exists
-    const baseDir = "/home/bill/claudia-projects"
-    if (!existsSync(baseDir)) {
-      await mkdir(baseDir, { recursive: true })
-      console.log(`[create-taskflow] Created base directory: ${baseDir}`)
+    if (!existsSync(CLAUDIA_PROJECTS_BASE)) {
+      await mkdir(CLAUDIA_PROJECTS_BASE, { recursive: true })
+      console.log(`[create-taskflow] Created base directory: ${CLAUDIA_PROJECTS_BASE}`)
     }
 
     // Create the working directory if it doesn't exist

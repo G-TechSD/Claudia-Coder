@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { promises as fs } from "fs"
 import path from "path"
+import os from "os"
 import {
   listDocs,
   createDoc,
@@ -50,7 +51,7 @@ async function getProjectWorkingDirectory(projectId: string, request?: NextReque
   }
 
   // Default location for Claudia projects
-  const claudiaProjectsBase = "/home/bill/claudia-projects"
+  const claudiaProjectsBase = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
 
   try {
     // List directories in the base and find one that matches the project ID

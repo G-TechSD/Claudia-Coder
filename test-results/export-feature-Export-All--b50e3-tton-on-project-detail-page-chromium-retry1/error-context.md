@@ -1,0 +1,123 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - link "Claudia Coder Claudia Coder" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img "Claudia Coder" [ref=e7]
+          - generic [ref=e9]: Claudia Coder
+        - button [ref=e10] [cursor=pointer]:
+          - img
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - button "Projects" [expanded] [ref=e13] [cursor=pointer]:
+            - img [ref=e14]
+            - generic [ref=e16]: Projects
+            - img [ref=e17]
+          - navigation [ref=e20]:
+            - link "Dashboard" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Dashboard
+            - link "Projects" [ref=e28] [cursor=pointer]:
+              - /url: /projects
+              - img [ref=e29]
+              - generic [ref=e33]: Projects
+            - link "Business Ideas" [ref=e34] [cursor=pointer]:
+              - /url: /business-ideas
+              - img [ref=e35]
+              - generic [ref=e37]: Business Ideas
+            - link "Voice" [ref=e38] [cursor=pointer]:
+              - /url: /voice
+              - img [ref=e39]
+              - generic [ref=e42]: Voice
+        - generic [ref=e43]:
+          - button "Tools" [expanded] [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+            - generic [ref=e47]: Tools
+            - img [ref=e48]
+          - navigation [ref=e51]:
+            - link "Claude Code" [ref=e52] [cursor=pointer]:
+              - /url: /claude-code
+              - img [ref=e53]
+              - generic [ref=e55]: Claude Code
+        - button "Upcoming Features" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - generic [ref=e63]: Upcoming Features
+          - img [ref=e64]
+      - navigation [ref=e67]:
+        - link "Trash" [active] [ref=e68] [cursor=pointer]:
+          - /url: /projects/trash
+          - img [ref=e69]
+          - generic [ref=e72]: Trash
+      - button "Search ⌘ K" [ref=e74] [cursor=pointer]:
+        - img
+        - generic [ref=e75]: Search
+        - generic:
+          - generic: ⌘
+          - text: K
+      - button "BT Beta Tester beta@claudiacoder.com" [ref=e77] [cursor=pointer]:
+        - generic [ref=e78]: BT
+        - generic [ref=e79]:
+          - generic [ref=e80]: Beta Tester
+          - generic [ref=e81]: beta@claudiacoder.com
+    - main [ref=e82]:
+      - generic [ref=e83]:
+        - generic [ref=e84]:
+          - generic [ref=e85]:
+            - link [ref=e86] [cursor=pointer]:
+              - /url: /projects
+              - img
+            - generic [ref=e87]:
+              - img [ref=e88]
+              - heading "Trash" [level=1] [ref=e91]
+            - generic [ref=e92]: 0 projects
+          - button "Refresh" [ref=e94] [cursor=pointer]:
+            - img
+            - generic [ref=e95]: Refresh
+        - generic [ref=e98]:
+          - img [ref=e99]
+          - paragraph [ref=e101]: Projects in trash can be restored or permanently deleted. Permanently deleted projects cannot be recovered.
+        - generic [ref=e103]:
+          - img [ref=e104]
+          - paragraph [ref=e108]: Trash is empty
+          - paragraph [ref=e109]: Projects you delete will appear here
+          - link "Back to Projects" [ref=e110] [cursor=pointer]:
+            - /url: /projects
+            - img
+            - text: Back to Projects
+    - button [ref=e111] [cursor=pointer]:
+      - img
+    - generic [ref=e114]:
+      - generic [ref=e116]:
+        - generic [ref=e117]:
+          - img [ref=e119]
+          - generic [ref=e121]:
+            - heading "Voice Assistant" [level=3] [ref=e122]
+            - paragraph [ref=e123]: Ask questions about your projects
+        - generic [ref=e124]:
+          - button [ref=e125] [cursor=pointer]:
+            - img
+          - button [ref=e126] [cursor=pointer]:
+            - img
+      - button "Select projects" [ref=e128] [cursor=pointer]:
+        - generic [ref=e129]:
+          - img [ref=e130]
+          - generic [ref=e132]: Select projects
+        - img [ref=e133]
+      - generic [ref=e136]:
+        - img [ref=e137]
+        - paragraph [ref=e140]: Click the mic or type to ask about your projects
+        - paragraph [ref=e141]: Select projects above for context
+      - generic [ref=e142]:
+        - button [ref=e145] [cursor=pointer]:
+          - img [ref=e146]
+        - generic [ref=e149]:
+          - textbox "Or type your question..." [ref=e150]
+          - button [disabled]:
+            - img
+  - alert [ref=e151]
+```

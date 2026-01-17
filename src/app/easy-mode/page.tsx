@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -102,6 +102,19 @@ interface Project {
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6
 
+// Session persistence key
+const SESSION_STORAGE_KEY = "claudia_easy_mode_session"
+
+interface EasyModeSession {
+  projectName: string
+  projectDescription: string
+  brainDumpText: string
+  currentStep: Step
+  generatedPlan: GeneratedPlan | null
+  buildPlan: BuildPlanData | null
+  timestamp: string
+}
+
 export default function EasyModePage() {
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState<Step>(1)
@@ -134,6 +147,57 @@ export default function EasyModePage() {
 
   // Step 6: Results
   const [workingDirectory, setWorkingDirectory] = useState("")
+
+  // Load session from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SESSION_STORAGE_KEY)
+      if (stored) {
+        const session: EasyModeSession = JSON.parse(stored)
+        // Restore interview data
+        if (session.projectName) setProjectName(session.projectName)
+        if (session.projectDescription) setProjectDescription(session.projectDescription)
+        if (session.brainDumpText) setBrainDumpText(session.brainDumpText)
+        if (session.currentStep) setCurrentStep(session.currentStep)
+        if (session.generatedPlan) setGeneratedPlan(session.generatedPlan)
+        if (session.buildPlan) setBuildPlan(session.buildPlan)
+      }
+    } catch (error) {
+      console.error("Failed to restore Easy Mode session:", error)
+    }
+  }, [])
+
+  // Save session to localStorage whenever interview data changes
+  useEffect(() => {
+    // Don't save if no data has been entered yet
+    if (!projectName && !projectDescription && !brainDumpText && currentStep === 1) {
+      return
+    }
+
+    try {
+      const session: EasyModeSession = {
+        projectName,
+        projectDescription,
+        brainDumpText,
+        currentStep,
+        generatedPlan,
+        buildPlan,
+        timestamp: new Date().toISOString()
+      }
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session))
+    } catch (error) {
+      console.error("Failed to save Easy Mode session:", error)
+    }
+  }, [projectName, projectDescription, brainDumpText, currentStep, generatedPlan, buildPlan])
+
+  // Clear session data helper
+  const clearSession = useCallback(() => {
+    try {
+      localStorage.removeItem(SESSION_STORAGE_KEY)
+    } catch (error) {
+      console.error("Failed to clear Easy Mode session:", error)
+    }
+  }, [])
 
   // Step navigation
   const canGoNext = (): boolean => {
@@ -469,6 +533,9 @@ Output ONLY valid JSON, no markdown or explanation.`,
       setBuildProgress(100)
       setBuildStatus("Project created successfully!")
       setCreatedProject(project)
+
+      // Clear the session data since project was successfully created
+      clearSession()
 
     } catch (error) {
       const message = error instanceof Error ? error.message : "Build failed"

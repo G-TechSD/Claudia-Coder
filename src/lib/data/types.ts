@@ -92,7 +92,7 @@ export interface LinkedRepo {
   name: string
   path: string
   url: string
-  localPath?: string // Filesystem path for Claude Code execution (e.g., /home/bill/projects/goldeneye)
+  localPath?: string // Filesystem path for Claude Code execution (e.g., ~/projects/goldeneye)
 }
 
 export interface Project {
@@ -109,7 +109,7 @@ export interface Project {
   userId?: string
 
   // Working directory - always available for Claude Code
-  // Created at /home/bill/claudia-projects/{project-slug}/
+  // Created at ~/claudia-projects/{project-slug}/
   workingDirectory?: string
 
   // Base path for the project's primary codebase location

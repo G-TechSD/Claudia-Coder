@@ -2,7 +2,7 @@
  * Project File System Types
  * Types for Claudia project folder structure and file-based communication with Claude Code
  *
- * Project folders live at: /home/bill/claudia-projects/{project-slug}/
+ * Project folders live at: ~/claudia-projects/{project-slug}/
  * Structure:
  *   .claudia/
  *     config.json          - ClaudiaProjectConfig

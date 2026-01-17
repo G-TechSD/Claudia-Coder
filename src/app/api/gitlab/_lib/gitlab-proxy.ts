@@ -10,7 +10,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 import https from "https"
 import { NextRequest, NextResponse } from "next/server"
 
-const GITLAB_URL = process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1"
+const GITLAB_URL = process.env.GITLAB_URL || ""
 
 // Create an HTTPS agent that accepts self-signed certificates
 const httpsAgent = new https.Agent({

@@ -41,7 +41,7 @@ interface RepoBrowserProps {
   linkedRepos: LinkedRepo[]
   onRepoLinked?: (repo: LinkedRepo) => void
   workingDirectory?: string
-  basePath?: string // The project's base folder path (e.g., /home/bill/projects/my-app)
+  basePath?: string // The project's base folder path (e.g., ~/projects/my-app)
 }
 
 /**

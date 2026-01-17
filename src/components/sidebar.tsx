@@ -44,6 +44,7 @@ import {
   MessageSquare,
   Database,
   Rocket,
+  PlusCircle,
 } from "lucide-react"
 
 interface NavItem {
@@ -405,6 +406,24 @@ export function Sidebar() {
           </nav>
         </div>
       )}
+
+      {/* New Project Button - Prominent CTA */}
+      <div className="p-2 border-b">
+        <Link
+          href="/projects/new"
+          className={cn(
+            "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold transition-all",
+            "bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-sm",
+            "hover:from-green-600 hover:to-emerald-600 hover:shadow-md",
+            pathname === "/projects/new" && "ring-2 ring-green-400 ring-offset-2 ring-offset-background",
+            collapsed && "justify-center px-2"
+          )}
+          title={collapsed ? "New Project" : undefined}
+        >
+          <PlusCircle className="h-5 w-5 shrink-0" />
+          {!collapsed && <span>New Project</span>}
+        </Link>
+      </div>
 
       {/* Main Navigation with Accordion Categories */}
       <nav className="flex-1 space-y-2 overflow-y-auto p-2">

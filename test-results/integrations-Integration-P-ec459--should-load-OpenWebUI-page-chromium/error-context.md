@@ -1,0 +1,173 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - link "Claudia Coder Claudia Coder" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img "Claudia Coder" [ref=e7]
+          - generic [ref=e9]: Claudia Coder
+        - button [ref=e10] [cursor=pointer]:
+          - img
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - button "Projects" [expanded] [ref=e13] [cursor=pointer]:
+            - img [ref=e14]
+            - generic [ref=e16]: Projects
+            - img [ref=e17]
+          - navigation [ref=e20]:
+            - link "Dashboard" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Dashboard
+            - link "Projects" [ref=e28] [cursor=pointer]:
+              - /url: /projects
+              - img [ref=e29]
+              - generic [ref=e33]: Projects
+            - link "Business Ideas" [ref=e34] [cursor=pointer]:
+              - /url: /business-ideas
+              - img [ref=e35]
+              - generic [ref=e37]: Business Ideas
+            - link "Voice" [ref=e38] [cursor=pointer]:
+              - /url: /voice
+              - img [ref=e39]
+              - generic [ref=e42]: Voice
+        - generic [ref=e43]:
+          - button "Tools" [expanded] [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+            - generic [ref=e47]: Tools
+            - img [ref=e48]
+          - navigation [ref=e51]:
+            - link "Claude Code" [ref=e52] [cursor=pointer]:
+              - /url: /claude-code
+              - img [ref=e53]
+              - generic [ref=e55]: Claude Code
+        - button "Upcoming Features" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - generic [ref=e63]: Upcoming Features
+          - img [ref=e64]
+      - navigation [ref=e67]:
+        - link "Trash" [ref=e68] [cursor=pointer]:
+          - /url: /projects/trash
+          - img [ref=e69]
+          - generic [ref=e72]: Trash
+      - button "Search ⌘ K" [ref=e74] [cursor=pointer]:
+        - img
+        - generic [ref=e75]: Search
+        - generic:
+          - generic: ⌘
+          - text: K
+      - button "BT Beta Tester beta@claudiacoder.com" [ref=e77] [cursor=pointer]:
+        - generic [ref=e78]: BT
+        - generic [ref=e79]:
+          - generic [ref=e80]: Beta Tester
+          - generic [ref=e81]: beta@claudiacoder.com
+    - main [ref=e82]:
+      - generic [ref=e83]:
+        - generic [ref=e84]:
+          - generic [ref=e85]:
+            - img [ref=e87]
+            - generic [ref=e89]:
+              - heading "Open Web UI" [level=1] [ref=e90]
+              - paragraph [ref=e91]: Embedded AI chat interface
+          - generic [ref=e92]:
+            - button "Check Connection" [ref=e93] [cursor=pointer]:
+              - img
+              - text: Check Connection
+            - button "Open Fullscreen" [ref=e94] [cursor=pointer]:
+              - img
+              - text: Open Fullscreen
+        - generic [ref=e98]:
+          - img [ref=e100]
+          - generic [ref=e107]:
+            - generic [ref=e108]:
+              - paragraph [ref=e109]: Open Web UI Server
+              - generic [ref=e110]: Disconnected
+            - paragraph [ref=e111]: http://localhost:8080
+            - paragraph [ref=e112]: Server returned status 404
+        - generic [ref=e113]:
+          - generic [ref=e115]:
+            - generic [ref=e116]:
+              - img [ref=e117]
+              - heading "Chat Interface" [level=3] [ref=e119]
+            - generic [ref=e120]:
+              - link "Open in New Tab" [ref=e121] [cursor=pointer]:
+                - /url: http://localhost:8080
+                - img
+                - text: Open in New Tab
+              - link "Settings" [ref=e122] [cursor=pointer]:
+                - /url: /settings/openwebui
+                - img
+                - text: Settings
+          - generic [ref=e124]:
+            - generic [ref=e125]:
+              - generic [ref=e127]:
+                - img [ref=e128]
+                - generic [ref=e135]: Disconnected
+              - generic [ref=e136]:
+                - button "Refresh" [ref=e137] [cursor=pointer]:
+                  - img
+                - button "Open in new tab" [ref=e138] [cursor=pointer]:
+                  - img
+                - button "Fullscreen" [ref=e139] [cursor=pointer]:
+                  - img
+                - link "Settings" [ref=e140] [cursor=pointer]:
+                  - /url: /settings/openwebui
+                  - img
+            - iframe [ref=e142]:
+              - generic [active] [ref=f1e1]:
+                - heading "404 Not Found" [level=1] [ref=f1e3]
+                - separator [ref=f1e4]
+                - generic [ref=f1e5]: nginx/1.24.0 (Ubuntu)
+        - generic [ref=e143]:
+          - generic [ref=e145]:
+            - generic [ref=e146]:
+              - img [ref=e147]
+              - heading "MCP Tool Integration" [level=3] [ref=e149]
+            - generic [ref=e150]: Coming Soon
+          - generic [ref=e151]:
+            - paragraph [ref=e152]: MCP (Model Context Protocol) tools will be available here when configured. These tools allow Open Web UI to interact with Claudia's automation features.
+            - generic [ref=e153]:
+              - generic [ref=e154]:
+                - paragraph [ref=e155]: Project Tools
+                - paragraph [ref=e156]: Access project files and context
+              - generic [ref=e157]:
+                - paragraph [ref=e158]: Code Tools
+                - paragraph [ref=e159]: Run code analysis and generation
+              - generic [ref=e160]:
+                - paragraph [ref=e161]: Workflow Tools
+                - paragraph [ref=e162]: Trigger n8n workflows
+    - button [ref=e163] [cursor=pointer]:
+      - img
+    - generic [ref=e166]:
+      - generic [ref=e168]:
+        - generic [ref=e169]:
+          - img [ref=e171]
+          - generic [ref=e173]:
+            - heading "Voice Assistant" [level=3] [ref=e174]
+            - paragraph [ref=e175]: Ask questions about your projects
+        - generic [ref=e176]:
+          - button [ref=e177] [cursor=pointer]:
+            - img
+          - button [ref=e178] [cursor=pointer]:
+            - img
+      - button "Select projects" [ref=e180] [cursor=pointer]:
+        - generic [ref=e181]:
+          - img [ref=e182]
+          - generic [ref=e184]: Select projects
+        - img [ref=e185]
+      - generic [ref=e188]:
+        - img [ref=e189]
+        - paragraph [ref=e192]: Click the mic or type to ask about your projects
+        - paragraph [ref=e193]: Select projects above for context
+      - generic [ref=e194]:
+        - button [ref=e197] [cursor=pointer]:
+          - img [ref=e198]
+        - generic [ref=e201]:
+          - textbox "Or type your question..." [ref=e202]
+          - button [disabled]:
+            - img
+  - alert [ref=e203]
+```

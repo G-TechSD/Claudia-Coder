@@ -193,7 +193,7 @@ export function getUserGitLabUrl(userId: string): string {
     return config.personalInstance.baseUrl
   }
 
-  return process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1"
+  return process.env.NEXT_PUBLIC_GITLAB_URL || ""
 }
 
 /**

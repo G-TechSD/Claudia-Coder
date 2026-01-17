@@ -1,7 +1,7 @@
 /**
  * Project Working Directory API
  *
- * Ensures project working directories exist at /home/bill/claudia-projects/{project-slug}/
+ * Ensures project working directories exist at ~/claudia-projects/{project-slug}/
  *
  * Endpoints:
  * - POST: Create working directory for project if not exists
@@ -33,7 +33,7 @@ function generateSlug(name: string): string {
 
 /**
  * Generate the working directory path for a project
- * Format: /home/bill/claudia-projects/{project-slug}-{short-id}/
+ * Format: ~/claudia-projects/{project-slug}-{short-id}/
  */
 function generateWorkingDirectoryPath(projectName: string, projectId: string): string {
   const slug = generateSlug(projectName)

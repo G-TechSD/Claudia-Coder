@@ -6,7 +6,7 @@
  * All requests are proxied through /api/gitlab/* endpoints
  */
 
-const GITLAB_BASE_URL = process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1"
+const GITLAB_BASE_URL = process.env.NEXT_PUBLIC_GITLAB_URL || ""
 
 export interface GitLabProject {
   id: number

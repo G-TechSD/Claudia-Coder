@@ -1,0 +1,282 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - link "Claudia Coder Claudia Coder" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img "Claudia Coder" [ref=e7]
+          - generic [ref=e9]: Claudia Coder
+        - button [ref=e10] [cursor=pointer]:
+          - img
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - button "Projects" [expanded] [ref=e13] [cursor=pointer]:
+            - img [ref=e14]
+            - generic [ref=e16]: Projects
+            - img [ref=e17]
+          - navigation [ref=e20]:
+            - link "Dashboard" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Dashboard
+            - link "Projects" [ref=e28] [cursor=pointer]:
+              - /url: /projects
+              - img [ref=e29]
+              - generic [ref=e33]: Projects
+            - link "Business Ideas" [ref=e34] [cursor=pointer]:
+              - /url: /business-ideas
+              - img [ref=e35]
+              - generic [ref=e37]: Business Ideas
+            - link "Voice" [ref=e38] [cursor=pointer]:
+              - /url: /voice
+              - img [ref=e39]
+              - generic [ref=e42]: Voice
+        - generic [ref=e43]:
+          - button "Tools" [expanded] [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+            - generic [ref=e47]: Tools
+            - img [ref=e48]
+          - navigation [ref=e51]:
+            - link "Claude Code" [ref=e52] [cursor=pointer]:
+              - /url: /claude-code
+              - img [ref=e53]
+              - generic [ref=e55]: Claude Code
+        - button "Upcoming Features" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - generic [ref=e63]: Upcoming Features
+          - img [ref=e64]
+      - navigation [ref=e67]:
+        - link "Trash" [ref=e68] [cursor=pointer]:
+          - /url: /projects/trash
+          - img [ref=e69]
+          - generic [ref=e72]: Trash
+      - button "Search ⌘ K" [ref=e74] [cursor=pointer]:
+        - img
+        - generic [ref=e75]: Search
+        - generic:
+          - generic: ⌘
+          - text: K
+      - button "BT Beta Tester beta@claudiacoder.com" [ref=e77] [cursor=pointer]:
+        - generic [ref=e78]: BT
+        - generic [ref=e79]:
+          - generic [ref=e80]: Beta Tester
+          - generic [ref=e81]: beta@claudiacoder.com
+    - main [ref=e82]:
+      - generic [ref=e83]:
+        - generic [ref=e84]:
+          - generic [ref=e85]:
+            - generic [ref=e86]:
+              - generic [ref=e87]:
+                - img [ref=e89]
+                - generic [ref=e91]:
+                  - heading "Quick Setup" [level=3] [ref=e92]
+                  - paragraph [ref=e93]: 2 of 6 steps completed
+              - generic [ref=e94]:
+                - button "Skip for now" [ref=e95] [cursor=pointer]
+                - button [ref=e96] [cursor=pointer]:
+                  - img
+            - progressbar [ref=e98]
+          - generic [ref=e100]:
+            - generic [ref=e101]:
+              - generic [ref=e103]:
+                - img [ref=e105]
+                - generic [ref=e108]:
+                  - paragraph [ref=e109]: Connect Local AI
+                  - paragraph [ref=e110]: LM Studio or Ollama detected
+              - generic [ref=e111]:
+                - generic [ref=e112]:
+                  - img [ref=e114]
+                  - generic [ref=e116]:
+                    - paragraph [ref=e117]: Add Cloud Provider
+                    - paragraph [ref=e118]: Add Anthropic, OpenAI, or Google for powerful models
+                - link "Add Key" [ref=e119] [cursor=pointer]:
+                  - /url: /settings/providers
+                  - text: Add Key
+                  - img
+              - generic [ref=e121]:
+                - img [ref=e123]
+                - generic [ref=e126]:
+                  - paragraph [ref=e127]: Set Default Model
+                  - paragraph [ref=e128]: Using GPT-OSS 20B (BEAST)
+              - generic [ref=e129]:
+                - generic [ref=e130]:
+                  - img [ref=e132]
+                  - generic [ref=e136]:
+                    - paragraph [ref=e137]: n8n Workflows
+                    - paragraph [ref=e138]: Connect n8n for AI workflow automation
+                - link "Open Workflows" [ref=e139] [cursor=pointer]:
+                  - /url: /workflows
+                  - text: Open Workflows
+                  - img
+              - generic [ref=e140]:
+                - generic [ref=e141]:
+                  - img [ref=e143]
+                  - generic [ref=e147]:
+                    - paragraph [ref=e148]: Gitea Git Server
+                    - paragraph [ref=e149]: Connect Gitea for Git repository management
+                - link "Configure Gitea" [ref=e150] [cursor=pointer]:
+                  - /url: /settings/gitea
+                  - text: Configure Gitea
+                  - img
+              - generic [ref=e151]:
+                - generic [ref=e152]:
+                  - img [ref=e154]
+                  - generic [ref=e156]:
+                    - paragraph [ref=e157]: OpenWebUI Chat
+                    - paragraph [ref=e158]: Connect OpenWebUI for an alternative chat interface
+                - link "Configure OpenWebUI" [ref=e159] [cursor=pointer]:
+                  - /url: /settings
+                  - text: Configure OpenWebUI
+                  - img
+            - generic [ref=e160]:
+              - paragraph [ref=e161]: You can always access this from Settings
+              - link "Open Settings" [ref=e162] [cursor=pointer]:
+                - /url: /settings/providers
+                - img
+                - text: Open Settings
+        - generic [ref=e163]:
+          - generic [ref=e164]:
+            - heading "Dashboard" [level=1] [ref=e165]
+            - paragraph [ref=e166]: Monitor your autonomous development pipeline
+          - generic [ref=e167]: All systems operational
+        - generic [ref=e171]:
+          - generic [ref=e174]:
+            - generic [ref=e175]:
+              - paragraph [ref=e176]: Active Projects
+              - paragraph [ref=e177]: "3"
+            - img [ref=e179]
+          - generic [ref=e185]:
+            - generic [ref=e186]:
+              - paragraph [ref=e187]: Active Packets
+              - paragraph [ref=e188]: "0"
+            - img [ref=e190]
+          - generic [ref=e196]:
+            - generic [ref=e197]:
+              - paragraph [ref=e198]: Completed Today
+              - paragraph [ref=e199]: "0"
+            - img [ref=e201]
+          - generic [ref=e206]:
+            - generic [ref=e207]:
+              - paragraph [ref=e208]: Blocked
+              - paragraph [ref=e209]: "0"
+            - img [ref=e211]
+        - generic [ref=e213]:
+          - generic [ref=e214]:
+            - heading "Projects" [level=3] [ref=e215]
+            - link "View all" [ref=e216] [cursor=pointer]:
+              - /url: /projects
+              - text: View all
+              - img
+          - generic [ref=e218]:
+            - link "n8n Workflows active Automation workflows for the development pipeline" [ref=e219] [cursor=pointer]:
+              - /url: /projects/34165f3f-03bb-407d-a127-d262541e950d
+              - generic [ref=e220]:
+                - generic [ref=e221]:
+                  - img [ref=e222]
+                  - generic [ref=e226]: n8n Workflows
+                  - generic "active" [ref=e227]
+                - paragraph [ref=e228]: Automation workflows for the development pipeline
+            - link "Claudia Coder active Admin dashboard for the Claudia Coder" [ref=e229] [cursor=pointer]:
+              - /url: /projects/c0ad22df-1d81-4396-8822-e6e4ad3dc7f4
+              - generic [ref=e230]:
+                - generic [ref=e231]:
+                  - img [ref=e232]
+                  - generic [ref=e236]: Claudia Coder
+                  - generic "active" [ref=e237]
+                - paragraph [ref=e238]: Admin dashboard for the Claudia Coder
+            - link "GoldenEye active Multi-provider AI chain system for intelligent routing and model selection" [ref=e239] [cursor=pointer]:
+              - /url: /projects/ea64c5d8-f191-4377-935c-c7be65a70ecf
+              - generic [ref=e240]:
+                - generic [ref=e241]:
+                  - img [ref=e242]
+                  - generic [ref=e246]: GoldenEye
+                  - generic "active" [ref=e247]
+                - paragraph [ref=e248]: Multi-provider AI chain system for intelligent routing and model selection
+        - generic [ref=e251]:
+          - generic [ref=e252]:
+            - heading "Recent Activity" [level=3] [ref=e253]
+            - link "View all" [ref=e254] [cursor=pointer]:
+              - /url: /activity
+              - text: View all
+              - img
+          - generic [ref=e256]:
+            - 'link "Completed: Refinement Pass #1 A Flutter App 8h ago" [ref=e257] [cursor=pointer]':
+              - /url: /activity
+              - generic [ref=e261]:
+                - generic [ref=e262]: "Completed: Refinement Pass #1"
+                - generic [ref=e263]: A Flutter App
+              - generic [ref=e264]: 8h ago
+            - 'link "Completed: Add Flashlight Toggle Control A Flutter App 8h ago" [ref=e265] [cursor=pointer]':
+              - /url: /activity
+              - generic [ref=e269]:
+                - generic [ref=e270]: "Completed: Add Flashlight Toggle Control"
+                - generic [ref=e271]: A Flutter App
+              - generic [ref=e272]: 8h ago
+            - 'link "Completed: Build Real‑Time Chart UI A Flutter App 8h ago" [ref=e273] [cursor=pointer]':
+              - /url: /activity
+              - generic [ref=e277]:
+                - generic [ref=e278]: "Completed: Build Real‑Time Chart UI"
+                - generic [ref=e279]: A Flutter App
+              - generic [ref=e280]: 8h ago
+            - 'link "Completed: Implement Flashlight Service A Flutter App 8h ago" [ref=e281] [cursor=pointer]':
+              - /url: /activity
+              - generic [ref=e285]:
+                - generic [ref=e286]: "Completed: Implement Flashlight Service"
+                - generic [ref=e287]: A Flutter App
+              - generic [ref=e288]: 8h ago
+            - 'link "Completed: Implement Motion Sensor Service A Flutter App 8h ago" [ref=e289] [cursor=pointer]':
+              - /url: /activity
+              - generic [ref=e293]:
+                - generic [ref=e294]: "Completed: Implement Motion Sensor Service"
+                - generic [ref=e295]: A Flutter App
+              - generic [ref=e296]: 8h ago
+        - generic [ref=e297]:
+          - heading "AI Models" [level=3] [ref=e299]
+          - generic [ref=e301]:
+            - generic [ref=e302]:
+              - generic [ref=e304]: BE
+              - generic [ref=e306]:
+                - paragraph [ref=e307]: Beast
+                - paragraph [ref=e308]: openai/gpt-oss-20b
+                - paragraph [ref=e309]: Local
+            - generic [ref=e310]:
+              - generic [ref=e312]: BE
+              - generic [ref=e314]:
+                - paragraph [ref=e315]: Bedroom
+                - paragraph [ref=e316]: fara-7b
+                - paragraph [ref=e317]: Local
+    - button [ref=e318] [cursor=pointer]:
+      - img
+    - generic [ref=e321]:
+      - generic [ref=e323]:
+        - generic [ref=e324]:
+          - img [ref=e326]
+          - generic [ref=e328]:
+            - heading "Voice Assistant" [level=3] [ref=e329]
+            - paragraph [ref=e330]: Ask questions about your projects
+        - generic [ref=e331]:
+          - button [ref=e332] [cursor=pointer]:
+            - img
+          - button [ref=e333] [cursor=pointer]:
+            - img
+      - button "Select projects" [ref=e335] [cursor=pointer]:
+        - generic [ref=e336]:
+          - img [ref=e337]
+          - generic [ref=e339]: Select projects
+        - img [ref=e340]
+      - generic [ref=e343]:
+        - img [ref=e344]
+        - paragraph [ref=e347]: Click the mic or type to ask about your projects
+        - paragraph [ref=e348]: Select projects above for context
+      - generic [ref=e349]:
+        - button [ref=e352] [cursor=pointer]:
+          - img [ref=e353]
+        - generic [ref=e356]:
+          - textbox "Or type your question..." [ref=e357]
+          - button [disabled]:
+            - img
+  - alert [ref=e358]
+```

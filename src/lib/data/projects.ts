@@ -66,7 +66,7 @@ function generateSlug(name: string): string {
 
 /**
  * Generate the working directory path for a project
- * Format: /home/bill/claudia-projects/{project-slug}/
+ * Format: ~/claudia-projects/{project-slug}/
  */
 export function generateWorkingDirectoryPath(projectName: string, projectId?: string): string {
   const slug = generateSlug(projectName)
@@ -422,7 +422,7 @@ export function getProject(id: string, userId?: string, isAdmin?: boolean): Proj
  * @param userId - Optional: The user ID creating the project (will be set as owner)
  *
  * NOTE: This function automatically triggers folder creation on disk.
- * The project folder is created at /home/bill/claudia-projects/{slug}-{id}/
+ * The project folder is created at ~/claudia-projects/{slug}-{id}/
  * with a .claudia/ subdirectory containing basic configuration.
  */
 export function createProject(

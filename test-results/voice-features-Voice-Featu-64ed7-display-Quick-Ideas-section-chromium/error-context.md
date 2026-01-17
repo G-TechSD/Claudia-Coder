@@ -1,0 +1,162 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - link "Claudia Coder Claudia Coder" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img "Claudia Coder" [ref=e7]
+          - generic [ref=e9]: Claudia Coder
+        - button [ref=e10] [cursor=pointer]:
+          - img
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - button "Projects" [expanded] [ref=e13] [cursor=pointer]:
+            - img [ref=e14]
+            - generic [ref=e16]: Projects
+            - img [ref=e17]
+          - navigation [ref=e20]:
+            - link "Dashboard" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Dashboard
+            - link "Projects" [ref=e28] [cursor=pointer]:
+              - /url: /projects
+              - img [ref=e29]
+              - generic [ref=e33]: Projects
+            - link "Business Ideas" [ref=e34] [cursor=pointer]:
+              - /url: /business-ideas
+              - img [ref=e35]
+              - generic [ref=e37]: Business Ideas
+            - link "Voice" [ref=e38] [cursor=pointer]:
+              - /url: /voice
+              - img [ref=e39]
+              - generic [ref=e42]: Voice
+        - generic [ref=e43]:
+          - button "Tools" [expanded] [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+            - generic [ref=e47]: Tools
+            - img [ref=e48]
+          - navigation [ref=e51]:
+            - link "Claude Code" [ref=e52] [cursor=pointer]:
+              - /url: /claude-code
+              - img [ref=e53]
+              - generic [ref=e55]: Claude Code
+        - button "Upcoming Features" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - generic [ref=e63]: Upcoming Features
+          - img [ref=e64]
+      - navigation [ref=e67]:
+        - link "Trash" [ref=e68] [cursor=pointer]:
+          - /url: /projects/trash
+          - img [ref=e69]
+          - generic [ref=e72]: Trash
+      - button "Search ⌘ K" [ref=e74] [cursor=pointer]:
+        - img
+        - generic [ref=e75]: Search
+        - generic:
+          - generic: ⌘
+          - text: K
+      - button "BT Beta Tester beta@claudiacoder.com" [ref=e77] [cursor=pointer]:
+        - generic [ref=e78]: BT
+        - generic [ref=e79]:
+          - generic [ref=e80]: Beta Tester
+          - generic [ref=e81]: beta@claudiacoder.com
+    - main [ref=e82]:
+      - generic [ref=e83]:
+        - generic [ref=e84]:
+          - generic [ref=e85]:
+            - heading "Voice Studio" [level=1] [ref=e86]
+            - paragraph [ref=e87]: Record ideas, create projects from voice - nothing gets lost
+          - generic [ref=e88]:
+            - generic [ref=e89]:
+              - generic [ref=e90]:
+                - img [ref=e91]
+                - text: 0 recordings
+              - generic [ref=e94]:
+                - img [ref=e95]
+                - text: 0:00
+            - button "Mute" [ref=e98] [cursor=pointer]:
+              - img
+              - text: Mute
+        - generic [ref=e99]:
+          - tablist [ref=e100]:
+            - tab "Record" [selected] [ref=e101] [cursor=pointer]:
+              - img [ref=e102]
+              - text: Record
+            - tab "Library" [ref=e105] [cursor=pointer]:
+              - img [ref=e106]
+              - text: Library
+          - tabpanel "Record" [ref=e109]:
+            - generic [ref=e110]:
+              - generic [ref=e112]:
+                - generic [ref=e113]:
+                  - generic [ref=e114]: Ready
+                  - paragraph [ref=e115]: Press the microphone to start recording
+                - button [ref=e150] [cursor=pointer]:
+                  - img [ref=e151]
+              - generic [ref=e154]:
+                - generic [ref=e155]:
+                  - generic [ref=e156]:
+                    - heading "Quick Ideas" [level=3] [ref=e157]:
+                      - img [ref=e158]
+                      - text: Quick Ideas
+                    - paragraph [ref=e160]: Say something like...
+                  - generic [ref=e162]:
+                    - button "“What's the status?” Get overall pipeline status" [ref=e163] [cursor=pointer]:
+                      - img [ref=e164]
+                      - generic [ref=e166]:
+                        - paragraph [ref=e167]: “What's the status?”
+                        - paragraph [ref=e168]: Get overall pipeline status
+                    - button "“Show me errors” List recent errors and failures" [ref=e169] [cursor=pointer]:
+                      - img [ref=e170]
+                      - generic [ref=e172]:
+                        - paragraph [ref=e173]: “Show me errors”
+                        - paragraph [ref=e174]: List recent errors and failures
+                    - button "“Start next packet” Begin the next queued packet" [ref=e175] [cursor=pointer]:
+                      - img [ref=e176]
+                      - generic [ref=e178]:
+                        - paragraph [ref=e179]: “Start next packet”
+                        - paragraph [ref=e180]: Begin the next queued packet
+                    - button "“Pause everything” Pause all running agents" [ref=e181] [cursor=pointer]:
+                      - img [ref=e182]
+                      - generic [ref=e184]:
+                        - paragraph [ref=e185]: “Pause everything”
+                        - paragraph [ref=e186]: Pause all running agents
+                - paragraph [ref=e189]:
+                  - strong [ref=e190]: "Pro tip:"
+                  - text: Recordings are automatically transcribed and saved. You can create projects directly from your recordings or link them to existing projects.
+    - button [ref=e191] [cursor=pointer]:
+      - img
+    - generic [ref=e194]:
+      - generic [ref=e196]:
+        - generic [ref=e197]:
+          - img [ref=e199]
+          - generic [ref=e201]:
+            - heading "Voice Assistant" [level=3] [ref=e202]
+            - paragraph [ref=e203]: Ask questions about your projects
+        - generic [ref=e204]:
+          - button [ref=e205] [cursor=pointer]:
+            - img
+          - button [ref=e206] [cursor=pointer]:
+            - img
+      - button "Select projects" [ref=e208] [cursor=pointer]:
+        - generic [ref=e209]:
+          - img [ref=e210]
+          - generic [ref=e212]: Select projects
+        - img [ref=e213]
+      - generic [ref=e216]:
+        - img [ref=e217]
+        - paragraph [ref=e220]: Click the mic or type to ask about your projects
+        - paragraph [ref=e221]: Select projects above for context
+      - generic [ref=e222]:
+        - button [ref=e225] [cursor=pointer]:
+          - img [ref=e226]
+        - generic [ref=e229]:
+          - textbox "Or type your question..." [ref=e230]
+          - button [disabled]:
+            - img
+  - alert [ref=e231]
+```

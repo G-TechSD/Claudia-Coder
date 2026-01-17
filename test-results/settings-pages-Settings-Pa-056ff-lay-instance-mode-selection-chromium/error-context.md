@@ -1,0 +1,237 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - link "Claudia Coder Claudia Coder" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img "Claudia Coder" [ref=e7]
+          - generic [ref=e9]: Claudia Coder
+        - button [ref=e10] [cursor=pointer]:
+          - img
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - button "Projects" [expanded] [ref=e13] [cursor=pointer]:
+            - img [ref=e14]
+            - generic [ref=e16]: Projects
+            - img [ref=e17]
+          - navigation [ref=e20]:
+            - link "Dashboard" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Dashboard
+            - link "Projects" [ref=e28] [cursor=pointer]:
+              - /url: /projects
+              - img [ref=e29]
+              - generic [ref=e33]: Projects
+            - link "Business Ideas" [ref=e34] [cursor=pointer]:
+              - /url: /business-ideas
+              - img [ref=e35]
+              - generic [ref=e37]: Business Ideas
+            - link "Voice" [ref=e38] [cursor=pointer]:
+              - /url: /voice
+              - img [ref=e39]
+              - generic [ref=e42]: Voice
+        - generic [ref=e43]:
+          - button "Tools" [expanded] [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+            - generic [ref=e47]: Tools
+            - img [ref=e48]
+          - navigation [ref=e51]:
+            - link "Claude Code" [ref=e52] [cursor=pointer]:
+              - /url: /claude-code
+              - img [ref=e53]
+              - generic [ref=e55]: Claude Code
+        - button "Upcoming Features" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - generic [ref=e63]: Upcoming Features
+          - img [ref=e64]
+      - navigation [ref=e67]:
+        - link "Trash" [ref=e68] [cursor=pointer]:
+          - /url: /projects/trash
+          - img [ref=e69]
+          - generic [ref=e72]: Trash
+      - button "Search ⌘ K" [ref=e74] [cursor=pointer]:
+        - img
+        - generic [ref=e75]: Search
+        - generic:
+          - generic: ⌘
+          - text: K
+      - button "BT Beta Tester beta@claudiacoder.com" [ref=e77] [cursor=pointer]:
+        - generic [ref=e78]: BT
+        - generic [ref=e79]:
+          - generic [ref=e80]: Beta Tester
+          - generic [ref=e81]: beta@claudiacoder.com
+    - main [ref=e82]:
+      - generic [ref=e83]:
+        - generic [ref=e84]:
+          - generic [ref=e85]:
+            - img [ref=e87]
+            - generic [ref=e91]:
+              - heading "Git Server Settings" [level=1] [ref=e92]
+              - paragraph [ref=e93]: Configure your source control and repository management (GitLab or Gitea)
+          - button "Save Changes" [ref=e95] [cursor=pointer]:
+            - img
+            - text: Save Changes
+        - generic [ref=e96]:
+          - generic [ref=e97]:
+            - heading "Git Server" [level=3] [ref=e98]:
+              - img [ref=e99]
+              - text: Git Server
+            - paragraph [ref=e102]: Choose how you want to connect to your Git server (GitLab or Gitea)
+          - generic [ref=e103]:
+            - generic [ref=e104]:
+              - button "Claudia's Shared GitLab Recommended Use Claudia's GitLab instance. Your projects are isolated using namespaces and groups. Perfect for getting started quickly. https://bill-dev-linux-1" [ref=e105] [cursor=pointer]:
+                - img [ref=e107]
+                - generic [ref=e110]:
+                  - img [ref=e112]
+                  - generic [ref=e118]:
+                    - paragraph [ref=e119]: Claudia's Shared GitLab
+                    - generic [ref=e120]: Recommended
+                - paragraph [ref=e121]: Use Claudia's GitLab instance. Your projects are isolated using namespaces and groups. Perfect for getting started quickly.
+                - paragraph [ref=e123]: https://bill-dev-linux-1
+              - button "Your Own GitLab Instance Advanced Connect your own GitLab server or GitLab.com account. Full control over your repositories and settings. Self-hosted or GitLab.com" [ref=e124] [cursor=pointer]:
+                - generic [ref=e125]:
+                  - img [ref=e127]
+                  - generic [ref=e130]:
+                    - paragraph [ref=e131]: Your Own GitLab Instance
+                    - generic [ref=e132]: Advanced
+                - paragraph [ref=e133]: Connect your own GitLab server or GitLab.com account. Full control over your repositories and settings.
+                - paragraph [ref=e135]: Self-hosted or GitLab.com
+            - generic [ref=e136]:
+              - generic [ref=e137]:
+                - img [ref=e138]
+                - generic [ref=e140]:
+                  - paragraph [ref=e141]: Your Project Namespace
+                  - paragraph [ref=e142]: Your projects are automatically created within your personal namespace to keep them isolated from other users.
+                  - generic [ref=e143]:
+                    - code [ref=e144]: claudia-users/beta-adm
+                    - button [ref=e145] [cursor=pointer]:
+                      - img
+              - generic [ref=e146]:
+                - text: Personal Access Token
+                - generic [ref=e147]:
+                  - textbox "Personal Access Token" [ref=e148]:
+                    - /placeholder: glpat-...
+                  - button [ref=e149] [cursor=pointer]:
+                    - img [ref=e150]
+                - paragraph [ref=e153]: Your token for accessing the shared GitLab instance
+                - button "Test Connection" [ref=e155] [cursor=pointer]:
+                  - img
+                  - text: Test Connection
+        - generic [ref=e156]:
+          - generic [ref=e157]:
+            - heading "Project Preferences" [level=3] [ref=e158]:
+              - img [ref=e159]
+              - text: Project Preferences
+            - paragraph [ref=e162]: Configure default settings for new projects
+          - generic [ref=e163]:
+            - generic [ref=e164]:
+              - generic [ref=e165]:
+                - paragraph [ref=e166]: Auto-create Projects
+                - paragraph [ref=e167]: Automatically create GitLab repositories for new Claudia projects
+              - switch [checked] [ref=e168] [cursor=pointer]
+            - generic [ref=e169]:
+              - text: Default Visibility
+              - paragraph [ref=e170]: Default visibility level for new projects
+              - generic [ref=e171]:
+                - button "Private" [ref=e172] [cursor=pointer]:
+                  - img [ref=e173]
+                  - text: Private
+                - button "Internal" [ref=e176] [cursor=pointer]:
+                  - img [ref=e177]
+                  - text: Internal
+                - button "Public" [ref=e180] [cursor=pointer]:
+                  - img [ref=e181]
+                  - text: Public
+            - generic [ref=e184]:
+              - text: Default Branch
+              - textbox "Default Branch" [ref=e185]:
+                - /placeholder: main
+                - text: main
+              - paragraph [ref=e186]: Default branch name for new repositories
+        - generic [ref=e187]:
+          - generic [ref=e189]:
+            - generic [ref=e190]:
+              - heading "Your Projects" [level=3] [ref=e191]:
+                - img [ref=e192]
+                - text: Your Projects
+              - paragraph [ref=e196]: Repositories associated with your account
+            - generic [ref=e197]:
+              - button "Refresh" [ref=e198] [cursor=pointer]:
+                - img
+                - text: Refresh
+              - link "Open GitLab" [ref=e199] [cursor=pointer]:
+                - /url: https://bill-dev-linux-1
+                - img
+                - text: Open GitLab
+          - generic [ref=e201]:
+            - img [ref=e202]
+            - paragraph [ref=e204]: GitLab not configured. Add your token below.
+            - button "Try Again" [ref=e205] [cursor=pointer]
+        - generic [ref=e206]:
+          - generic [ref=e207]:
+            - heading "Getting Started" [level=3] [ref=e208]:
+              - img [ref=e209]
+              - text: Getting Started
+            - paragraph [ref=e211]: Tips for setting up GitLab integration
+          - generic [ref=e212]:
+            - generic [ref=e213]:
+              - heading "Creating a Personal Access Token" [level=4] [ref=e214]
+              - list [ref=e215]:
+                - listitem [ref=e216]: Go to GitLab Settings > Access Tokens
+                - listitem [ref=e217]:
+                  - text: Create a new token with the
+                  - code [ref=e218]: api
+                  - text: scope
+                - listitem [ref=e219]: Set an expiration date (we recommend 1 year)
+                - listitem [ref=e220]: Copy the token and paste it above
+            - generic [ref=e221]:
+              - heading "Shared vs Personal Instance" [level=4] [ref=e222]
+              - generic [ref=e223]:
+                - generic [ref=e224]:
+                  - paragraph [ref=e225]: Shared Instance
+                  - list [ref=e226]:
+                    - listitem [ref=e227]: Quick setup
+                    - listitem [ref=e228]: Automatic isolation via namespaces
+                    - listitem [ref=e229]: Managed by Claudia
+                - generic [ref=e230]:
+                  - paragraph [ref=e231]: Personal Instance
+                  - list [ref=e232]:
+                    - listitem [ref=e233]: Full control over repositories
+                    - listitem [ref=e234]: Use existing GitLab.com account
+                    - listitem [ref=e235]: Private credentials
+    - button [ref=e236] [cursor=pointer]:
+      - img
+    - generic [ref=e239]:
+      - generic [ref=e241]:
+        - generic [ref=e242]:
+          - img [ref=e244]
+          - generic [ref=e246]:
+            - heading "Voice Assistant" [level=3] [ref=e247]
+            - paragraph [ref=e248]: Ask questions about your projects
+        - generic [ref=e249]:
+          - button [ref=e250] [cursor=pointer]:
+            - img
+          - button [ref=e251] [cursor=pointer]:
+            - img
+      - button "Select projects" [ref=e253] [cursor=pointer]:
+        - generic [ref=e254]:
+          - img [ref=e255]
+          - generic [ref=e257]: Select projects
+        - img [ref=e258]
+      - generic [ref=e261]:
+        - img [ref=e262]
+        - paragraph [ref=e265]: Click the mic or type to ask about your projects
+        - paragraph [ref=e266]: Select projects above for context
+      - generic [ref=e267]:
+        - button [ref=e270] [cursor=pointer]:
+          - img [ref=e271]
+        - generic [ref=e274]:
+          - textbox "Or type your question..." [ref=e275]
+          - button [disabled]:
+            - img
+  - alert [ref=e276]
+```
