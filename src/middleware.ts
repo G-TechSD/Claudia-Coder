@@ -253,7 +253,7 @@ export function middleware(request: NextRequest) {
 
   // Redirect root to Easy Mode for demo
   if (pathname === "/") {
-    return NextResponse.redirect(new URL("/easy-mode", request.url))
+    return NextResponse.redirect(new URL("/projects/new", request.url))
   }
 
   // TEMPORARY: Bypass all authentication for beta testing
