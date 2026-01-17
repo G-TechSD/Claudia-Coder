@@ -158,23 +158,23 @@ export default function ProjectsPage() {
     })
   }, [projects, statusFilter, search])
 
-  // Stats
-  const stats = useMemo(() => {
-    if (!userId) {
-      return {
-        total: 0,
-        byStatus: { planning: 0, active: 0, paused: 0, completed: 0, archived: 0, trashed: 0 },
-        activeRepos: 0,
-        activePackets: 0
-      }
-    }
-    return getProjectStats(userId)
-  }, [projects, userId])
+  // Stats - use useState to avoid hydration mismatch (localStorage doesn't exist on server)
+  const [stats, setStats] = useState({
+    total: 0,
+    byStatus: { planning: 0, active: 0, paused: 0, completed: 0, archived: 0, trashed: 0 },
+    activeRepos: 0,
+    activePackets: 0
+  })
 
-  // Get trashed projects count for showing badge on Trash link
-  const trashedCount = useMemo(() => {
-    if (!userId) return 0
-    return getTrashedProjects(userId).length
+  // Get trashed projects count - use useState to avoid hydration mismatch
+  const [trashedCount, setTrashedCount] = useState(0)
+
+  // Update stats when projects change (client-side only)
+  useEffect(() => {
+    if (userId) {
+      setStats(getProjectStats(userId))
+      setTrashedCount(getTrashedProjects(userId).length)
+    }
   }, [projects, userId])
 
   const handleTrash = (id: string, name: string) => {

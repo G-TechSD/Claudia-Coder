@@ -226,7 +226,7 @@ export default function EasyModePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: `Generate a detailed build plan for a software project.
+          userPrompt: `Generate a detailed build plan for a software project.
 
 Project Name: ${plan.name}
 Description: ${plan.description}
@@ -239,7 +239,8 @@ Generate a JSON build plan with:
 3. A "packets" array with work packets, each containing: id, phaseId, title, description, type (feature/bugfix/refactor/test/docs/config/research), priority (critical/high/medium/low), status ("queued"), tasks (array of {id, description, completed: false, order}), acceptanceCriteria (array of strings)
 
 Output ONLY valid JSON, no markdown or explanation.`,
-          options: { temperature: 0.5, max_tokens: 4096 }
+          temperature: 0.5,
+          max_tokens: 4096
         })
       })
 
