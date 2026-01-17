@@ -7,9 +7,10 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import * as fs from "fs/promises"
+import * as path from "path"
 
 // Path to stored costs (same as in MCP server)
-const COSTS_FILE = "/home/bill/projects/claudia-admin/.local-storage/costs.json"
+const COSTS_FILE = path.join(process.cwd(), ".local-storage", "costs.json")
 
 /**
  * Cost entry format from MCP server

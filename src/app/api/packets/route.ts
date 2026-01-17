@@ -16,7 +16,7 @@ import * as https from "https"
 import * as fs from "fs"
 import * as path from "path"
 
-const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
+const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "http://localhost:5678"
 const N8N_API_KEY = process.env.N8N_API_KEY || ""
 
 // Create HTTPS agent for self-signed certificates

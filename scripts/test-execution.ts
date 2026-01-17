@@ -32,8 +32,9 @@ async function runTests() {
   const { generateWithLocalLLM, checkServerStatus, getConfiguredServers } = await import('../src/lib/llm/local-llm')
 
   // Configuration
-  const LM_STUDIO_BEAST = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST || 'http://192.168.245.155:1234'
-  const LM_STUDIO_BEDROOM = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM || 'http://192.168.27.182:1234'
+  // LM Studio server URLs - configured via environment variables
+  const LM_STUDIO_BEAST = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST || 'http://localhost:1234'
+  const LM_STUDIO_BEDROOM = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM || ''
 
   interface TestResult {
     test: string

@@ -3,6 +3,7 @@ import { spawn, IPty } from "node-pty"
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { EventEmitter } from "events"
 import path from "path"
+import os from "os"
 
 // Force dynamic rendering - prevents Next.js from pre-rendering this route during build
 // This is required because node-pty is a native module that cannot be loaded during static analysis
@@ -35,7 +36,7 @@ void isInputSafe
 void logSecurityActivityEvent
 
 // Session storage file path
-const SESSIONS_FILE = "/home/bill/projects/claudia-admin/.local-storage/claude-sessions.json"
+const SESSIONS_FILE = path.join(process.cwd(), ".local-storage", "claude-sessions.json")
 
 // Stored session info (persisted to file)
 interface StoredSession {
@@ -73,7 +74,7 @@ const sessions = new Map<string, ClaudeSession>()
 
 // Paths to check for claude binary
 const CLAUDE_PATHS = [
-  "/home/bill/.local/bin/claude",
+  path.join(os.homedir(), ".local/bin/claude"),
   "/usr/local/bin/claude",
   "/usr/bin/claude",
   "claude"
@@ -375,7 +376,7 @@ export async function POST(request: NextRequest) {
 
     // Extend PATH
     const extendedPath = [
-      "/home/bill/.local/bin",
+      path.join(os.homedir(), ".local/bin"),
       "/usr/local/bin",
       "/usr/bin",
       process.env.PATH || ""
@@ -392,7 +393,7 @@ export async function POST(request: NextRequest) {
         TERM: "xterm-256color",
         COLORTERM: "truecolor",
         FORCE_COLOR: "3",
-        HOME: process.env.HOME || "/home/bill",
+        HOME: process.env.HOME || os.homedir(),
         PATH: extendedPath,
         LANG: "en_US.UTF-8",
         LC_ALL: "en_US.UTF-8",

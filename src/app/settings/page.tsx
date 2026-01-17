@@ -83,11 +83,11 @@ interface SecuritySetting {
   options?: { value: string; label: string; variant: "success" | "warning" | "destructive" }[]
 }
 
+// Default services - actual URLs should come from settings/environment
 const mockServices: ServiceStatus[] = [
-  { name: "n8n Orchestrator", url: "https://192.168.245.211:5678", status: "connected", latency: 45 },
-  { name: "LM Studio BEAST", url: "http://192.168.245.155:1234", status: "connected", latency: 23 },
-  { name: "LM Studio BEDROOM", url: "http://192.168.27.182:1234", status: "connected", latency: 31 },
-  { name: "GitLab", url: "https://bill-dev-linux-1", status: "connected", latency: 12 },
+  { name: "n8n Orchestrator", url: "", status: "disconnected", latency: 0 },
+  { name: "Local LLM Server", url: "", status: "disconnected", latency: 0 },
+  { name: "GitLab", url: "", status: "disconnected", latency: 0 },
   { name: "Linear", url: "api.linear.app", status: "connected", latency: 89 },
   { name: "Claude API", url: "api.anthropic.com", status: "connected", latency: 156 },
 ]

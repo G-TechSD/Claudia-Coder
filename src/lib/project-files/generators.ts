@@ -9,6 +9,8 @@
  * - .claudia/config.json - Claudia project configuration
  */
 
+import os from "os"
+import path from "path"
 import type { Project } from "@/lib/data/types"
 import type { BuildPlan, WorkPacket } from "@/lib/ai/build-plan"
 
@@ -887,7 +889,7 @@ export function generateKickoffMarkdown(
   lines.push("## Project Structure")
   lines.push("")
   lines.push("```")
-  lines.push(`${project.workingDirectory || "/home/bill/claudia-projects/" + generateSlug(project.name)}/`)
+  lines.push(`${project.workingDirectory || path.join(os.homedir(), "claudia-projects") + "/" + generateSlug(project.name)}/`)
   lines.push("|-- .claudia/")
   lines.push("|   |-- config.json      # Project configuration")
   lines.push("|   |-- status/          # Execution status files")

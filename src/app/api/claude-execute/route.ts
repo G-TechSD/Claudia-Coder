@@ -40,8 +40,8 @@ import {
 } from "@/lib/beta/api-budget"
 
 // Path to store activity events for API access (curl calls don't have localStorage)
-const ACTIVITY_EVENTS_FILE = "/home/bill/projects/claudia-admin/.local-storage/activity-events.json"
-const ACTIVITY_EVENTS_BACKUP_FILE = "/home/bill/projects/claudia-admin/.local-storage/activity-events.backup.json"
+const ACTIVITY_EVENTS_FILE = path.join(process.cwd(), ".local-storage", "activity-events.json")
+const ACTIVITY_EVENTS_BACKUP_FILE = path.join(process.cwd(), ".local-storage", "activity-events.backup.json")
 
 // Maximum number of events to keep in the file (increased to prevent data loss)
 const MAX_STORED_EVENTS = 1000
@@ -82,7 +82,7 @@ const SSH_KEY_PATH = process.env.CLAUDE_CODE_SSH_KEY || "~/.ssh/id_rsa"
 type ExecutionMode = "local" | "turbo" | "n8n" | "auto"
 
 // N8N configuration (HTTPS with self-signed cert)
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "https://192.168.245.211:5678/webhook/claudia-execute"
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "http://localhost:5678/webhook/claudia-execute"
 const CLAUDIA_CALLBACK_URL = process.env.CLAUDIA_CALLBACK_URL || "http://localhost:3000/api/n8n-callback"
 
 interface ExecutionRequest {

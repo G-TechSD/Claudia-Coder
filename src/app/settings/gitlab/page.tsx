@@ -133,7 +133,7 @@ export default function GitLabSettingsPage() {
     setTestResult(null)
     setDetectedProvider(null)
 
-    const testUrl = mode === "personal" ? personalUrl : (process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1")
+    const testUrl = mode === "personal" ? personalUrl : (process.env.NEXT_PUBLIC_GITLAB_URL || "")
     const testToken = mode === "personal" ? personalToken : (typeof window !== "undefined" ? localStorage.getItem("gitlab_token") || "" : "")
 
     // Validate URL format first
@@ -300,7 +300,7 @@ export default function GitLabSettingsPage() {
     )
   }
 
-  const sharedGitLabUrl = process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1"
+  const sharedGitLabUrl = process.env.NEXT_PUBLIC_GITLAB_URL || ""
 
   return (
     <div className="flex flex-col gap-6 p-6 h-full overflow-auto">

@@ -18,7 +18,7 @@ export const BETA_DEFAULT_BUDGET = 10.00
 export const BETA_BUDGET_RESET_DAYS = 30
 
 // Storage location
-const STORAGE_DIR = "/home/bill/projects/claudia-admin/.local-storage"
+const STORAGE_DIR = process.env.CLAUDIA_STORAGE_DIR || path.join(process.cwd(), ".local-storage")
 const BUDGET_FILE = path.join(STORAGE_DIR, "api-budgets.json")
 
 // Budget data structure stored in file

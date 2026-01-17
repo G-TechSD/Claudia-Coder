@@ -1,6 +1,6 @@
 /**
  * n8n API Service
- * Connects to the n8n orchestrator at https://192.168.245.211:5678
+ * Connects to the n8n orchestrator (configurable via NEXT_PUBLIC_N8N_URL)
  *
  * Note: N8N is running with HTTPS and a self-signed certificate.
  * Health checks and API calls are proxied through the server-side

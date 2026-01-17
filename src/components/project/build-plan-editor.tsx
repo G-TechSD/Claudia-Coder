@@ -197,9 +197,9 @@ export function BuildPlanEditor({
         setRegenerationModel("chatgpt")
       } else if (provider === "google" || serverName.includes("google") || serverName.includes("gemini")) {
         setRegenerationModel("gemini")
-      } else if (serverName.includes("beast") || defaultModel.baseUrl?.includes("192.168.245.155")) {
+      } else if (serverName.includes("beast")) {
         setRegenerationModel("Beast")
-      } else if (serverName.includes("bedroom") || defaultModel.baseUrl?.includes("192.168.27.182")) {
+      } else if (serverName.includes("bedroom")) {
         setRegenerationModel("Bedroom")
       } else if (defaultModel.type === "local" && defaultModel.baseUrl) {
         // For other local servers, try to use the server name or default to auto

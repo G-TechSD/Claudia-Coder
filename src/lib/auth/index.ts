@@ -66,13 +66,12 @@ export const auth = betterAuth({
   // },
 
   // Trust localhost origins (both HTTP and HTTPS)
+  // Additional origins can be added via NEXT_PUBLIC_APP_URL or TRUSTED_ORIGINS env vars
   trustedOrigins: [
     "http://localhost:3000",
     "http://localhost:3001",
     "https://localhost:3000",
     "https://localhost:3001",
-    "https://bill-dev-linux-1:3000",
-    "http://bill-dev-linux-1:3000",
     "https://preview.claudiacoder.com",
     "http://preview.claudiacoder.com",
     "https://preview.claudiacode.com",
@@ -80,6 +79,8 @@ export const auth = betterAuth({
     "https://claudiacoder.com",
     "https://claudiacode.com",
     process.env.NEXT_PUBLIC_APP_URL,
+    // Support comma-separated list of additional trusted origins
+    ...(process.env.TRUSTED_ORIGINS?.split(",").map(o => o.trim()) || []),
   ].filter(Boolean) as string[],
 
   // User configuration

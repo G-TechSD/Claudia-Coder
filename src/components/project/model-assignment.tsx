@@ -733,11 +733,41 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                   ))}
                 </div>
               ) : !showAddProvider && (
-                <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
-                  <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No models enabled</p>
-                  <p className="text-xs">Click &quot;Add&quot; to configure AI models</p>
-                </div>
+                (() => {
+                  const globalSettings = getGlobalSettings()
+                  const globalDefault = globalSettings.defaultModel
+
+                  if (globalDefault) {
+                    return (
+                      <div className="text-center py-6 text-muted-foreground border border-dashed rounded-lg bg-primary/5">
+                        <Brain className="h-8 w-8 mx-auto mb-2 text-primary/60" />
+                        <p className="text-sm font-medium text-foreground">
+                          Using Claudia Coder&apos;s default model: <span className="text-primary">{globalDefault.displayName}</span>
+                        </p>
+                        <p className="text-xs mt-1">
+                          on {globalDefault.provider === "lmstudio" ? "LM Studio" :
+                              globalDefault.provider === "ollama" ? "Ollama" :
+                              globalDefault.provider === "anthropic" ? "Anthropic" :
+                              globalDefault.provider === "openai" ? "OpenAI" :
+                              globalDefault.provider === "google" ? "Google AI" :
+                              globalDefault.provider}
+                          {globalDefault.serverId && ` (${globalDefault.serverId})`}
+                        </p>
+                        <p className="text-xs mt-2 text-muted-foreground">
+                          Click &quot;+Add&quot; to assign other AI models to this project
+                        </p>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
+                      <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No models enabled</p>
+                      <p className="text-xs">Click &quot;Add&quot; to configure AI models</p>
+                    </div>
+                  )
+                })()
               )}
 
               {/* Overload Warning */}

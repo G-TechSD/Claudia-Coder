@@ -6,7 +6,7 @@
 
 import type { LinkedRepo } from "@/lib/data/types"
 
-const GITLAB_URL = process.env.NEXT_PUBLIC_GITLAB_URL || "https://bill-dev-linux-1"
+const GITLAB_URL = process.env.GITLAB_URL || ""
 
 export interface RepoContext {
   projectName: string

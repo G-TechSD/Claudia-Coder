@@ -7,7 +7,11 @@
  */
 
 import { existsSync, mkdirSync } from "fs"
+import * as os from "os"
 import * as path from "path"
+
+// Dynamic home directory for cross-platform compatibility
+const HOME = os.homedir()
 
 // ============================================
 // Protected Paths Configuration
@@ -19,31 +23,31 @@ import * as path from "path"
  */
 export const PROTECTED_PATHS = [
   // Claudia Admin/Coder source code
-  "/home/bill/projects/claudia-admin",
-  "/home/bill/projects/claudia-coder",
-  "/home/bill/projects/claudia",
+  path.join(HOME, "projects", "claudia-admin"),
+  path.join(HOME, "projects", "claudia-coder"),
+  path.join(HOME, "projects", "claudia"),
 
   // System configuration and credentials
-  "/home/bill/.ssh",
-  "/home/bill/.gnupg",
-  "/home/bill/.aws",
-  "/home/bill/.config/gcloud",
-  "/home/bill/.kube",
-  "/home/bill/.docker",
+  path.join(HOME, ".ssh"),
+  path.join(HOME, ".gnupg"),
+  path.join(HOME, ".aws"),
+  path.join(HOME, ".config", "gcloud"),
+  path.join(HOME, ".kube"),
+  path.join(HOME, ".docker"),
 
   // Environment and secrets
-  "/home/bill/.env",
-  "/home/bill/.bashrc",
-  "/home/bill/.bash_profile",
-  "/home/bill/.profile",
-  "/home/bill/.zshrc",
-  "/home/bill/.netrc",
+  path.join(HOME, ".env"),
+  path.join(HOME, ".bashrc"),
+  path.join(HOME, ".bash_profile"),
+  path.join(HOME, ".profile"),
+  path.join(HOME, ".zshrc"),
+  path.join(HOME, ".netrc"),
 
   // Database and storage
-  "/home/bill/.local/share",
+  path.join(HOME, ".local", "share"),
 
   // Other projects that should be isolated
-  "/home/bill/projects",
+  path.join(HOME, "projects"),
 
   // System paths
   "/etc",
@@ -73,21 +77,29 @@ export const PROTECTED_FILE_PATTERNS = [
   ".git/config",
 ]
 
+// Helper to escape special regex characters in a string
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+// Escaped HOME path for use in regex patterns
+const HOME_ESCAPED = escapeRegExp(HOME)
+
 /**
  * Command patterns that should be blocked
  */
 export const BLOCKED_COMMAND_PATTERNS = [
   // Direct access to protected areas
-  /cd\s+\/home\/bill(?:\/|$)/i,
+  new RegExp(`cd\\s+${HOME_ESCAPED}(?:\\/|$)`, "i"),
   /cd\s+~(?:\/|$)/i,
-  /cat\s+\/home\/bill/i,
-  /less\s+\/home\/bill/i,
-  /more\s+\/home\/bill/i,
-  /head\s+\/home\/bill/i,
-  /tail\s+\/home\/bill/i,
-  /vim?\s+\/home\/bill/i,
-  /nano\s+\/home\/bill/i,
-  /code\s+\/home\/bill/i,
+  new RegExp(`cat\\s+${HOME_ESCAPED}`, "i"),
+  new RegExp(`less\\s+${HOME_ESCAPED}`, "i"),
+  new RegExp(`more\\s+${HOME_ESCAPED}`, "i"),
+  new RegExp(`head\\s+${HOME_ESCAPED}`, "i"),
+  new RegExp(`tail\\s+${HOME_ESCAPED}`, "i"),
+  new RegExp(`vim?\\s+${HOME_ESCAPED}`, "i"),
+  new RegExp(`nano\\s+${HOME_ESCAPED}`, "i"),
+  new RegExp(`code\\s+${HOME_ESCAPED}`, "i"),
 
   // Reading environment files
   /cat\s+.*\.env/i,

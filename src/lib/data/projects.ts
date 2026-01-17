@@ -38,12 +38,15 @@ function generateUUID(): string {
   })
 }
 
+import os from "os"
+import path from "path"
+
 // Legacy storage keys (kept for migration purposes)
 const LEGACY_STORAGE_KEY = "claudia_projects"
 const LEGACY_INTERVIEWS_KEY = "claudia_interviews"
 
 // Base directory for all Claudia project working directories
-const CLAUDIA_PROJECTS_BASE = "/home/bill/claudia-projects"
+const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
 
 // ============ Working Directory Helpers ============
 
@@ -108,23 +111,77 @@ export function getEffectiveWorkingDirectory(project: Project): string {
 
 /**
  * Ensure working directory exists for a project
- * This should be called from the server/API side
+ * This calls the server API to create the actual directory on disk
  * Returns the working directory path
  */
-export async function ensureProjectWorkingDirectory(projectId: string): Promise<string | null> {
-  // This is a client-side function that just returns the path
-  // The actual directory creation happens on the server via API
-  const project = getProject(projectId)
+export async function ensureProjectWorkingDirectory(projectId: string, userId?: string): Promise<string | null> {
+  const project = getProject(projectId, userId)
   if (!project) return null
 
   const workingDir = getEffectiveWorkingDirectory(project)
 
   // If project doesn't have a working directory set, update it
   if (!project.workingDirectory) {
-    updateProject(projectId, { workingDirectory: workingDir })
+    updateProject(projectId, { workingDirectory: workingDir }, userId)
+  }
+
+  // Call the API to create the actual directory on disk
+  try {
+    const response = await fetch("/api/projects/ensure-working-directory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectId: project.id,
+        projectName: project.name,
+        projectDescription: project.description,
+        existingWorkingDirectory: workingDir
+      })
+    })
+
+    if (!response.ok) {
+      console.warn(`[projects] Failed to create working directory for project ${projectId}:`, await response.text())
+    } else {
+      console.log(`[projects] Created working directory for project ${projectId}: ${workingDir}`)
+    }
+  } catch (error) {
+    console.warn(`[projects] Failed to call ensure-working-directory API:`, error)
   }
 
   return workingDir
+}
+
+/**
+ * Create project folder on disk immediately after project creation
+ * This is called automatically by createProject to ensure all projects have a folder
+ */
+async function createProjectFolderOnDisk(project: Project): Promise<void> {
+  if (typeof window === "undefined") {
+    // Server-side: skip API call
+    return
+  }
+
+  try {
+    const response = await fetch("/api/projects/ensure-working-directory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectId: project.id,
+        projectName: project.name,
+        projectDescription: project.description,
+        existingWorkingDirectory: project.workingDirectory
+      })
+    })
+
+    if (!response.ok) {
+      console.warn(`[projects] Auto-create folder failed for ${project.name}:`, await response.text())
+    } else {
+      const result = await response.json()
+      console.log(`[projects] Auto-created project folder: ${result.workingDirectory}`)
+    }
+  } catch (error) {
+    // Non-fatal error - project is still created in localStorage
+    console.warn(`[projects] Failed to auto-create project folder:`, error)
+  }
 }
 
 /**
@@ -363,6 +420,10 @@ export function getProject(id: string, userId?: string, isAdmin?: boolean): Proj
  * Create a new project
  * @param data - Project data (without id, createdAt, updatedAt)
  * @param userId - Optional: The user ID creating the project (will be set as owner)
+ *
+ * NOTE: This function automatically triggers folder creation on disk.
+ * The project folder is created at /home/bill/claudia-projects/{slug}-{id}/
+ * with a .claudia/ subdirectory containing basic configuration.
  */
 export function createProject(
   data: Omit<Project, "id" | "createdAt" | "updatedAt">,
@@ -399,6 +460,59 @@ export function createProject(
     projects.push(project)
     saveProjects(projects)
   }
+
+  // Auto-create the project folder on disk (non-blocking)
+  // This ensures every project has a unique folder immediately upon creation
+  createProjectFolderOnDisk(project).catch(err => {
+    console.warn(`[projects] Background folder creation failed for ${project.name}:`, err)
+  })
+
+  return project
+}
+
+/**
+ * Create a new project and wait for folder creation to complete
+ * Use this when you need to ensure the folder exists before continuing
+ * @param data - Project data (without id, createdAt, updatedAt)
+ * @param userId - Optional: The user ID creating the project (will be set as owner)
+ */
+export async function createProjectWithFolder(
+  data: Omit<Project, "id" | "createdAt" | "updatedAt">,
+  userId?: string
+): Promise<Project> {
+  const now = new Date().toISOString()
+  const id = generateUUID()
+
+  // Generate working directory if not provided
+  const workingDirectory = data.workingDirectory || generateWorkingDirectoryPath(data.name, id)
+
+  // Set basePath: use provided value, or derive from first repo's localPath, or default to workingDirectory
+  const basePath = data.basePath || data.repos?.find(r => r.localPath)?.localPath || workingDirectory
+
+  const project: Project = {
+    ...data,
+    id,
+    userId: data.userId || userId,
+    workingDirectory,
+    basePath,
+    createdAt: now,
+    updatedAt: now
+  }
+
+  // Use user-scoped storage if userId is available
+  if (userId || project.userId) {
+    const ownerUserId = userId || project.userId!
+    const projects = getStoredProjectsForUser(ownerUserId)
+    projects.push(project)
+    saveProjectsForUser(ownerUserId, projects)
+  } else {
+    const projects = getStoredProjects()
+    projects.push(project)
+    saveProjects(projects)
+  }
+
+  // Wait for folder creation to complete
+  await createProjectFolderOnDisk(project)
 
   return project
 }
@@ -953,7 +1067,7 @@ export function seedSampleProjects(userId?: string): void {
       status: "active",
       priority: "high",
       repos: [
-        { provider: "gitlab", id: 2, name: "GoldenEye", path: "goldeneye", url: "https://bill-dev-linux-1/gtechsd/goldeneye" }
+        { provider: "gitlab", id: 2, name: "GoldenEye", path: "goldeneye", url: "https://gitlab.example.com/sample/goldeneye" }
       ],
       packetIds: [],
       tags: ["ai", "infrastructure"],

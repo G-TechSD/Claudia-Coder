@@ -32,7 +32,7 @@ function generateUUID(): string {
 }
 
 // Spec file path
-const SPEC_PATH = "/home/bill/projects/claudia-admin/generated/benchmark-app-spec.json"
+const SPEC_PATH = path.join(process.cwd(), "generated/benchmark-app-spec.json")
 
 // TaskFlow project configuration
 const TASKFLOW_CONFIG = {

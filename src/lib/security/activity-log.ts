@@ -48,7 +48,7 @@ export interface SecurityEventInput {
 }
 
 // Configuration
-const STORAGE_DIR = "/home/bill/projects/claudia-admin/.local-storage"
+const STORAGE_DIR = process.env.CLAUDIA_STORAGE_DIR || path.join(process.cwd(), ".local-storage")
 const SECURITY_LOG_FILE = path.join(STORAGE_DIR, "security-events.json")
 const MAX_EVENTS_IN_MEMORY = 1000
 const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024 // 10MB

@@ -17,9 +17,9 @@ import * as fs from "fs/promises"
 import * as path from "path"
 
 // Path to stored activity events (same as in claude-execute)
-const ACTIVITY_EVENTS_FILE = "/home/bill/projects/claudia-admin/.local-storage/activity-events.json"
-const ACTIVITY_EVENTS_BACKUP_FILE = "/home/bill/projects/claudia-admin/.local-storage/activity-events.backup.json"
-const ACTIVITY_EVENTS_ARCHIVE_DIR = "/home/bill/projects/claudia-admin/.local-storage/activity-archives"
+const ACTIVITY_EVENTS_FILE = path.join(process.cwd(), ".local-storage", "activity-events.json")
+const ACTIVITY_EVENTS_BACKUP_FILE = path.join(process.cwd(), ".local-storage", "activity-events.backup.json")
+const ACTIVITY_EVENTS_ARCHIVE_DIR = path.join(process.cwd(), ".local-storage", "activity-archives")
 
 // Maximum number of events to keep (increased from 100 to prevent data loss)
 const MAX_STORED_EVENTS = 1000

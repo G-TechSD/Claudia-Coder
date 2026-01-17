@@ -5,16 +5,19 @@
  * 1. Gets the project by ID
  * 2. Determines the effective working directory
  * 3. Creates the directory if it doesn't exist
- * 4. Updates the project with the working directory path
- * 5. Returns the working directory path
+ * 4. Creates the .claudia/ folder with basic config
+ * 5. Updates the project with the working directory path
+ * 6. Returns the working directory path
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { mkdir } from "fs/promises"
+import { mkdir, writeFile } from "fs/promises"
 import { existsSync } from "fs"
+import path from "path"
+import os from "os"
 
 // Base directory for all Claudia project working directories
-const CLAUDIA_PROJECTS_BASE = "/home/bill/claudia-projects"
+const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
 
 /**
  * Generate a slug from a project name for use in directory paths
@@ -40,11 +43,13 @@ function generateWorkingDirectoryPath(projectName: string, projectId?: string): 
 
 /**
  * POST - Ensure working directory exists for a project
+ *
+ * Creates the project folder and initializes basic .claudia/ structure
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { projectId, projectName, existingWorkingDirectory, basePath, repoLocalPath } = body
+    const { projectId, projectName, projectDescription, existingWorkingDirectory, basePath, repoLocalPath } = body
 
     if (!projectId || !projectName) {
       return NextResponse.json(
@@ -80,18 +85,58 @@ export async function POST(request: NextRequest) {
       console.log(`[ensure-working-directory] Created base directory: ${CLAUDIA_PROJECTS_BASE}`)
     }
 
+    // Track if we created new directories
+    let created = false
+
     // Create the working directory if it doesn't exist
     if (!existsSync(workingDirectory)) {
       await mkdir(workingDirectory, { recursive: true })
       console.log(`[ensure-working-directory] Created working directory: ${workingDirectory}`)
+      created = true
     } else {
       console.log(`[ensure-working-directory] Working directory already exists: ${workingDirectory}`)
+    }
+
+    // Create .claudia/ folder structure
+    const claudiaDir = path.join(workingDirectory, ".claudia")
+    const statusDir = path.join(claudiaDir, "status")
+    const requestsDir = path.join(claudiaDir, "requests")
+
+    if (!existsSync(claudiaDir)) {
+      await mkdir(claudiaDir, { recursive: true })
+      console.log(`[ensure-working-directory] Created .claudia directory: ${claudiaDir}`)
+    }
+
+    if (!existsSync(statusDir)) {
+      await mkdir(statusDir, { recursive: true })
+      console.log(`[ensure-working-directory] Created status directory: ${statusDir}`)
+    }
+
+    if (!existsSync(requestsDir)) {
+      await mkdir(requestsDir, { recursive: true })
+      console.log(`[ensure-working-directory] Created requests directory: ${requestsDir}`)
+    }
+
+    // Create basic config.json if it doesn't exist
+    const configPath = path.join(claudiaDir, "config.json")
+    if (!existsSync(configPath)) {
+      const basicConfig = {
+        projectId,
+        projectName,
+        projectDescription: projectDescription || "",
+        createdAt: new Date().toISOString(),
+        workingDirectory,
+        version: "1.0.0"
+      }
+      await writeFile(configPath, JSON.stringify(basicConfig, null, 2), "utf-8")
+      console.log(`[ensure-working-directory] Created config.json: ${configPath}`)
     }
 
     return NextResponse.json({
       success: true,
       workingDirectory,
-      created: !existsSync(workingDirectory)
+      created,
+      claudiaInitialized: true
     })
 
   } catch (error) {

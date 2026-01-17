@@ -12,9 +12,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { promises as fs } from "fs"
 import { stat } from "fs/promises"
 import path from "path"
+import os from "os"
 
 // Base directory for all Claudia project working directories
-const CLAUDIA_PROJECTS_BASE = "/home/bill/claudia-projects"
+const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
 
 /**
  * Generate a slug from a project name for use in directory paths

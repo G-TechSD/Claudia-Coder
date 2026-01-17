@@ -5,7 +5,7 @@ import { test, expect, Page } from '@playwright/test';
  * Tests the complete project creation wizard flow
  */
 
-const SCREENSHOT_DIR = '/tmp/easy-mode-test';
+const SCREENSHOT_DIR = '/tmp/easy-mode-final-test';
 
 // Helper to take screenshot with timestamp
 async function takeScreenshot(page: Page, name: string): Promise<void> {
@@ -169,8 +169,8 @@ test.describe('Easy Mode Flow', () => {
     await takeScreenshot(page, '06-review-plan');
     console.log('Screenshot: Review plan');
 
-    // Verify plan content is visible
-    const packetsLabel = page.locator('text=Work Packets');
+    // Verify plan content is visible - use more specific selector
+    const packetsLabel = page.locator('label:has-text("Work Packets")');
     await expect(packetsLabel).toBeVisible();
 
     // Scroll through packets if needed

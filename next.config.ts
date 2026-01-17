@@ -18,7 +18,8 @@ const nextConfig: NextConfig = {
 
   // Allow requests from these dev origins
   allowedDevOrigins: [
-    "bill-dev-linux-1",
+    // Internal dev hostname only in development
+    ...(process.env.NODE_ENV === "development" ? ["bill-dev-linux-1"] : []),
     "preview.claudiacoder.com",
     "preview.claudiacode.com",
   ],

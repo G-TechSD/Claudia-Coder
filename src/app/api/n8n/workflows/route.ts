@@ -15,7 +15,7 @@ import {
   getUserWorkflowPrefix,
 } from "@/lib/data/user-settings"
 
-const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
+const N8N_BASE_URL = process.env.NEXT_PUBLIC_N8N_URL || "http://localhost:5678"
 const N8N_API_KEY = process.env.NEXT_PUBLIC_N8N_API_KEY || ""
 
 // Force dynamic rendering

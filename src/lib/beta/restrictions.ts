@@ -155,7 +155,7 @@ export async function checkBetaLimitsServer(userId: string): Promise<BetaLimits>
   const fs = await import('fs/promises')
   const path = await import('path')
 
-  const STORAGE_DIR = '/home/bill/projects/claudia-admin/.local-storage'
+  const STORAGE_DIR = process.env.CLAUDIA_STORAGE_DIR || path.join(process.cwd(), '.local-storage')
   const BETA_LIMITS_FILE = path.join(STORAGE_DIR, 'beta-limits.json')
 
   let data: Record<string, { executions: number; date: string; projects: number }> = {}
@@ -202,7 +202,7 @@ export async function incrementExecutionCountServer(userId: string): Promise<num
   const fs = await import('fs/promises')
   const path = await import('path')
 
-  const STORAGE_DIR = '/home/bill/projects/claudia-admin/.local-storage'
+  const STORAGE_DIR = process.env.CLAUDIA_STORAGE_DIR || path.join(process.cwd(), '.local-storage')
   const BETA_LIMITS_FILE = path.join(STORAGE_DIR, 'beta-limits.json')
 
   let data: Record<string, { executions: number; date: string; projects: number }> = {}
@@ -239,7 +239,7 @@ export async function updateProjectCountServer(userId: string, count: number): P
   const fs = await import('fs/promises')
   const path = await import('path')
 
-  const STORAGE_DIR = '/home/bill/projects/claudia-admin/.local-storage'
+  const STORAGE_DIR = process.env.CLAUDIA_STORAGE_DIR || path.join(process.cwd(), '.local-storage')
   const BETA_LIMITS_FILE = path.join(STORAGE_DIR, 'beta-limits.json')
 
   let data: Record<string, { executions: number; date: string; projects: number }> = {}

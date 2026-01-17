@@ -95,10 +95,10 @@ Revenue Streams: ${businessData.revenueStreams?.map((r: { name: string }) => r.n
 
     let suggestion = null
 
-    // Try LM Studio Beast first
-    try {
-      const lmStudioUrl = process.env.LMSTUDIO_BEAST_URL || "http://192.168.245.155:1234"
-      const response = await fetch(`${lmStudioUrl}/v1/chat/completions`, {
+    // Try LM Studio Beast first (if configured)
+    const lmStudioBeastUrl = process.env.LMSTUDIO_BEAST_URL || process.env.NEXT_PUBLIC_LMSTUDIO_BEAST
+    if (lmStudioBeastUrl) try {
+      const response = await fetch(`${lmStudioBeastUrl}/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -120,11 +120,11 @@ Revenue Streams: ${businessData.revenueStreams?.map((r: { name: string }) => r.n
       console.log("[business-dev/suggest] LM Studio Beast not available:", lmError)
     }
 
-    // Try LM Studio Bedroom if Beast failed
-    if (!suggestion) {
+    // Try LM Studio Bedroom if Beast failed (if configured)
+    const lmStudioBedroomUrl = process.env.LMSTUDIO_BEDROOM_URL || process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM
+    if (!suggestion && lmStudioBedroomUrl) {
       try {
-        const lmStudioUrl = process.env.LMSTUDIO_BEDROOM_URL || "http://192.168.27.182:1234"
-        const response = await fetch(`${lmStudioUrl}/v1/chat/completions`, {
+        const response = await fetch(`${lmStudioBedroomUrl}/v1/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

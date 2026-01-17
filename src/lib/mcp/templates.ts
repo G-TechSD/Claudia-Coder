@@ -3,6 +3,7 @@
  * Pre-configured templates for common MCP servers
  */
 
+import path from "path"
 import { MCPServerTemplate } from "./types"
 
 export const mcpServerTemplates: MCPServerTemplate[] = [
@@ -186,7 +187,7 @@ export const mcpServerTemplates: MCPServerTemplate[] = [
     name: "Claudia Code",
     description: "Integrate Claude Code terminal with Claudia - manage packets, run quality gates, submit for approval",
     command: "npx",
-    args: ["-y", "ts-node", "/home/bill/projects/claudia-admin/scripts/mcp/claudia-mcp-server.ts"],
+    args: ["-y", "ts-node", path.join(process.cwd(), "scripts/mcp/claudia-mcp-server.ts")],
     env: {
       CLAUDIA_API_URL: "https://localhost:3000/api"
     },

@@ -71,7 +71,7 @@ export function getN8NCredentials(userId: string): UserN8NCredentials {
 
   // Fall back to shared instance from environment
   return {
-    baseUrl: process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678",
+    baseUrl: process.env.NEXT_PUBLIC_N8N_URL || "http://localhost:5678",
     apiKey: process.env.NEXT_PUBLIC_N8N_API_KEY || "",
   }
 }

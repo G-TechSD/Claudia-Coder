@@ -44,7 +44,7 @@ import {
 } from "lucide-react"
 
 // Use environment variable or fallback (local N8N with HTTPS)
-const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
+const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || "http://localhost:5678"
 
 function formatTimestamp(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date

@@ -37,7 +37,7 @@ interface ConnectionStatus {
   message: string
 }
 
-const DEFAULT_N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || "https://192.168.245.211:5678"
+const DEFAULT_N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || "http://localhost:5678"
 
 export function N8NEmbed({
   className,

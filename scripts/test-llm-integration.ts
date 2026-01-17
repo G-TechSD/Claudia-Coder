@@ -6,8 +6,9 @@
  * Run with: npx ts-node scripts/test-llm-integration.ts
  */
 
-const BEAST_URL = "http://192.168.245.155:1234"
-const BEDROOM_URL = "http://192.168.27.182:1234"
+// LM Studio server URLs - configure via environment variables
+const BEAST_URL = process.env.NEXT_PUBLIC_LMSTUDIO_BEAST || "http://localhost:1234"
+const BEDROOM_URL = process.env.NEXT_PUBLIC_LMSTUDIO_BEDROOM || ""
 
 interface Message {
   role: "system" | "user" | "assistant"

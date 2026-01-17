@@ -18,7 +18,7 @@ export const ROLES = {
 } as const
 
 // Admin email that always gets admin role
-export const ADMIN_EMAIL = "bill@gtechsd.com"
+export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@localhost"
 
 // Role hierarchy (higher number = more permissions)
 export const ROLE_HIERARCHY: Record<Role, number> = {
