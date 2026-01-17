@@ -9,7 +9,7 @@
 
 import { useState, useCallback } from "react"
 import { useAuth } from "@/components/auth/auth-provider"
-import { getProject } from "@/lib/data/projects"
+import { getProject, getInterviewsForTarget } from "@/lib/data/projects"
 import { getBuildPlanForProject, getBuildPlanHistory } from "@/lib/data/build-plans"
 import { getProjectRuns } from "@/lib/data/packet-runs"
 import {
@@ -25,6 +25,7 @@ import type {
   ProjectResource,
   BrainDump,
   BusinessDev,
+  InterviewSession,
 } from "@/lib/data/types"
 
 // ============ Types ============
@@ -75,6 +76,9 @@ export interface ExportedProjectData {
 
   // Voice recordings (from localStorage index)
   voiceRecordings?: VoiceRecordingExport[]
+
+  // Interview data
+  interviews?: InterviewSession[]
 }
 
 export interface VoiceRecordingExport {
@@ -293,14 +297,24 @@ export function useProjectExport(): UseProjectExportReturn {
       }
 
       // Step 8: Get voice recordings
-      setProgress({ step: "Loading voice recordings...", percent: 75 })
+      setProgress({ step: "Loading voice recordings...", percent: 70 })
       const voiceRecordings = getVoiceRecordingsForProject(projectId)
 
-      // Step 9: Compile export data
+      // Step 9: Get interview data
+      setProgress({ step: "Loading interview data...", percent: 75 })
+      let interviews: InterviewSession[] = []
+      try {
+        // Get interviews associated with this project
+        interviews = getInterviewsForTarget("project", projectId, userId)
+      } catch (err) {
+        console.warn("Failed to get interviews:", err)
+      }
+
+      // Step 10: Compile export data
       setProgress({ step: "Compiling export data...", percent: 80 })
 
       const exportData: ExportedProjectData = {
-        exportVersion: "1.0.0",
+        exportVersion: "2.0.0",
         exportedAt: new Date().toISOString(),
         exportedBy: user?.email || user?.id || null,
         project,
@@ -317,11 +331,12 @@ export function useProjectExport(): UseProjectExportReturn {
           ? businessDevHistory
           : undefined,
         voiceRecordings: voiceRecordings.length > 0 ? voiceRecordings : undefined,
+        interviews: interviews.length > 0 ? interviews : undefined,
       }
 
-      // Step 10: Send to API for ZIP creation (if includeSourceCode) or download JSON
+      // Step 11: Send to API for ZIP creation (if includeSourceCode) or download JSON
       if (includeSourceCode) {
-        setProgress({ step: "Creating ZIP archive with source code...", percent: 85 })
+        setProgress({ step: "Creating GitHub-ready export with source code...", percent: 85 })
 
         // Build resource files array with base64 data for the API
         const resourceFilesForApi = Object.entries(resourceBlobs).map(([key, data]) => {
@@ -349,6 +364,7 @@ export function useProjectExport(): UseProjectExportReturn {
             resourceFiles: resourceFilesForApi,
             businessDev: businessDev || null,
             voiceRecordings: voiceRecordings || [],
+            interviews: interviews || [],
           }),
         })
 
@@ -403,4 +419,4 @@ export function useProjectExport(): UseProjectExportReturn {
 
 // ============ Re-exports ============
 
-export type { Project, StoredBuildPlan, PacketRun, ProjectResource, BrainDump, BusinessDev }
+export type { Project, StoredBuildPlan, PacketRun, ProjectResource, BrainDump, BusinessDev, InterviewSession }

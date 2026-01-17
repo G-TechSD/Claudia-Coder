@@ -244,10 +244,12 @@ function FileTreeItem({
 function FilePreviewModal({
   file,
   projectId,
+  basePath,
   onClose,
 }: {
   file: FileNode
   projectId: string
+  basePath?: string
   onClose: () => void
 }) {
   const [content, setContent] = useState<string | null>(null)
@@ -260,9 +262,12 @@ function FilePreviewModal({
         setLoading(true)
         setError(null)
 
-        const response = await fetch(
-          `/api/projects/${projectId}/files?path=${encodeURIComponent(file.path)}`
-        )
+        const url = new URL(`/api/projects/${projectId}/files`, window.location.origin)
+        url.searchParams.set("path", file.path)
+        if (basePath) {
+          url.searchParams.set("basePath", basePath)
+        }
+        const response = await fetch(url.toString())
 
         if (!response.ok) {
           const data = await response.json()
@@ -279,7 +284,7 @@ function FilePreviewModal({
     }
 
     loadContent()
-  }, [file.path, projectId])
+  }, [file.path, projectId, basePath])
 
   return (
     <div
@@ -710,6 +715,7 @@ export function FileBrowser({ projectId, basePath, className, onSetBasePath }: F
         <FilePreviewModal
           file={previewFile}
           projectId={projectId}
+          basePath={basePath}
           onClose={() => setPreviewFile(null)}
         />
       )}

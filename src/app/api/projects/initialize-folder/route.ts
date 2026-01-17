@@ -31,7 +31,7 @@ import {
   getPacketFilename,
   generateSlug
 } from "@/lib/project-files/generators"
-import { verifyApiAuth, unauthorizedResponse } from "@/lib/auth/api-helpers"
+import { getSessionWithBypass, unauthorizedResponse } from "@/lib/auth/api-helpers"
 
 const execAsync = promisify(exec)
 
@@ -256,9 +256,9 @@ function convertToBuildPlanFormat(stored: StoredBuildPlan): {
  * POST - Initialize project folder structure
  */
 export async function POST(request: NextRequest) {
-  // Verify authentication
-  const auth = await verifyApiAuth()
-  if (!auth) {
+  // Verify authentication with beta bypass support
+  const session = await getSessionWithBypass()
+  if (!session?.user) {
     return unauthorizedResponse()
   }
 
@@ -573,9 +573,9 @@ export async function POST(request: NextRequest) {
  * GET - Preview initialization (dry run)
  */
 export async function GET(request: NextRequest) {
-  // Verify authentication
-  const auth = await verifyApiAuth()
-  if (!auth) {
+  // Verify authentication with beta bypass support
+  const session = await getSessionWithBypass()
+  if (!session?.user) {
     return unauthorizedResponse()
   }
 

@@ -49,12 +49,180 @@ export const PROJECT_CREATION_OPENER = "In one paragraph, describe what you want
 
 // Contextual opener when user has already provided a description
 export function getProjectCreationContextualOpener(description: string): string {
-  // Truncate description if too long for the opener
-  const shortDesc = description.length > 100
-    ? description.slice(0, 100).trim() + "..."
-    : description
+  // Extract a concise summary of what they want to build
+  const summary = summarizeProjectDescription(description)
 
-  return `I see you want to build ${shortDesc}\n\nThat sounds interesting! Let me ask a few clarifying questions to make sure I understand your vision. Who is the primary audience for this?`
+  // Get a dynamic follow-up question based on what's NOT already mentioned
+  const followUpQuestion = getSmartFollowUpQuestion(description)
+
+  return `I see you want to build ${summary}\n\nThat sounds interesting! Let me ask a few clarifying questions to make sure I understand your vision. ${followUpQuestion}`
+}
+
+/**
+ * Summarize the project description into a concise phrase
+ * Instead of truncating verbatim, extract the core concept
+ */
+function summarizeProjectDescription(description: string): string {
+  const lowerDesc = description.toLowerCase()
+
+  // Try to extract the core noun/concept (what type of thing they're building)
+  const typePatterns = [
+    { pattern: /\b(app|application)\b/i, type: "an app" },
+    { pattern: /\b(website|site|web app|webapp)\b/i, type: "a website" },
+    { pattern: /\bplatform\b/i, type: "a platform" },
+    { pattern: /\btool\b/i, type: "a tool" },
+    { pattern: /\bdashboard\b/i, type: "a dashboard" },
+    { pattern: /\bsystem\b/i, type: "a system" },
+    { pattern: /\bservice\b/i, type: "a service" },
+    { pattern: /\bgame\b/i, type: "a game" },
+    { pattern: /\bapi\b/i, type: "an API" },
+    { pattern: /\bmobile\b/i, type: "a mobile app" },
+    { pattern: /\bbot\b/i, type: "a bot" },
+    { pattern: /\bextension\b/i, type: "an extension" },
+    { pattern: /\bplugin\b/i, type: "a plugin" },
+    { pattern: /\bportal\b/i, type: "a portal" },
+    { pattern: /\bmarketplace\b/i, type: "a marketplace" },
+  ]
+
+  let projectType = "something"
+  for (const { pattern, type } of typePatterns) {
+    if (pattern.test(description)) {
+      projectType = type
+      break
+    }
+  }
+
+  // Try to extract the purpose/domain (what it's for)
+  const purposePatterns = [
+    { pattern: /\b(track|tracking)\b/i, purpose: "for tracking" },
+    { pattern: /\b(manage|management)\b/i, purpose: "for management" },
+    { pattern: /\b(e-?commerce|sell|shop|store)\b/i, purpose: "for e-commerce" },
+    { pattern: /\b(social|community)\b/i, purpose: "for social interaction" },
+    { pattern: /\b(learn|education|course|training)\b/i, purpose: "for learning" },
+    { pattern: /\b(automat|workflow)\b/i, purpose: "for automation" },
+    { pattern: /\b(analytic|report|insight)\b/i, purpose: "for analytics" },
+    { pattern: /\b(chat|messag|communicat)\b/i, purpose: "for communication" },
+    { pattern: /\b(schedule|booking|appointment|calendar)\b/i, purpose: "for scheduling" },
+    { pattern: /\b(inventory|stock)\b/i, purpose: "for inventory" },
+    { pattern: /\b(crm|customer relationship)\b/i, purpose: "for customer management" },
+    { pattern: /\b(project management|task|todo)\b/i, purpose: "for project management" },
+    { pattern: /\b(finance|budget|accounting|money)\b/i, purpose: "for finance" },
+    { pattern: /\b(health|fitness|medical)\b/i, purpose: "for health/fitness" },
+    { pattern: /\b(music|audio|podcast)\b/i, purpose: "for audio/music" },
+    { pattern: /\b(photo|image|video|media)\b/i, purpose: "for media" },
+  ]
+
+  let purpose = ""
+  for (const { pattern, purpose: p } of purposePatterns) {
+    if (pattern.test(description)) {
+      purpose = ` ${p}`
+      break
+    }
+  }
+
+  // Build a concise summary
+  if (projectType !== "something" || purpose) {
+    return `${projectType}${purpose}`
+  }
+
+  // Fallback: extract the first meaningful phrase (up to 8 words after "build" or at start)
+  const buildMatch = description.match(/build\s+(.{1,60}?)(?:\.|,|$|\s+that|\s+which|\s+to\s)/i)
+  if (buildMatch && buildMatch[1]) {
+    const extracted = buildMatch[1].trim()
+    // Clean it up - take first 8 words
+    const words = extracted.split(/\s+/).slice(0, 8).join(" ")
+    return words.endsWith(".") ? words.slice(0, -1) : words
+  }
+
+  // Last resort: first 8 words of description
+  const words = description.split(/\s+/).slice(0, 8).join(" ")
+  return words.length < description.length ? `${words}...` : words
+}
+
+/**
+ * Get a smart follow-up question based on what's NOT already in the description
+ */
+function getSmartFollowUpQuestion(description: string): string {
+  const lowerDesc = description.toLowerCase()
+
+  // Check what info is already provided
+  const hasAudience = /\b(users?|audience|customers?|people|fans?|players?|members?|visitors?|employees?|clients?|team|for\s+(my|our|the)\s+\w+)\b/i.test(description)
+  const hasFeatures = /\b(features?|functionality|capabilities?|will\s+(have|include|let|allow)|should\s+(have|include|let|allow))\b/i.test(description)
+  const hasTech = /\b(react|node|python|typescript|javascript|database|api|backend|frontend|mobile|web|cloud|aws|firebase)\b/i.test(description)
+  const hasScale = /\b(scale|users?|traffic|thousands?|millions?|enterprise|small|large|startup)\b/i.test(description)
+  const hasTimeline = /\b(deadline|timeline|weeks?|months?|urgent|asap|mvp|launch|by\s+(january|february|march|april|may|june|july|august|september|october|november|december|\d{4}))\b/i.test(description)
+  const hasPurpose = /\b(problem|solve|help|need|because|goal|objective|purpose)\b/i.test(description)
+  const hasMonetization = /\b(monetiz|revenue|paid|subscription|premium|free|freemium|ads?|business\s+model)\b/i.test(description)
+
+  // Questions for missing info (in order of priority)
+  const questions: { check: boolean; questions: string[] }[] = [
+    {
+      check: !hasPurpose,
+      questions: [
+        "What problem are you trying to solve with this?",
+        "What's the main goal you're hoping to achieve?",
+        "What need does this address?"
+      ]
+    },
+    {
+      check: !hasAudience,
+      questions: [
+        "Who is the primary audience for this?",
+        "Who do you envision using this the most?",
+        "Tell me about your target users."
+      ]
+    },
+    {
+      check: !hasFeatures,
+      questions: [
+        "What are the must-have features for the first version?",
+        "What's the core functionality you need?",
+        "If you could only ship three things, what would they be?"
+      ]
+    },
+    {
+      check: !hasTimeline,
+      questions: [
+        "What's your timeline looking like for this?",
+        "Any key milestones or deadlines?",
+        "When would you like to see this live?"
+      ]
+    },
+    {
+      check: !hasTech,
+      questions: [
+        "Do you have any technical preferences or constraints?",
+        "Any specific technologies you'd like to use?",
+        "Should I recommend a tech stack, or do you have preferences?"
+      ]
+    },
+    {
+      check: !hasScale,
+      questions: [
+        "How big do you expect this to get?",
+        "What kind of scale are you anticipating?",
+        "Start simple or design for scale from day one?"
+      ]
+    },
+    {
+      check: !hasMonetization,
+      questions: [
+        "Do you plan to monetize this?",
+        "Is this a passion project or are you thinking about revenue?",
+        "Any business model in mind?"
+      ]
+    }
+  ]
+
+  // Find the first topic not covered and pick a random question
+  for (const { check, questions: qs } of questions) {
+    if (check) {
+      return qs[Math.floor(Math.random() * qs.length)]
+    }
+  }
+
+  // If everything seems covered, ask a general expansion question
+  return "That's quite comprehensive! Is there anything specific you'd like to dive deeper into?"
 }
 
 export const PROJECT_CREATION_FOLLOW_UPS = [

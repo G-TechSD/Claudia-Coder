@@ -430,18 +430,50 @@ export function BuildPlanEditor({
     setGenerationStatus("Loading existing packets...")
 
     try {
-      // Load existing packets for this project to include in the build plan context
-      const existingWorkPackets = getPacketsForProject(projectId)
-      const existingPackets: ExistingPacketInfo[] = existingWorkPackets.map(p => ({
+      // Load existing packets from ALL sources (N8N, .local-storage files, and localStorage)
+      // First try the API which aggregates from multiple sources
+      let existingPackets: ExistingPacketInfo[] = []
+
+      try {
+        const packetsResponse = await fetch(`/api/packets?projectID=${encodeURIComponent(projectId)}&limit=500`)
+        const packetsData = await packetsResponse.json()
+
+        if (packetsData.success && packetsData.packets) {
+          existingPackets = packetsData.packets.map((p: { id: string; title: string; summary?: string; description?: string; status?: string }) => ({
+            id: p.id,
+            title: p.title,
+            description: p.summary || p.description || "",
+            type: "feature",
+            status: p.status || "queued",
+            source: "api"
+          }))
+          console.log(`[build-plan-editor] Loaded ${existingPackets.length} packets from API (sources: N8N=${packetsData.sources?.n8n || 0}, localStorage=${packetsData.sources?.localStorage || 0})`)
+        }
+      } catch (apiError) {
+        console.warn("[build-plan-editor] API fetch failed, falling back to localStorage:", apiError)
+      }
+
+      // Also include packets from client-side localStorage (may have newer packets not yet synced)
+      const localWorkPackets = getPacketsForProject(projectId)
+      const localPackets: ExistingPacketInfo[] = localWorkPackets.map(p => ({
         id: p.id,
         title: p.title,
         description: p.description,
         type: p.type,
         status: p.status,
-        source: "build-plan"
+        source: "localStorage"
       }))
 
-      console.log(`[build-plan-editor] Found ${existingPackets.length} existing packets for project ${projectId}`)
+      // Merge packets, avoiding duplicates by ID
+      const seenIds = new Set(existingPackets.map(p => p.id))
+      for (const packet of localPackets) {
+        if (!seenIds.has(packet.id)) {
+          existingPackets.push(packet)
+          seenIds.add(packet.id)
+        }
+      }
+
+      console.log(`[build-plan-editor] Total ${existingPackets.length} existing packets for project ${projectId} (after merging localStorage)`)
 
       const provider = providers.find(p => p.name === selectedProvider)
       setGenerationStatus(`Generating with ${provider?.displayName || selectedProvider}...`)
@@ -750,18 +782,50 @@ export function BuildPlanEditor({
     setGenerationStatus("Loading existing packets...")
 
     try {
-      // Load existing packets for this project to include in the build plan context
-      const existingWorkPackets = getPacketsForProject(projectId)
-      const existingPackets: ExistingPacketInfo[] = existingWorkPackets.map(p => ({
+      // Load existing packets from ALL sources (N8N, .local-storage files, and localStorage)
+      // First try the API which aggregates from multiple sources
+      let existingPackets: ExistingPacketInfo[] = []
+
+      try {
+        const packetsResponse = await fetch(`/api/packets?projectID=${encodeURIComponent(projectId)}&limit=500`)
+        const packetsData = await packetsResponse.json()
+
+        if (packetsData.success && packetsData.packets) {
+          existingPackets = packetsData.packets.map((p: { id: string; title: string; summary?: string; description?: string; status?: string }) => ({
+            id: p.id,
+            title: p.title,
+            description: p.summary || p.description || "",
+            type: "feature",
+            status: p.status || "queued",
+            source: "api"
+          }))
+          console.log(`[build-plan-editor] Regenerate: Loaded ${existingPackets.length} packets from API (sources: N8N=${packetsData.sources?.n8n || 0}, localStorage=${packetsData.sources?.localStorage || 0})`)
+        }
+      } catch (apiError) {
+        console.warn("[build-plan-editor] API fetch failed, falling back to localStorage:", apiError)
+      }
+
+      // Also include packets from client-side localStorage (may have newer packets not yet synced)
+      const localWorkPackets = getPacketsForProject(projectId)
+      const localPackets: ExistingPacketInfo[] = localWorkPackets.map(p => ({
         id: p.id,
         title: p.title,
         description: p.description,
         type: p.type,
         status: p.status,
-        source: "build-plan"
+        source: "localStorage"
       }))
 
-      console.log(`[build-plan-editor] Regenerating with ${existingPackets.length} existing packets for project ${projectId}`)
+      // Merge packets, avoiding duplicates by ID
+      const seenIds = new Set(existingPackets.map(p => p.id))
+      for (const packet of localPackets) {
+        if (!seenIds.has(packet.id)) {
+          existingPackets.push(packet)
+          seenIds.add(packet.id)
+        }
+      }
+
+      console.log(`[build-plan-editor] Regenerating with ${existingPackets.length} total existing packets for project ${projectId}`)
 
       // Find the selected model option to get server and model info
       const modelOption = REGENERATION_MODEL_OPTIONS.find(m => m.value === regenerationModel)

@@ -96,6 +96,7 @@ function saveRuns(runs: PacketRun[]): void {
  */
 export function getPacketRuns(packetId: string, userId?: string): PacketRun[] {
   const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
+  if (!Array.isArray(runs)) return []
   return runs
     .filter(r => r.packetId === packetId)
     .sort((a, b) => b.iteration - a.iteration)
@@ -108,6 +109,7 @@ export function getPacketRuns(packetId: string, userId?: string): PacketRun[] {
  */
 export function getPacketRun(runId: string, userId?: string): PacketRun | null {
   const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
+  if (!Array.isArray(runs)) return null
   return runs.find(r => r.id === runId) || null
 }
 
@@ -223,6 +225,11 @@ export function getLatestPacketRun(packetId: string, userId?: string): PacketRun
  */
 export function getProjectRuns(projectId: string, userId?: string): PacketRun[] {
   const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
+  // Ensure runs is an array (handle corrupted/malformed storage)
+  if (!Array.isArray(runs)) {
+    console.warn("Packet runs storage is corrupted, returning empty array")
+    return []
+  }
   return runs
     .filter(r => r.projectId === projectId)
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
@@ -257,6 +264,7 @@ export function getPacketRunsForProject(projectId: string, userId?: string): Rec
  */
 export function deletePacketRun(runId: string, userId?: string): boolean {
   const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
+  if (!Array.isArray(runs)) return false
   const filtered = runs.filter(r => r.id !== runId)
 
   if (filtered.length === runs.length) return false
@@ -277,6 +285,7 @@ export function deletePacketRun(runId: string, userId?: string): boolean {
  */
 export function deletePacketRuns(packetId: string, userId?: string): number {
   const runs = userId ? getStoredRunsForUser(userId) : getStoredRuns()
+  if (!Array.isArray(runs)) return 0
   const filtered = runs.filter(r => r.packetId !== packetId)
   const deletedCount = runs.length - filtered.length
 

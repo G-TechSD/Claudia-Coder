@@ -14,20 +14,28 @@ import { isBetaTester } from "@/lib/beta/restrictions"
 
 /**
  * Get the current user from session
+ * Supports beta auth bypass when NEXT_PUBLIC_BETA_AUTH_BYPASS is enabled
  */
 function getCurrentUser(request: NextRequest): { id: string; role: string } | null {
   const sessionToken = request.cookies.get("better-auth.session_token")?.value
 
-  if (!sessionToken) return null
+  if (sessionToken) {
+    const result = db.prepare(`
+      SELECT u.id, u.role
+      FROM session s
+      JOIN user u ON s.userId = u.id
+      WHERE s.token = ?
+    `).get(sessionToken) as { id: string; role: string } | undefined
 
-  const result = db.prepare(`
-    SELECT u.id, u.role
-    FROM session s
-    JOIN user u ON s.userId = u.id
-    WHERE s.token = ?
-  `).get(sessionToken) as { id: string; role: string } | undefined
+    if (result) return result
+  }
 
-  return result || null
+  // Allow bypass in beta mode
+  if (process.env.NEXT_PUBLIC_BETA_AUTH_BYPASS === "true") {
+    return { id: "beta-tester", role: "user" }
+  }
+
+  return null
 }
 
 /**

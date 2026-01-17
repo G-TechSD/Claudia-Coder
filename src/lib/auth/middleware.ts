@@ -10,14 +10,65 @@ import { auth, type Session, type AuthUser } from "./index"
 /**
  * Get the current session from the request
  * Returns null if not authenticated
+ * Supports beta auth bypass when NEXT_PUBLIC_BETA_AUTH_BYPASS is enabled
  */
 export async function getServerSession(): Promise<Session | null> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
     })
-    return session
+
+    if (session) {
+      return session
+    }
+
+    // Allow bypass in beta mode
+    if (process.env.NEXT_PUBLIC_BETA_AUTH_BYPASS === "true") {
+      return {
+        user: {
+          id: "beta-tester",
+          name: "Beta Tester",
+          email: "beta@claudiacoder.com",
+          emailVerified: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          role: "user",
+        } as AuthUser,
+        session: {
+          id: "bypass-session",
+          expiresAt: new Date(Date.now() + 86400000),
+          token: "bypass",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          userId: "beta-tester",
+        }
+      } as Session
+    }
+
+    return null
   } catch {
+    // Allow bypass in beta mode even on error
+    if (process.env.NEXT_PUBLIC_BETA_AUTH_BYPASS === "true") {
+      return {
+        user: {
+          id: "beta-tester",
+          name: "Beta Tester",
+          email: "beta@claudiacoder.com",
+          emailVerified: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          role: "user",
+        } as AuthUser,
+        session: {
+          id: "bypass-session",
+          expiresAt: new Date(Date.now() + 86400000),
+          token: "bypass",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          userId: "beta-tester",
+        }
+      } as Session
+    }
     return null
   }
 }

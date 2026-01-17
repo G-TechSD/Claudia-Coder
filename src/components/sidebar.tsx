@@ -43,6 +43,7 @@ import {
   Video,
   MessageSquare,
   Database,
+  Rocket,
 } from "lucide-react"
 
 interface NavItem {
@@ -72,12 +73,16 @@ const projectsItems: NavItem[] = [
 // Tools category items
 const toolsItems: NavItem[] = [
   { title: "Claude Code", href: "/claude-code", icon: Terminal },
-  { title: "Open Web UI", href: "/openwebui", icon: MessageSquare },
+]
+
+// Upcoming Features category items (in development)
+const upcomingFeaturesItems: NavItem[] = [
   { title: "Business Dev", href: "/business-dev", icon: Briefcase },
   { title: "Research", href: "/research", icon: Search },
   { title: "Patents", href: "/patents", icon: FileCheck },
   { title: "Gitea", href: "/gitea", icon: GitBranch, external: false },
   { title: "n8n", href: "/n8n", icon: Workflow, external: false },
+  { title: "Open Web UI", href: "/openwebui", icon: MessageSquare },
 ]
 
 // Admin category items
@@ -235,6 +240,7 @@ export function Sidebar() {
   const [accordionState, setAccordionState] = React.useState<Record<string, boolean>>({
     projects: true,
     tools: true,
+    upcoming: false,
     admin: false,
   })
 
@@ -295,6 +301,12 @@ export function Sidebar() {
       title: "Tools",
       icon: Wrench,
       items: toolsItems,
+    },
+    {
+      id: "upcoming",
+      title: "Upcoming Features",
+      icon: Rocket,
+      items: upcomingFeaturesItems,
     },
   ]
 

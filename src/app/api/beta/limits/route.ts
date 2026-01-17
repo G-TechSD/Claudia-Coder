@@ -17,24 +17,26 @@ export async function GET(request: NextRequest) {
     // Get the session token from the cookie
     const sessionToken = request.cookies.get("better-auth.session_token")?.value
 
-    if (!sessionToken) {
-      return NextResponse.json(
-        { error: "Not authenticated" },
-        { status: 401 }
-      )
+    let result: { id: string; role: string; email: string; name: string } | undefined
+
+    if (sessionToken) {
+      // Look up the user's role from the database
+      result = db.prepare(`
+        SELECT u.id, u.role, u.email, u.name
+        FROM session s
+        JOIN user u ON s.userId = u.id
+        WHERE s.token = ?
+      `).get(sessionToken) as { id: string; role: string; email: string; name: string } | undefined
     }
 
-    // Look up the user's role from the database
-    const result = db.prepare(`
-      SELECT u.id, u.role, u.email, u.name
-      FROM session s
-      JOIN user u ON s.userId = u.id
-      WHERE s.token = ?
-    `).get(sessionToken) as { id: string; role: string; email: string; name: string } | undefined
+    // Allow bypass in beta mode
+    if (!result && process.env.NEXT_PUBLIC_BETA_AUTH_BYPASS === "true") {
+      result = { id: "beta-tester", role: "user", email: "beta@claudiacoder.com", name: "Beta Tester" }
+    }
 
     if (!result) {
       return NextResponse.json(
-        { error: "Session not found" },
+        { error: "Not authenticated" },
         { status: 401 }
       )
     }

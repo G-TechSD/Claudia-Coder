@@ -94,6 +94,12 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import type { Project, ProjectStatus, InterviewMessage, StoredBuildPlan } from "@/lib/data/types"
 
@@ -305,14 +311,14 @@ export default function ProjectDetailPage() {
 
   // Load packet runs using user-scoped storage
   useEffect(() => {
-    if (!projectId) return
+    if (!projectId || !user?.id) return
 
     try {
       // Use user-scoped storage function
-      const storedRuns = getPacketRunsForProject(projectId, user?.id)
+      const storedRuns = getPacketRunsForProject(projectId, user.id)
       setPacketRuns(storedRuns)
-    } catch {
-      console.error("Failed to load packet runs")
+    } catch (err) {
+      console.error("Failed to load packet runs:", err)
     }
   }, [projectId, packets, user?.id])
 
@@ -534,6 +540,55 @@ export default function ProjectDetailPage() {
     refreshBrainDumpCount()
     // TODO: Could navigate to the brain dump review
     console.log("Brain dump created:", brainDumpId, "from resource:", resourceId)
+  }
+
+  // Handler for packets approved from brain dump packetize flow
+  const handleBrainDumpPacketsApproved = (approvedPackets: Array<{
+    id: string
+    title: string
+    description: string
+    type: string
+    priority: string
+    tasks: Array<{ id: string; description: string; completed: boolean; order: number }>
+    acceptanceCriteria: string[]
+    approvedPriority?: string
+  }>) => {
+    if (!project || approvedPackets.length === 0) return
+
+    try {
+      // Get existing packets from localStorage
+      const storedPackets = localStorage.getItem("claudia_packets")
+      const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
+      const projectPackets = allPackets[project.id] || []
+
+      // Convert approved packets to work packet format and add them
+      const newPackets = approvedPackets.map(p => ({
+        id: p.id,
+        phaseId: "brain-dump-phase",
+        title: p.title,
+        description: p.description,
+        type: p.type,
+        priority: p.approvedPriority || p.priority,
+        status: "queued",
+        tasks: p.tasks,
+        acceptanceCriteria: p.acceptanceCriteria,
+        metadata: {
+          source: "brain-dump",
+          createdAt: new Date().toISOString()
+        }
+      }))
+
+      // Add new packets to existing ones
+      allPackets[project.id] = [...projectPackets, ...newPackets]
+      localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+
+      // Update local state
+      setPackets(allPackets[project.id])
+
+      console.log(`Added ${newPackets.length} packets from brain dump`)
+    } catch (err) {
+      console.error("Failed to save brain dump packets:", err)
+    }
   }
 
   const refreshProject = () => {
@@ -767,10 +822,42 @@ export default function ProjectDetailPage() {
             >
               <Star className={cn("h-5 w-5", project.starred && "fill-current")} />
             </Button>
-            <Badge className={cn("border", statusConfig[project.status].color)}>
-              <StatusIcon className="h-3 w-3 mr-1" />
-              {statusConfig[project.status].label}
-            </Badge>
+{project.status !== "trashed" ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md">
+                    <Badge className={cn("border cursor-pointer hover:opacity-80 transition-opacity", statusConfig[project.status].color)}>
+                      <StatusIcon className="h-3 w-3 mr-1" />
+                      {statusConfig[project.status].label}
+                    </Badge>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {(["planning", "active", "paused", "completed", "archived"] as ProjectStatus[]).map((status) => {
+                    const config = statusConfig[status]
+                    const Icon = config.icon
+                    return (
+                      <DropdownMenuItem
+                        key={status}
+                        onClick={() => handleStatusChange(status)}
+                        className={cn(
+                          "cursor-pointer",
+                          project.status === status && "bg-accent"
+                        )}
+                      >
+                        <Icon className="h-4 w-4 mr-2" />
+                        {config.label}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Badge className={cn("border", statusConfig[project.status].color)}>
+                <StatusIcon className="h-3 w-3 mr-1" />
+                {statusConfig[project.status].label}
+              </Badge>
+            )}
             <Badge className={cn(priorityConfig[project.priority].color)}>
               {priorityConfig[project.priority].label}
             </Badge>
@@ -873,35 +960,39 @@ export default function ProjectDetailPage() {
         </Card>
       )}
 
-      {/* Status Actions - hidden for trashed projects */}
-      {project.status !== "trashed" && (
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">Change Status:</span>
-              {(["planning", "active", "paused", "completed", "archived"] as ProjectStatus[]).map((status) => {
-                const config = statusConfig[status]
-                const Icon = config.icon
-                return (
-                  <Button
-                    key={status}
-                    variant={project.status === status ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => handleStatusChange(status)}
-                    className={cn(
-                      project.status === status && config.color,
-                      "transition-all"
-                    )}
-                  >
-                    <Icon className="h-3 w-3 mr-1" />
-                    {config.label}
-                  </Button>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Development Bar - Quick access to dev tools */}
+      <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-lg border">
+        {[
+          { value: "repos", label: "Repositories", icon: GitBranch, count: project.repos.length },
+          { value: "files", label: "Browse Files", icon: FolderOpen, iconColor: "text-yellow-500" },
+          { value: "packets", label: "Work Packets", icon: Package, count: packets.length },
+          { value: "claude-code", label: "Claude Code", icon: Terminal, iconColor: "text-purple-500" },
+          { value: "models", label: "AI Models", icon: Brain },
+        ].map((item) => {
+          const Icon = item.icon
+          const isActive = activeTab === item.value
+          return (
+            <Button
+              key={item.value}
+              variant={isActive ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setActiveTab(item.value)}
+              className={cn(
+                "gap-2 transition-all",
+                isActive && "shadow-sm"
+              )}
+            >
+              <Icon className={cn("h-4 w-4", !isActive && item.iconColor)} />
+              {item.label}
+              {item.count !== undefined && item.count > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">
+                  {item.count}
+                </Badge>
+              )}
+            </Button>
+          )
+        })}
+      </div>
 
       {/* Navigation */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -1684,8 +1775,16 @@ export default function ProjectDetailPage() {
           {isRecordingBrainDump ? (
             <AudioRecorder
               projectId={project.id}
+              projectName={project.name}
+              projectDescription={project.description}
               onRecordingComplete={handleBrainDumpRecorded}
+              onPacketsApproved={handleBrainDumpPacketsApproved}
               onCancel={() => setIsRecordingBrainDump(false)}
+              existingProjectContext={{
+                hasBuildPlan: hasBuildPlan,
+                hasPackets: packets.length > 0,
+                currentPhase: currentBuildPlan?.originalPlan?.phases?.[0]?.name
+              }}
             />
           ) : (
             <BrainDumpList

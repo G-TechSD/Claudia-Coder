@@ -4,20 +4,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
-import { headers } from "next/headers"
+import { getSessionWithBypass } from "@/lib/auth/api-helpers"
 import { getGlobalSettings, saveGlobalSettings, DefaultModelConfig } from "@/lib/settings/global-settings"
 
 export async function POST(request: NextRequest) {
   try {
-    // Check session (will be bypassed in dev mode with middleware bypass)
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    // Check session with beta auth bypass support
+    const session = await getSessionWithBypass()
 
-    // In dev bypass mode, session may be null - allow anyway
-    const isDev = process.env.NODE_ENV === "development"
-    if (!session?.user && !isDev) {
+    if (!session?.user) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -67,12 +62,9 @@ export async function GET(request: NextRequest) {
     // Currently using localStorage on client, but this could be extended
     // to store preferences in the database
 
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    const session = await getSessionWithBypass()
 
-    const isDev = process.env.NODE_ENV === "development"
-    if (!session?.user && !isDev) {
+    if (!session?.user) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }

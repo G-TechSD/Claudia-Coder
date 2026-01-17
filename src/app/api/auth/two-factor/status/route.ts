@@ -4,16 +4,13 @@
  */
 
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
-import { headers } from "next/headers"
+import { getSessionWithBypass } from "@/lib/auth/api-helpers"
 import { db } from "@/lib/auth/db"
 
 export async function GET() {
   try {
-    // Get the current session
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    })
+    // Get the current session with beta auth bypass support
+    const session = await getSessionWithBypass()
 
     if (!session?.user) {
       return NextResponse.json(

@@ -48,6 +48,17 @@ interface VisionPacketMetadata {
   completionGate: boolean
 }
 
+// Project types that should show game/creative UI
+const GAME_CREATIVE_TYPES = ["game", "vr", "creative", "interactive"]
+
+/**
+ * Check if a project type should show game/creative UI
+ */
+function isGameCreativeType(projectType: string | undefined): boolean {
+  if (!projectType) return false
+  return GAME_CREATIVE_TYPES.includes(projectType.toLowerCase())
+}
+
 interface VisionPacket {
   id: string
   phaseId: string
@@ -308,17 +319,28 @@ export function VisionDisplay({ projectId, className }: VisionDisplayProps) {
   }
 
   const meta = visionPacket.metadata
+
+  // Don't render game UI for non-game projects
+  // Only show this component for game, vr, creative, and interactive projects
+  const isGameProject = isGameCreativeType(meta?.projectType)
+
+  // Don't render anything for non-game projects
+  // This prevents showing "Game Vision & Story" UI for projects like "AI Fish Tank Monitor"
+  if (!isGameProject) {
+    return null
+  }
+
   const completedTasks = visionPacket.tasks.filter(t => t.completed).length
   const totalTasks = visionPacket.tasks.length
   const completionPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
 
-  // Use edited content when editing, otherwise use metadata
+  // Use edited content when editing, otherwise use metadata (with fallbacks for missing meta)
   const displayContent = isEditing && editedContent ? editedContent : {
-    tagline: meta.tagline,
-    storeDescription: meta.storeDescription,
-    keyFeatures: meta.keyFeatures || [],
-    uniqueSellingPoints: meta.uniqueSellingPoints || [],
-    targetAudience: meta.targetAudience
+    tagline: meta?.tagline ?? "",
+    storeDescription: meta?.storeDescription ?? "",
+    keyFeatures: meta?.keyFeatures || [],
+    uniqueSellingPoints: meta?.uniqueSellingPoints || [],
+    targetAudience: meta?.targetAudience ?? ""
   }
 
   return (

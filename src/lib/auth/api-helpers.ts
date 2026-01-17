@@ -35,6 +35,7 @@ export interface AuthenticatedRequest {
 /**
  * Verify authentication for an API route
  * Returns the user and session if authenticated, or null if not
+ * Supports beta auth bypass when NEXT_PUBLIC_BETA_AUTH_BYPASS is enabled
  */
 export async function verifyApiAuth(): Promise<AuthenticatedRequest | null> {
   try {
@@ -42,15 +43,48 @@ export async function verifyApiAuth(): Promise<AuthenticatedRequest | null> {
       headers: await headers(),
     })
 
-    if (!session?.user) {
-      return null
+    if (session?.user) {
+      return {
+        user: session.user,
+        session: session.session,
+      }
     }
 
-    return {
-      user: session.user,
-      session: session.session,
+    // Allow bypass in beta mode
+    if (process.env.NEXT_PUBLIC_BETA_AUTH_BYPASS === "true") {
+      return {
+        user: {
+          id: "beta-tester",
+          name: "Beta Tester",
+          email: "beta@claudiacoder.com",
+          role: "user",
+        },
+        session: {
+          id: "bypass-session",
+          expiresAt: new Date(Date.now() + 86400000),
+          token: "bypass",
+        }
+      }
     }
+
+    return null
   } catch {
+    // Allow bypass in beta mode even on error
+    if (process.env.NEXT_PUBLIC_BETA_AUTH_BYPASS === "true") {
+      return {
+        user: {
+          id: "beta-tester",
+          name: "Beta Tester",
+          email: "beta@claudiacoder.com",
+          role: "user",
+        },
+        session: {
+          id: "bypass-session",
+          expiresAt: new Date(Date.now() + 86400000),
+          token: "bypass",
+        }
+      }
+    }
     return null
   }
 }
