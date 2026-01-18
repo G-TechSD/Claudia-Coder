@@ -388,16 +388,19 @@ export async function POST(request: NextRequest) {
 
       if (n8nResult.async) {
         // N8N returns immediately, results come via callback
-        emit("complete", "N8N workflow triggered", `Execution ID: ${n8nResult.executionId}`, { progress: 100 })
+        // IMPORTANT: success: false because work is NOT done yet - it's just triggered
+        // The actual success will come when N8N callback completes
+        emit("thinking", "N8N workflow triggered", `Execution ID: ${n8nResult.executionId}`, { progress: 10 })
         // Persist events for API access (async N8N - mark as pending since it's still running)
-        await persistActivityEvents(events, body.projectId, projectName, packet.id, packet.title, "n8n", true)
+        await persistActivityEvents(events, body.projectId, projectName, packet.id, packet.title, "n8n", false)
         return NextResponse.json({
-          success: true,
+          success: false,
+          status: "pending",
           packetId: packet.id,
           events,
           async: true,
           executionId: n8nResult.executionId,
-          message: "Workflow triggered. Results will be delivered via callback.",
+          message: "Workflow triggered but work is still in progress. Results will be delivered via callback when complete.",
           duration: Date.now() - startTime,
           mode: "n8n"
         })
@@ -899,8 +902,8 @@ async function executeWithLMStudio(
     }
 
     return {
-      success: true,
-      output: "No files were modified.",
+      success: false,
+      output: "No files were generated or modified. The LM Studio model did not produce any file changes for this packet.",
       filesChanged,
       mode: "local",
       qualityGates: undefined // No files changed, so no quality gates were run
@@ -1203,7 +1206,7 @@ async function installDependenciesIfNeeded(
  * This allows initial project setup to pass quality gates even without tests.
  * Tests only fail if they exist AND fail.
  */
-async function runProjectTests(repoPath: string): Promise<{ success: boolean; output: string }> {
+async function runProjectTests(repoPath: string): Promise<{ success: boolean; output: string; skipped?: boolean }> {
   try {
     // Detect project type and run appropriate tests
     const packageJsonPath = path.join(repoPath, "package.json")
@@ -1219,10 +1222,11 @@ async function runProjectTests(repoPath: string): Promise<{ success: boolean; ou
 
       // Check if a test script is defined
       if (!packageJson.scripts?.test) {
-        // No test script defined - return success for initial setup
+        // No test script defined - return success but mark as skipped
         return {
           success: true,
-          output: "No test script defined in package.json - skipping tests (initial setup allowed)"
+          output: "No test script defined in package.json - tests not validated",
+          skipped: true
         }
       }
 
@@ -1233,7 +1237,8 @@ async function runProjectTests(repoPath: string): Promise<{ success: boolean; ou
         // Default npm init placeholder - treat as no tests configured
         return {
           success: true,
-          output: "Default npm test placeholder detected - skipping tests (initial setup allowed)"
+          output: "Default npm test placeholder detected - tests not validated",
+          skipped: true
         }
       }
 
@@ -1243,7 +1248,7 @@ async function runProjectTests(repoPath: string): Promise<{ success: boolean; ou
         timeout: 120000 // 2 minutes for tests
       })
 
-      return { success: true, output: stdout + stderr }
+      return { success: true, output: stdout + stderr, skipped: false }
 
     } catch (accessError) {
       // No package.json - check for Flutter project
@@ -1256,16 +1261,17 @@ async function runProjectTests(repoPath: string): Promise<{ success: boolean; ou
           timeout: 120000 // 2 minutes for tests
         })
 
-        return { success: true, output: stdout + stderr }
+        return { success: true, output: stdout + stderr, skipped: false }
       } catch {
         // No package.json or pubspec.yaml - no test framework detected
-        return { success: true, output: "No test framework detected" }
+        return { success: true, output: "No test framework detected - tests not validated", skipped: true }
       }
     }
   } catch (error) {
     return {
       success: false,
-      output: error instanceof Error ? error.message : "Test execution failed"
+      output: error instanceof Error ? error.message : "Test execution failed",
+      skipped: false
     }
   }
 }
@@ -1273,7 +1279,7 @@ async function runProjectTests(repoPath: string): Promise<{ success: boolean; ou
 /**
  * Run TypeScript type checking (tsc --noEmit)
  */
-async function runTypeCheck(repoPath: string): Promise<{ success: boolean; output: string; errorCount: number }> {
+async function runTypeCheck(repoPath: string): Promise<{ success: boolean; output: string; errorCount: number; skipped?: boolean }> {
   try {
     // Check if this is a TypeScript project
     const tsconfigPath = path.join(repoPath, "tsconfig.json")
@@ -1281,7 +1287,7 @@ async function runTypeCheck(repoPath: string): Promise<{ success: boolean; outpu
       await fs.access(tsconfigPath)
     } catch {
       // No tsconfig.json - not a TypeScript project, skip type checking
-      return { success: true, output: "No tsconfig.json found - skipping type check", errorCount: 0 }
+      return { success: true, output: "No tsconfig.json found - TypeScript not validated", errorCount: 0, skipped: true }
     }
 
     // Run tsc --noEmit to check types without generating output
@@ -1290,7 +1296,7 @@ async function runTypeCheck(repoPath: string): Promise<{ success: boolean; outpu
       timeout: 120000 // 2 minutes for type checking
     })
 
-    return { success: true, output: stdout + stderr, errorCount: 0 }
+    return { success: true, output: stdout + stderr, errorCount: 0, skipped: false }
   } catch (error) {
     const errorOutput = error instanceof Error ? error.message : "Type check failed"
     const stdout = (error as { stdout?: string }).stdout || ""
@@ -1304,7 +1310,8 @@ async function runTypeCheck(repoPath: string): Promise<{ success: boolean; outpu
     return {
       success: false,
       output: fullOutput,
-      errorCount
+      errorCount,
+      skipped: false
     }
   }
 }
@@ -1312,7 +1319,7 @@ async function runTypeCheck(repoPath: string): Promise<{ success: boolean; outpu
 /**
  * Run build verification (npm run build)
  */
-async function runBuildCheck(repoPath: string): Promise<{ success: boolean; output: string }> {
+async function runBuildCheck(repoPath: string): Promise<{ success: boolean; output: string; skipped?: boolean }> {
   try {
     // Check if package.json exists and has a build script
     const packageJsonPath = path.join(repoPath, "package.json")
@@ -1321,7 +1328,7 @@ async function runBuildCheck(repoPath: string): Promise<{ success: boolean; outp
       const packageJson = JSON.parse(packageJsonContent)
 
       if (!packageJson.scripts?.build) {
-        return { success: true, output: "No build script defined in package.json - skipping build check" }
+        return { success: true, output: "No build script defined in package.json - build not validated", skipped: true }
       }
     } catch {
       // Check for other project types
@@ -1333,9 +1340,9 @@ async function runBuildCheck(repoPath: string): Promise<{ success: boolean; outp
           cwd: repoPath,
           timeout: 300000 // 5 minutes for Flutter build
         })
-        return { success: true, output: stdout + stderr }
+        return { success: true, output: stdout + stderr, skipped: false }
       } catch {
-        return { success: true, output: "No package.json or pubspec.yaml found - skipping build check" }
+        return { success: true, output: "No package.json or pubspec.yaml found - build not validated", skipped: true }
       }
     }
 
@@ -1345,7 +1352,7 @@ async function runBuildCheck(repoPath: string): Promise<{ success: boolean; outp
       timeout: 300000 // 5 minutes for build
     })
 
-    return { success: true, output: stdout + stderr }
+    return { success: true, output: stdout + stderr, skipped: false }
   } catch (error) {
     const errorOutput = error instanceof Error ? error.message : "Build failed"
     const stdout = (error as { stdout?: string }).stdout || ""
@@ -1353,7 +1360,8 @@ async function runBuildCheck(repoPath: string): Promise<{ success: boolean; outp
 
     return {
       success: false,
-      output: `Build failed:\n${stdout}\n${stderr}\n${errorOutput}`
+      output: `Build failed:\n${stdout}\n${stderr}\n${errorOutput}`,
+      skipped: false
     }
   }
 }
@@ -1363,10 +1371,12 @@ async function runBuildCheck(repoPath: string): Promise<{ success: boolean; outp
  */
 interface QualityGateResult {
   passed: boolean
-  tests: { success: boolean; output: string }
-  typeCheck: { success: boolean; output: string; errorCount: number }
-  build: { success: boolean; output: string }
+  tests: { success: boolean; output: string; skipped?: boolean }
+  typeCheck: { success: boolean; output: string; errorCount: number; skipped?: boolean }
+  build: { success: boolean; output: string; skipped?: boolean }
   summary: string
+  skippedCount: number
+  validatedCount: number
 }
 
 /**
@@ -1382,7 +1392,9 @@ async function runQualityGates(
     tests: { success: false, output: "" },
     typeCheck: { success: false, output: "", errorCount: 0 },
     build: { success: false, output: "" },
-    summary: ""
+    summary: "",
+    skippedCount: 0,
+    validatedCount: 0
   }
 
   // 1. Run Tests
@@ -1393,7 +1405,13 @@ async function runQualityGates(
     emit("error", "Quality Gate FAILED: Tests", results.tests.output.substring(0, 500))
     return results
   }
-  emit("thinking", "Tests passed", "Proceeding to type check...")
+  if (results.tests.skipped) {
+    results.skippedCount++
+    emit("thinking", "Tests skipped (no test framework)", "Proceeding to type check...")
+  } else {
+    results.validatedCount++
+    emit("thinking", "Tests passed", "Proceeding to type check...")
+  }
 
   // 2. Run TypeScript Check
   emit("test_run", "Quality Gate 2/3: Running TypeScript check...", "Types MUST be valid")
@@ -1403,7 +1421,13 @@ async function runQualityGates(
     emit("error", "Quality Gate FAILED: TypeScript", `${results.typeCheck.errorCount} type errors found`)
     return results
   }
-  emit("thinking", "Type check passed", "Proceeding to build...")
+  if (results.typeCheck.skipped) {
+    results.skippedCount++
+    emit("thinking", "Type check skipped (no tsconfig)", "Proceeding to build...")
+  } else {
+    results.validatedCount++
+    emit("thinking", "Type check passed", "Proceeding to build...")
+  }
 
   // 3. Run Build
   emit("test_run", "Quality Gate 3/3: Running build...", "Build MUST succeed")
@@ -1413,11 +1437,38 @@ async function runQualityGates(
     emit("error", "Quality Gate FAILED: Build", results.build.output.substring(0, 500))
     return results
   }
+  if (results.build.skipped) {
+    results.skippedCount++
+  } else {
+    results.validatedCount++
+  }
 
   // All quality gates passed!
   results.passed = true
-  results.summary = "All quality gates passed: Tests OK, Types OK, Build OK"
-  emit("thinking", "All quality gates PASSED", "Code is production-ready!")
+
+  // Build detailed summary based on what was actually validated vs skipped
+  const validatedGates: string[] = []
+  const skippedGates: string[] = []
+
+  if (results.tests.skipped) skippedGates.push("Tests")
+  else validatedGates.push("Tests")
+
+  if (results.typeCheck.skipped) skippedGates.push("TypeScript")
+  else validatedGates.push("TypeScript")
+
+  if (results.build.skipped) skippedGates.push("Build")
+  else validatedGates.push("Build")
+
+  if (skippedGates.length === 0) {
+    results.summary = `All quality gates passed: ${validatedGates.join(", ")} validated`
+    emit("thinking", "All quality gates PASSED", "Code is production-ready!")
+  } else if (validatedGates.length === 0) {
+    results.summary = `Quality gates completed with warnings: All gates skipped (${skippedGates.join(", ")} - no configuration found)`
+    emit("thinking", "Quality gates completed", `Warning: All gates skipped - ${skippedGates.join(", ")} not configured`)
+  } else {
+    results.summary = `Quality gates passed: ${validatedGates.join(", ")} validated | ${skippedGates.join(", ")} skipped (not configured)`
+    emit("thinking", "Quality gates PASSED with skips", `Validated: ${validatedGates.join(", ")} | Skipped: ${skippedGates.join(", ")}`)
+  }
 
   return results
 }
