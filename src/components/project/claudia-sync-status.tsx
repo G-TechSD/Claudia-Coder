@@ -503,8 +503,8 @@ export function ClaudiaSyncStatus({ projectId, projectPath, className }: Claudia
     }))
   }
 
-  const pendingRequests = syncStatus.pendingRequests.filter(r => r.status === "pending")
-  const recentUpdates = syncStatus.updates.slice(0, 10)
+  const pendingRequests = (syncStatus?.pendingRequests || []).filter(r => r.status === "pending")
+  const recentUpdates = (syncStatus?.updates || []).slice(0, 10)
 
   if (isLoading) {
     return (
@@ -524,14 +524,14 @@ export function ClaudiaSyncStatus({ projectId, projectPath, className }: Claudia
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <CardTitle className="text-base font-medium">Claudia Coder Sync</CardTitle>
-            {syncStatus.stats.unreadUpdates > 0 && (
+            {(syncStatus?.stats?.unreadUpdates || 0) > 0 && (
               <Badge variant="default" className="h-5 px-1.5 text-xs">
-                {syncStatus.stats.unreadUpdates} new
+                {syncStatus?.stats?.unreadUpdates || 0} new
               </Badge>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <WatchStatusIndicator status={syncStatus.watchStatus} />
+            <WatchStatusIndicator status={syncStatus?.watchStatus || "disconnected"} />
             <Button
               size="sm"
               variant="outline"
@@ -550,7 +550,7 @@ export function ClaudiaSyncStatus({ projectId, projectPath, className }: Claudia
         </div>
 
         {/* Last scan time */}
-        {syncStatus.lastScanAt && (
+        {syncStatus?.lastScanAt && (
           <p className="text-xs text-muted-foreground mt-1">
             Last scan: {formatTimeAgo(new Date(syncStatus.lastScanAt))}
           </p>
@@ -607,7 +607,7 @@ export function ClaudiaSyncStatus({ projectId, projectPath, className }: Claudia
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
               Recent Activity
             </h4>
-            {syncStatus.stats.unreadUpdates > 0 && (
+            {(syncStatus?.stats?.unreadUpdates || 0) > 0 && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -643,8 +643,8 @@ export function ClaudiaSyncStatus({ projectId, projectPath, className }: Claudia
         {/* Stats Footer */}
         <div className="flex items-center justify-between pt-2 border-t text-xs text-muted-foreground">
           <div className="flex items-center gap-4">
-            <span>{syncStatus.stats.totalUpdates} total updates</span>
-            <span>{syncStatus.stats.completedToday} completed today</span>
+            <span>{syncStatus?.stats?.totalUpdates || 0} total updates</span>
+            <span>{syncStatus?.stats?.completedToday || 0} completed today</span>
           </div>
           <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1" asChild>
             <Link href={`/activity?projectId=${projectId}`}>
