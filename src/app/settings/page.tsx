@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, Suspense } from "react"
+import { useState, useEffect, useCallback, Suspense, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,19 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -18,15 +31,15 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useSettings } from "@/hooks/useSettings"
-import { LLMStatus } from "@/components/llm/llm-status"
-import { ConnectionsTab, type ServiceStatus } from "@/components/settings/connections-tab"
 import {
-  resetSetup,
-  addLocalServer,
   getGlobalSettings,
   saveGlobalSettings,
+  addLocalServer,
   updateLocalServer,
-  removeLocalServer
+  removeLocalServer,
+  type LocalServerConfig,
+  type CloudProviderConfig,
+  type DefaultModelConfig,
 } from "@/lib/settings/global-settings"
 import {
   getDataSummary,
@@ -37,733 +50,418 @@ import {
 } from "@/lib/data/reset"
 import {
   Server,
-  Bell,
-  Shield,
-  Palette,
-  Save,
-  RefreshCw,
-  CheckCircle,
-  XCircle,
   Cpu,
   Cloud,
   GitBranch,
-  DollarSign,
-  Zap,
-  Brain,
-  ImageIcon,
-  AlertCircle,
-  Eye,
-  EyeOff,
+  Palette,
+  Settings2,
+  RefreshCw,
+  CheckCircle,
+  XCircle,
   Loader2,
   Trash2,
   HardDrive,
   Upload,
   Download as DownloadIcon,
   AlertOctagon,
-  FileJson,
-  Pencil
+  Eye,
+  EyeOff,
+  Plus,
+  Star,
+  Zap,
+  ExternalLink,
+  Key,
+  Workflow,
+  Code2,
 } from "lucide-react"
 
-// Note: ServiceStatus type is imported from ConnectionsTab component
+// Provider display names and colors
+const PROVIDER_INFO: Record<string, { name: string; color: string; icon: typeof Cloud }> = {
+  lmstudio: { name: "LM Studio", color: "text-purple-500", icon: Cpu },
+  ollama: { name: "Ollama", color: "text-blue-500", icon: Cpu },
+  anthropic: { name: "Anthropic", color: "text-orange-500", icon: Cloud },
+  openai: { name: "OpenAI", color: "text-emerald-500", icon: Cloud },
+  google: { name: "Google AI", color: "text-blue-500", icon: Cloud },
+}
 
-interface SettingToggle {
+// Fallback models for cloud providers
+const FALLBACK_MODELS: Record<string, { id: string; name: string }[]> = {
+  anthropic: [
+    { id: "claude-opus-4-5-20251101", name: "Claude Opus 4.5" },
+    { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
+    { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet" },
+  ],
+  openai: [
+    { id: "gpt-4o", name: "GPT-4o" },
+    { id: "gpt-4o-mini", name: "GPT-4o Mini" },
+    { id: "o3-mini", name: "o3-mini" },
+  ],
+  google: [
+    { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+  ],
+}
+
+interface ServerStatus {
   id: string
-  label: string
-  description: string
+  name: string
+  url: string
+  type: "lmstudio" | "ollama" | "custom"
+  status: "connected" | "disconnected" | "checking"
+  models: string[]
+  defaultModel?: string
+}
+
+interface CloudProviderStatus {
+  provider: "anthropic" | "openai" | "google"
   enabled: boolean
+  hasApiKey: boolean
+  authMethod?: "apiKey" | "oauth"
+  oauthUser?: { email: string; name?: string }
 }
-
-interface SecuritySetting {
-  id: string
-  label: string
-  description: string
-  type: "toggle" | "select"
-  enabled?: boolean
-  value?: string
-  options?: { value: string; label: string; variant: "success" | "warning" | "destructive" }[]
-}
-
-// Default services - actual URLs should come from settings/environment
-const mockServices: ServiceStatus[] = [
-  { name: "n8n Orchestrator", url: "", status: "disconnected", latency: 0 },
-  { name: "Local LLM Server", url: "", status: "disconnected", latency: 0 },
-  { name: "GitLab", url: "", status: "disconnected", latency: 0 },
-  { name: "Linear", url: "api.linear.app", status: "connected", latency: 89 },
-  { name: "Claude API", url: "api.anthropic.com", status: "connected", latency: 156 },
-]
-
-// statusConfig has been moved to ConnectionsTab component
 
 function SettingsPageContent() {
   const searchParams = useSearchParams()
-  const [services, setServices] = useState<ServiceStatus[]>(mockServices)
-  const [activeTab, setActiveTab] = useState<string>("ai-services")
-  const [refreshingStatus, setRefreshingStatus] = useState(false)
   const { settings, update } = useSettings()
 
-  // Function to refresh all LM Studio server statuses
-  async function refreshLMStudioStatus() {
-    try {
-      // Add cache-busting to ensure fresh data
-      const response = await fetch("/api/lmstudio-status", {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
-      })
-      if (response.ok) {
-        const data = await response.json()
-        // Update the services list with real status
-        setServices(prev => {
-          const updated = [...prev]
-          for (const server of data.servers) {
-            // Find existing service by URL or name
-            const existingIndex = updated.findIndex(
-              s => s.url === server.url ||
-                   s.name.toUpperCase().includes(server.name.toUpperCase()) ||
-                   server.name.toUpperCase().includes(s.name.replace("LM Studio ", "").toUpperCase())
-            )
-            if (existingIndex >= 0) {
-              updated[existingIndex] = {
-                ...updated[existingIndex],
-                status: server.status,
-                latency: server.latency
-              }
-            }
-          }
-          return updated
-        })
-      }
-    } catch (error) {
-      console.error("Failed to refresh LM Studio status:", error)
-    }
-  }
+  // Global settings state
+  const [globalSettings, setGlobalSettings] = useState(() => getGlobalSettings())
 
-  // Also refresh N8N status
-  async function refreshN8NStatus() {
-    try {
-      // Add cache-busting to ensure fresh data
-      const response = await fetch("/api/n8n-status", {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setServices(prev => prev.map(s => {
-          if (s.name.toLowerCase().includes("n8n")) {
-            // Determine appropriate status:
-            // - Not configured: N8N URL is not set
-            // - Connected: N8N is healthy
-            // - Disconnected: N8N is configured but not reachable
-            let status: "connected" | "disconnected" | "error" | "not_configured" = "disconnected"
-            if (data.healthy) {
-              status = "connected"
-            } else if (data.configured === false) {
-              status = "not_configured"
-            }
-            return {
-              ...s,
-              status,
-              statusMessage: data.message,
-              url: data.url || s.url,
-              latency: data.healthy ? s.latency : undefined,
-            }
-          }
-          return s
-        }))
-      }
-    } catch (error) {
-      console.error("Failed to refresh N8N status:", error)
-    }
-  }
+  // Local server states
+  const [localServers, setLocalServers] = useState<ServerStatus[]>([])
+  const [checkingServers, setCheckingServers] = useState(false)
 
-  // Refresh all service statuses
-  async function refreshAllStatuses() {
-    setRefreshingStatus(true)
-    await Promise.all([
-      refreshLMStudioStatus(),
-      refreshN8NStatus()
-    ])
-    setRefreshingStatus(false)
-  }
+  // Cloud provider states
+  const [cloudProviders, setCloudProviders] = useState<CloudProviderStatus[]>([])
 
-  // Handle tab query parameter and OAuth callbacks
-  useEffect(() => {
-    const tab = searchParams.get("tab")
-    if (tab && ["ai-services", "connections", "notifications", "automation", "security", "appearance", "data"].includes(tab)) {
-      setActiveTab(tab)
-    }
-
-    // Handle Anthropic OAuth callback
-    const oauthCode = searchParams.get("oauth_code")
-    const provider = searchParams.get("provider")
-    const oauthError = searchParams.get("oauth_error")
-
-    if (provider === "anthropic") {
-      if (oauthError) {
-        setAnthropicOAuthStatus("error")
-        setApiKeyError(oauthError === "access_denied" ? "Access denied" : oauthError)
-        setAddApiDialog(true)
-        // Clean up URL
-        window.history.replaceState({}, "", window.location.pathname + "?tab=ai-services")
-      } else if (oauthCode) {
-        setAddApiDialog(true)
-        handleAnthropicOAuthCallback(oauthCode)
-        // Clean up URL
-        window.history.replaceState({}, "", window.location.pathname + "?tab=ai-services")
-      }
-    }
-   
-  }, [searchParams])
-
-  // Fetch real status on component mount
-  useEffect(() => {
-    refreshAllStatuses()
-    // Refresh every 30 seconds
-    const interval = setInterval(refreshAllStatuses, 30000)
-    return () => clearInterval(interval)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Load cloud providers from global settings to populate OAuth info
-  useEffect(() => {
-    const globalSettings = getGlobalSettings()
-    if (globalSettings.cloudProviders?.length) {
-      setServices(prev => {
-        const updated = [...prev]
-        globalSettings.cloudProviders.forEach(cp => {
-          if (cp.provider === "anthropic") {
-            const existingIdx = updated.findIndex(s =>
-              s.name.toLowerCase().includes("claude") || s.name.toLowerCase().includes("anthropic")
-            )
-            const serviceData: ServiceStatus = {
-              name: cp.authMethod === "oauth" ? "Claude API (Max Plan)" : "Claude API",
-              url: "api.anthropic.com",
-              status: cp.enabled ? (cp.apiKey || cp.authMethod === "oauth" ? "connected" : "not_configured") : "disconnected",
-              apiKey: cp.apiKey,
-              authMethod: cp.authMethod,
-              oauthUser: cp.oauthUser
-            }
-            if (existingIdx >= 0) {
-              updated[existingIdx] = { ...updated[existingIdx], ...serviceData }
-            } else if (cp.enabled) {
-              updated.push(serviceData)
-            }
-          } else if (cp.provider === "openai") {
-            const existingIdx = updated.findIndex(s =>
-              s.name.toLowerCase().includes("openai") || s.name.toLowerCase().includes("gpt")
-            )
-            const serviceData: ServiceStatus = {
-              name: "OpenAI API",
-              url: "api.openai.com",
-              status: cp.enabled ? (cp.apiKey ? "connected" : "not_configured") : "disconnected",
-              apiKey: cp.apiKey
-            }
-            if (existingIdx >= 0) {
-              updated[existingIdx] = { ...updated[existingIdx], ...serviceData }
-            } else if (cp.enabled) {
-              updated.push(serviceData)
-            }
-          } else if (cp.provider === "google") {
-            const existingIdx = updated.findIndex(s =>
-              s.name.toLowerCase().includes("google") || s.name.toLowerCase().includes("gemini")
-            )
-            const serviceData: ServiceStatus = {
-              name: "Google AI",
-              url: "generativelanguage.googleapis.com",
-              status: cp.enabled ? (cp.apiKey ? "connected" : "not_configured") : "disconnected",
-              apiKey: cp.apiKey
-            }
-            if (existingIdx >= 0) {
-              updated[existingIdx] = { ...updated[existingIdx], ...serviceData }
-            } else if (cp.enabled) {
-              updated.push(serviceData)
-            }
-          }
-        })
-        return updated
-      })
-    }
-  }, [])
+  // UI state
+  const [openSections, setOpenSections] = useState<string[]>(["ai-providers"])
+  const [refreshing, setRefreshing] = useState(false)
 
   // Dialog states
   const [addServerDialog, setAddServerDialog] = useState(false)
-  const [addApiDialog, setAddApiDialog] = useState(false)
-  const [addGitDialog, setAddGitDialog] = useState(false)
+  const [addCloudDialog, setAddCloudDialog] = useState(false)
+  const [editServerDialog, setEditServerDialog] = useState<ServerStatus | null>(null)
+  const [deleteServerDialog, setDeleteServerDialog] = useState<ServerStatus | null>(null)
 
   // Form states for Add Local Server
   const [newServerName, setNewServerName] = useState("")
-  const [newServerUrl, setNewServerUrl] = useState("")
+  const [newServerUrl, setNewServerUrl] = useState("http://localhost:1234")
   const [newServerType, setNewServerType] = useState<"lmstudio" | "ollama" | "custom">("lmstudio")
-  const [testingConnection, setTestingConnection] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle")
-  const [serverModels, setServerModels] = useState<string[]>([])
-  const [selectedServerModel, setSelectedServerModel] = useState<string>("")
+  const [testingServer, setTestingServer] = useState(false)
+  const [serverTestResult, setServerTestResult] = useState<{ status: "idle" | "success" | "error"; models: string[] }>({ status: "idle", models: [] })
+  const [selectedNewModel, setSelectedNewModel] = useState("")
 
-  // Form states for Add API Service
-  const [newApiProvider, setNewApiProvider] = useState<"anthropic" | "openai" | "google">("anthropic")
+  // Form states for Add Cloud Provider
+  const [selectedCloudProvider, setSelectedCloudProvider] = useState<"anthropic" | "openai" | "google">("anthropic")
   const [newApiKey, setNewApiKey] = useState("")
   const [showApiKey, setShowApiKey] = useState(false)
   const [testingApiKey, setTestingApiKey] = useState(false)
-  const [apiKeyStatus, setApiKeyStatus] = useState<"idle" | "success" | "error">("idle")
-  const [apiKeyError, setApiKeyError] = useState("")
-  // Anthropic OAuth states
-  const [anthropicAuthMethod, setAnthropicAuthMethod] = useState<"oauth" | "apiKey">("oauth")
-  const [anthropicOAuthStatus, setAnthropicOAuthStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle")
-  const [anthropicOAuthUser, setAnthropicOAuthUser] = useState<{ email: string; name?: string; picture?: string } | null>(null)
-  const [anthropicOAuthTokens, setAnthropicOAuthTokens] = useState<{ accessToken: string; refreshToken?: string; expiresAt?: number; idToken?: string } | null>(null)
-
-  // Form states for Add Git Remote
-  const [newGitUrl, setNewGitUrl] = useState("")
-  const [newGitName, setNewGitName] = useState("")
-
-  // Edit/Delete connection states
-  const [editConnectionDialog, setEditConnectionDialog] = useState(false)
-  const [deleteConnectionDialog, setDeleteConnectionDialog] = useState(false)
-  const [selectedConnection, setSelectedConnection] = useState<ServiceStatus | null>(null)
-  const [editName, setEditName] = useState("")
-  const [editUrl, setEditUrl] = useState("")
-  const [editApiKey, setEditApiKey] = useState("")
-  const [testingEditConnection, setTestingEditConnection] = useState(false)
-  const [editConnectionStatus, setEditConnectionStatus] = useState<"idle" | "success" | "error">("idle")
-
-  async function handleTestConnection() {
-    if (!newServerUrl) return
-    setTestingConnection(true)
-    setConnectionStatus("idle")
-    setServerModels([])
-    setSelectedServerModel("")
-
-    try {
-      // Use server-side proxy to avoid CORS issues
-      const response = await fetch("/api/lmstudio-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: newServerUrl, name: newServerName || "Test Server" })
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.status === "connected") {
-          setConnectionStatus("success")
-          // Extract model IDs from the response
-          const models = data.models || []
-          setServerModels(models)
-          // Don't auto-select - let user choose
-        } else {
-          setConnectionStatus("error")
-        }
-      } else {
-        setConnectionStatus("error")
-      }
-    } catch {
-      setConnectionStatus("error")
-    } finally {
-      setTestingConnection(false)
-    }
-  }
-
-  async function handleAddServer() {
-    if (!newServerName || !newServerUrl) return
-    if (serverModels.length > 0 && !selectedServerModel) {
-      // Don't allow adding without selecting a model if models are available
-      return
-    }
-
-    addLocalServer({
-      name: newServerName,
-      type: newServerType,
-      baseUrl: newServerUrl,
-      enabled: true,
-      defaultModel: selectedServerModel || undefined
-    })
-
-    // Add to services list
-    setServices(prev => [...prev, {
-      name: newServerName,
-      url: newServerUrl,
-      status: connectionStatus === "success" ? "connected" : "disconnected"
-    }])
-
-    // Reset form
-    setNewServerName("")
-    setNewServerUrl("")
-    setConnectionStatus("idle")
-    setServerModels([])
-    setSelectedServerModel("")
-    setAddServerDialog(false)
-  }
-
-  async function handleTestApiKey() {
-    if (!newApiKey) return
-    setTestingApiKey(true)
-    setApiKeyStatus("idle")
-    setApiKeyError("")
-
-    try {
-      const response = await fetch("/api/providers/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: newApiProvider, apiKey: newApiKey })
-      })
-      const data = await response.json()
-
-      if (data.valid) {
-        setApiKeyStatus("success")
-      } else {
-        setApiKeyStatus("error")
-        setApiKeyError(data.error || "Invalid API key")
-      }
-    } catch {
-      setApiKeyStatus("error")
-      setApiKeyError("Connection failed")
-    } finally {
-      setTestingApiKey(false)
-    }
-  }
-
-  async function handleAddApiService() {
-    if (!newApiKey || apiKeyStatus !== "success") return
-
-    // Save to global settings
-    const globalSettings = getGlobalSettings()
-    const existingIndex = globalSettings.cloudProviders.findIndex(p => p.provider === newApiProvider)
-
-    if (existingIndex >= 0) {
-      globalSettings.cloudProviders[existingIndex].apiKey = newApiKey
-      globalSettings.cloudProviders[existingIndex].enabled = true
-    } else {
-      globalSettings.cloudProviders.push({
-        provider: newApiProvider,
-        enabled: true,
-        apiKey: newApiKey,
-        enabledModels: []
-      })
-    }
-    saveGlobalSettings(globalSettings)
-
-    // Add to services list
-    const providerNames = {
-      anthropic: "Claude API",
-      openai: "OpenAI API",
-      google: "Google AI"
-    }
-    setServices(prev => {
-      const filtered = prev.filter(s => !s.name.includes(providerNames[newApiProvider]))
-      return [...filtered, {
-        name: providerNames[newApiProvider],
-        url: `api.${newApiProvider}.com`,
-        status: "connected"
-      }]
-    })
-
-    // Reset form
-    setNewApiKey("")
-    setApiKeyStatus("idle")
-    setShowApiKey(false)
-    setAddApiDialog(false)
-  }
-
-  // Start Anthropic OAuth flow
-  async function startAnthropicOAuth() {
-    setAnthropicOAuthStatus("connecting")
-    setApiKeyError("")
-
-    try {
-      const response = await fetch("/api/auth/anthropic?action=start")
-      const data = await response.json()
-
-      if (data.success && data.authUrl) {
-        // Store state for verification
-        if (typeof window !== "undefined") {
-          sessionStorage.setItem("anthropic_oauth_state", data.state)
-        }
-        // Redirect to Google OAuth
-        window.location.href = data.authUrl
-      } else {
-        setAnthropicOAuthStatus("error")
-        setApiKeyError(data.error || "Failed to start OAuth")
-      }
-    } catch {
-      setAnthropicOAuthStatus("error")
-      setApiKeyError("Failed to connect")
-    }
-  }
-
-  // Handle Anthropic OAuth callback
-  async function handleAnthropicOAuthCallback(code: string) {
-    setAnthropicOAuthStatus("connecting")
-    setNewApiProvider("anthropic")
-    setAnthropicAuthMethod("oauth")
-
-    try {
-      const response = await fetch("/api/auth/anthropic", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code })
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        setAnthropicOAuthStatus("connected")
-        setAnthropicOAuthUser(data.user)
-        setAnthropicOAuthTokens({
-          accessToken: data.accessToken,
-          refreshToken: data.refreshToken,
-          expiresAt: data.expiresIn ? Date.now() + data.expiresIn * 1000 : undefined,
-          idToken: data.idToken
-        })
-      } else {
-        setAnthropicOAuthStatus("error")
-        setApiKeyError(data.error || "OAuth failed")
-      }
-    } catch {
-      setAnthropicOAuthStatus("error")
-      setApiKeyError("Failed to complete OAuth")
-    }
-  }
-
-  // Save Anthropic OAuth connection
-  function handleAddAnthropicOAuth() {
-    if (anthropicOAuthStatus !== "connected" || !anthropicOAuthTokens) return
-
-    const globalSettings = getGlobalSettings()
-    const existingIndex = globalSettings.cloudProviders.findIndex(p => p.provider === "anthropic")
-
-    const anthropicConfig = {
-      provider: "anthropic" as const,
-      enabled: true,
-      apiKey: undefined,
-      enabledModels: [],
-      authMethod: "oauth" as const,
-      oauthTokens: anthropicOAuthTokens,
-      oauthUser: anthropicOAuthUser || undefined
-    }
-
-    if (existingIndex >= 0) {
-      globalSettings.cloudProviders[existingIndex] = anthropicConfig
-    } else {
-      globalSettings.cloudProviders.push(anthropicConfig)
-    }
-    saveGlobalSettings(globalSettings)
-
-    // Add to services list
-    setServices(prev => {
-      const filtered = prev.filter(s => !s.name.includes("Claude"))
-      return [...filtered, {
-        name: "Claude API (Max Plan)",
-        url: "api.anthropic.com",
-        status: "connected"
-      }]
-    })
-
-    // Reset form
-    setAnthropicOAuthStatus("idle")
-    setAnthropicOAuthUser(null)
-    setAnthropicOAuthTokens(null)
-    setAnthropicAuthMethod("oauth")
-    setAddApiDialog(false)
-  }
-
-  function handleAddGitRemote() {
-    if (!newGitUrl || !newGitName) return
-
-    setServices(prev => [...prev, {
-      name: newGitName,
-      url: newGitUrl,
-      status: "connected"
-    }])
-
-    setNewGitUrl("")
-    setNewGitName("")
-    setAddGitDialog(false)
-  }
-
-  function handleResetSetup() {
-    if (confirm("This will reset all settings and show the setup wizard again. Continue?")) {
-      resetSetup()
-    }
-  }
-
-  function handleOpenEditConnection(service: ServiceStatus) {
-    setSelectedConnection(service)
-    setEditName(service.name)
-    setEditUrl(service.url)
-    setEditApiKey(service.apiKey || "")
-    setEditConnectionStatus("idle")
-    setEditConnectionDialog(true)
-  }
-
-  function handleOpenDeleteConnection(service: ServiceStatus) {
-    setSelectedConnection(service)
-    setDeleteConnectionDialog(true)
-  }
-
-  async function handleTestEditConnection() {
-    if (!editUrl) return
-    setTestingEditConnection(true)
-    setEditConnectionStatus("idle")
-
-    try {
-      // Use server-side proxy to avoid CORS issues
-      const response = await fetch("/api/lmstudio-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: editUrl, name: editName || "Test Server" })
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.status === "connected") {
-          setEditConnectionStatus("success")
-        } else {
-          setEditConnectionStatus("error")
-        }
-      } else {
-        setEditConnectionStatus("error")
-      }
-    } catch {
-      setEditConnectionStatus("error")
-    } finally {
-      setTestingEditConnection(false)
-    }
-  }
-
-  function handleSaveEditConnection() {
-    if (!selectedConnection || !editName || !editUrl) return
-
-    // Update local server in global settings
-    if (selectedConnection.id) {
-      updateLocalServer(selectedConnection.id, {
-        name: editName,
-        baseUrl: editUrl,
-        apiKey: editApiKey || undefined
-      })
-    }
-
-    // Update in services list
-    setServices(prev => prev.map(s =>
-      s.name === selectedConnection.name && s.url === selectedConnection.url
-        ? { ...s, id: selectedConnection.id, name: editName, url: editUrl, apiKey: editApiKey || undefined }
-        : s
-    ))
-
-    // Reset and close
-    setSelectedConnection(null)
-    setEditName("")
-    setEditUrl("")
-    setEditApiKey("")
-    setEditConnectionStatus("idle")
-    setEditConnectionDialog(false)
-  }
-
-  function handleDeleteConnection() {
-    if (!selectedConnection) return
-
-    // Remove from global settings if it's a local server
-    if (selectedConnection.id) {
-      removeLocalServer(selectedConnection.id)
-    }
-
-    // Remove from services list
-    setServices(prev => prev.filter(s =>
-      !(s.name === selectedConnection.name && s.url === selectedConnection.url)
-    ))
-
-    // Reset and close
-    setSelectedConnection(null)
-    setDeleteConnectionDialog(false)
-  }
-
-  // Email master toggle and sub-options
-  const [emailUpdatesEnabled, setEmailUpdatesEnabled] = useState(true)
-  const [emailSubOptions, setEmailSubOptions] = useState([
-    { id: "email1", label: "Daily Email Summary", description: "Receive a daily digest of all activity", enabled: false },
-    { id: "email2", label: "Project Generation Notifications", description: "Get notified when projects are generated", enabled: true },
-    { id: "email3", label: "Attention Needed Alerts", description: "Notify when projects need attention while you are away", enabled: true }
-  ])
-
-  const [notifications, setNotifications] = useState<SettingToggle[]>([
-    { id: "n1", label: "Approval Requests", description: "Get notified when human approval is needed", enabled: true },
-    { id: "n2", label: "Error Alerts", description: "Immediate alerts for build failures and errors", enabled: true },
-    { id: "n4", label: "Cost Alerts", description: "Alert when approaching budget limits", enabled: true },
-    { id: "n5", label: "Completion Notifications", description: "Notify when packets complete", enabled: false }
-  ])
-
-  const toggleEmailSubOption = (id: string) => {
-    setEmailSubOptions(prev => prev.map(opt =>
-      opt.id === id ? { ...opt, enabled: !opt.enabled } : opt
-    ))
-  }
-
-  const [automationSettings, setAutomationSettings] = useState<SettingToggle[]>([
-    { id: "a1", label: "Auto-start Queued Packets", description: "Automatically start packets when agents are available", enabled: true },
-    { id: "a2", label: "Auto-retry Failed Builds", description: "Retry failed builds up to 3 times", enabled: true },
-    { id: "a3", label: "Auto-merge on Approval", description: "Merge PRs automatically after approval", enabled: false },
-    { id: "a4", label: "Auto-deploy to Staging", description: "Deploy to staging after tests pass", enabled: true },
-    { id: "a5", label: "Ralph Wiggum Loop", description: "Keep iterating until all tests pass", enabled: true }
-  ])
-
-  // Security settings state
-  const [securitySettings, setSecuritySettings] = useState<SecuritySetting[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("claudia-security-settings")
-      if (saved) {
-        try {
-          return JSON.parse(saved)
-        } catch {
-          // Fall back to defaults
-        }
-      }
-    }
-    return [
-      { id: "s1", label: "Require Approval for Deployments", description: "All production deployments require human approval", type: "toggle" as const, enabled: true },
-      { id: "s2", label: "Secret Scanning", description: "Prevent commits containing secrets", type: "toggle" as const, enabled: true },
-      { id: "s3", label: "Dependency Audit", description: "Block packages with known vulnerabilities", type: "select" as const, value: "warn", options: [{ value: "block", label: "Block", variant: "success" as const }, { value: "warn", label: "Warn Only", variant: "warning" as const }, { value: "off", label: "Disabled", variant: "destructive" as const }] },
-      { id: "s4", label: "API Rate Limiting", description: "Limit API calls to prevent abuse", type: "toggle" as const, enabled: true },
-      { id: "s5", label: "Two-Factor Authentication", description: "Require 2FA for sensitive operations", type: "toggle" as const, enabled: false },
-      { id: "s6", label: "Audit Logging", description: "Log all security-related events", type: "toggle" as const, enabled: true }
-    ]
-  })
-
-  const [securitySaveStatus, setSecuritySaveStatus] = useState<"idle" | "saving" | "saved">("idle")
-
-  const saveSecuritySettings = (newSettings: SecuritySetting[]) => {
-    setSecuritySettings(newSettings)
-    setSecuritySaveStatus("saving")
-    if (typeof window !== "undefined") {
-      localStorage.setItem("claudia-security-settings", JSON.stringify(newSettings))
-    }
-    setTimeout(() => {
-      setSecuritySaveStatus("saved")
-      setTimeout(() => setSecuritySaveStatus("idle"), 2000)
-    }, 300)
-  }
-
-  const toggleSecuritySetting = (id: string) => {
-    const newSettings = securitySettings.map(s => s.id === id && s.type === "toggle" ? { ...s, enabled: !s.enabled } : s)
-    saveSecuritySettings(newSettings)
-  }
-
-  const updateSecuritySelect = (id: string, value: string) => {
-    const newSettings = securitySettings.map(s => s.id === id && s.type === "select" ? { ...s, value } : s)
-    saveSecuritySettings(newSettings)
-  }
+  const [apiKeyTestResult, setApiKeyTestResult] = useState<{ status: "idle" | "success" | "error"; error?: string }>({ status: "idle" })
 
   // Data management state
   const [dataSummary, setDataSummary] = useState(() => getDataSummary())
   const [showDangerZone, setShowDangerZone] = useState(false)
   const [confirmClear, setConfirmClear] = useState("")
   const [clearingData, setClearingData] = useState(false)
-  const [importingData, setImportingData] = useState(false)
-  const [clearProjectsDialog, setClearProjectsDialog] = useState(false)
-  const [clearingProjects, setClearingProjects] = useState(false)
 
-  const refreshDataSummary = () => setDataSummary(getDataSummary())
+  // Appearance state
+  const [theme, setTheme] = useState<"dark" | "light" | "system">("dark")
+  const [accentColor, setAccentColor] = useState("blue")
 
+  // Initialize from URL params
+  useEffect(() => {
+    const section = searchParams.get("section")
+    if (section) {
+      setOpenSections([section])
+    }
+  }, [searchParams])
+
+  // Load settings and check server statuses on mount
+  useEffect(() => {
+    loadSettings()
+  }, [])
+
+  // Load settings from localStorage
+  const loadSettings = useCallback(() => {
+    const gs = getGlobalSettings()
+    setGlobalSettings(gs)
+
+    // Initialize local servers from settings
+    const servers: ServerStatus[] = gs.localServers.map(s => ({
+      id: s.id,
+      name: s.name,
+      url: s.baseUrl,
+      type: s.type,
+      status: "disconnected" as const,
+      models: [],
+      defaultModel: s.defaultModel,
+    }))
+    setLocalServers(servers)
+
+    // Initialize cloud providers
+    const providers: CloudProviderStatus[] = gs.cloudProviders.map(p => ({
+      provider: p.provider,
+      enabled: p.enabled,
+      hasApiKey: Boolean(p.apiKey) || p.authMethod === "oauth",
+      authMethod: p.authMethod,
+      oauthUser: p.oauthUser,
+    }))
+    setCloudProviders(providers)
+
+    // Check server statuses
+    if (servers.length > 0) {
+      checkServerStatuses(servers)
+    }
+  }, [])
+
+  // Check status of all local servers
+  const checkServerStatuses = useCallback(async (servers: ServerStatus[]) => {
+    setCheckingServers(true)
+
+    const updatedServers = await Promise.all(
+      servers.map(async (server) => {
+        try {
+          const response = await fetch("/api/lmstudio-status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: server.url, name: server.name }),
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            return {
+              ...server,
+              status: data.status === "connected" ? "connected" as const : "disconnected" as const,
+              models: data.models || [],
+            }
+          }
+        } catch {
+          // Server unreachable
+        }
+        return { ...server, status: "disconnected" as const, models: [] }
+      })
+    )
+
+    setLocalServers(updatedServers)
+    setCheckingServers(false)
+  }, [])
+
+  // Manual refresh
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true)
+    loadSettings()
+    await checkServerStatuses(localServers)
+    setRefreshing(false)
+  }, [loadSettings, checkServerStatuses, localServers])
+
+  // Test new server connection
+  const handleTestNewServer = async () => {
+    if (!newServerUrl) return
+    setTestingServer(true)
+    setServerTestResult({ status: "idle", models: [] })
+
+    try {
+      const response = await fetch("/api/lmstudio-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: newServerUrl, name: newServerName || "Test" }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.status === "connected") {
+          setServerTestResult({ status: "success", models: data.models || [] })
+        } else {
+          setServerTestResult({ status: "error", models: [] })
+        }
+      } else {
+        setServerTestResult({ status: "error", models: [] })
+      }
+    } catch {
+      setServerTestResult({ status: "error", models: [] })
+    } finally {
+      setTestingServer(false)
+    }
+  }
+
+  // Add new local server
+  const handleAddServer = () => {
+    if (!newServerName || !newServerUrl) return
+
+    const newServer = addLocalServer({
+      name: newServerName,
+      type: newServerType,
+      baseUrl: newServerUrl,
+      enabled: true,
+      defaultModel: selectedNewModel || undefined,
+    })
+
+    setLocalServers(prev => [...prev, {
+      id: newServer.id,
+      name: newServer.name,
+      url: newServer.baseUrl,
+      type: newServer.type,
+      status: serverTestResult.status === "success" ? "connected" : "disconnected",
+      models: serverTestResult.models,
+      defaultModel: selectedNewModel || undefined,
+    }])
+
+    // Reset form
+    setNewServerName("")
+    setNewServerUrl("http://localhost:1234")
+    setServerTestResult({ status: "idle", models: [] })
+    setSelectedNewModel("")
+    setAddServerDialog(false)
+  }
+
+  // Delete local server
+  const handleDeleteServer = (server: ServerStatus) => {
+    removeLocalServer(server.id)
+    setLocalServers(prev => prev.filter(s => s.id !== server.id))
+    setDeleteServerDialog(null)
+  }
+
+  // Update server default model
+  const handleServerModelChange = (serverId: string, modelId: string) => {
+    updateLocalServer(serverId, { defaultModel: modelId })
+    setLocalServers(prev => prev.map(s =>
+      s.id === serverId ? { ...s, defaultModel: modelId } : s
+    ))
+  }
+
+  // Test API key
+  const handleTestApiKey = async () => {
+    if (!newApiKey) return
+    setTestingApiKey(true)
+    setApiKeyTestResult({ status: "idle" })
+
+    try {
+      const response = await fetch("/api/providers/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: selectedCloudProvider, apiKey: newApiKey }),
+      })
+      const data = await response.json()
+
+      if (data.valid) {
+        setApiKeyTestResult({ status: "success" })
+      } else {
+        setApiKeyTestResult({ status: "error", error: data.error || "Invalid API key" })
+      }
+    } catch {
+      setApiKeyTestResult({ status: "error", error: "Connection failed" })
+    } finally {
+      setTestingApiKey(false)
+    }
+  }
+
+  // Add cloud provider
+  const handleAddCloudProvider = () => {
+    if (!newApiKey || apiKeyTestResult.status !== "success") return
+
+    const gs = getGlobalSettings()
+    const existingIndex = gs.cloudProviders.findIndex(p => p.provider === selectedCloudProvider)
+
+    if (existingIndex >= 0) {
+      gs.cloudProviders[existingIndex].apiKey = newApiKey
+      gs.cloudProviders[existingIndex].enabled = true
+      gs.cloudProviders[existingIndex].authMethod = "apiKey"
+    } else {
+      gs.cloudProviders.push({
+        provider: selectedCloudProvider,
+        enabled: true,
+        apiKey: newApiKey,
+        enabledModels: [],
+        authMethod: "apiKey",
+      })
+    }
+    saveGlobalSettings(gs)
+
+    setCloudProviders(prev => {
+      const filtered = prev.filter(p => p.provider !== selectedCloudProvider)
+      return [...filtered, {
+        provider: selectedCloudProvider,
+        enabled: true,
+        hasApiKey: true,
+        authMethod: "apiKey",
+      }]
+    })
+
+    // Reset form
+    setNewApiKey("")
+    setApiKeyTestResult({ status: "idle" })
+    setAddCloudDialog(false)
+  }
+
+  // Remove cloud provider
+  const handleRemoveCloudProvider = (provider: "anthropic" | "openai" | "google") => {
+    const gs = getGlobalSettings()
+    const index = gs.cloudProviders.findIndex(p => p.provider === provider)
+    if (index >= 0) {
+      gs.cloudProviders[index].enabled = false
+      gs.cloudProviders[index].apiKey = undefined
+      gs.cloudProviders[index].authMethod = undefined
+      gs.cloudProviders[index].oauthTokens = undefined
+      gs.cloudProviders[index].oauthUser = undefined
+      saveGlobalSettings(gs)
+    }
+
+    setCloudProviders(prev => prev.filter(p => p.provider !== provider))
+  }
+
+  // Set default model
+  const handleSetDefaultModel = (provider: string, serverId: string | undefined, modelId: string, displayName: string) => {
+    const gs = getGlobalSettings()
+    gs.defaultModel = {
+      provider,
+      serverId,
+      modelId,
+      displayName,
+    }
+    saveGlobalSettings(gs)
+    setGlobalSettings(gs)
+  }
+
+  // Get all available models for default selection
+  const availableModels = useMemo(() => {
+    const models: { provider: string; serverId?: string; modelId: string; displayName: string; isLocal: boolean }[] = []
+
+    // Add local server models
+    localServers.forEach(server => {
+      if (server.status === "connected") {
+        server.models.forEach(model => {
+          models.push({
+            provider: server.type,
+            serverId: server.id,
+            modelId: model,
+            displayName: `${model} (${server.name})`,
+            isLocal: true,
+          })
+        })
+      }
+    })
+
+    // Add cloud provider models
+    cloudProviders.forEach(cp => {
+      if (cp.enabled && cp.hasApiKey) {
+        const providerModels = FALLBACK_MODELS[cp.provider] || []
+        providerModels.forEach(model => {
+          models.push({
+            provider: cp.provider,
+            serverId: undefined,
+            modelId: model.id,
+            displayName: `${model.name} (${PROVIDER_INFO[cp.provider]?.name || cp.provider})`,
+            isLocal: false,
+          })
+        })
+      }
+    })
+
+    return models
+  }, [localServers, cloudProviders])
+
+  // Export data
   const handleExportData = () => {
     const data = exportAllData()
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
@@ -777,25 +475,26 @@ function SettingsPageContent() {
     URL.revokeObjectURL(url)
   }
 
+  // Import data
   const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
-    setImportingData(true)
     try {
       const text = await file.text()
       const data = JSON.parse(text)
       const imported = importData(data)
       alert(`Successfully imported ${imported.length} items`)
-      refreshDataSummary()
+      setDataSummary(getDataSummary())
+      loadSettings()
     } catch (error) {
       alert("Failed to import data: " + (error instanceof Error ? error.message : "Invalid file"))
     } finally {
-      setImportingData(false)
       event.target.value = ""
     }
   }
 
+  // Clear all data
   const handleClearAllData = () => {
     if (confirmClear !== "DELETE ALL") return
     setClearingData(true)
@@ -803,685 +502,584 @@ function SettingsPageContent() {
     setClearingData(false)
     setConfirmClear("")
     setShowDangerZone(false)
-    alert(`Cleared ${result.clearedKeys.length} items. GitLab token preserved.`)
-    refreshDataSummary()
-  }
-
-  const handleClearProjectData = () => {
-    setClearingProjects(true)
-    const cleared = clearProjectData()
-    setClearingProjects(false)
-    setClearProjectsDialog(false)
-    alert(`Cleared ${cleared.length} project-related items`)
-    refreshDataSummary()
-  }
-
-  const tabs = [
-    { id: "ai-services", label: "AI Services", icon: Brain },
-    { id: "connections", label: "Connections", icon: Server },
-    { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "automation", label: "Automation", icon: Zap },
-    { id: "security", label: "Security", icon: Shield },
-    { id: "appearance", label: "Appearance", icon: Palette },
-    { id: "data", label: "Data", icon: HardDrive }
-  ]
-
-  const toggleSetting = (list: SettingToggle[], setList: React.Dispatch<React.SetStateAction<SettingToggle[]>>, id: string) => {
-    setList(list.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s))
+    alert(`Cleared ${result.clearedKeys.length} items.`)
+    setDataSummary(getDataSummary())
+    loadSettings()
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6 h-full overflow-auto">
+    <div className="flex flex-col gap-6 p-6 h-full overflow-auto max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           <p className="text-sm text-muted-foreground">
-            Configure your development pipeline
+            Configure AI providers, preferences, and integrations
           </p>
         </div>
-        <Button className="gap-2">
-          <Save className="h-4 w-4" />
-          Save Changes
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="gap-2"
+        >
+          <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+          Refresh
         </Button>
       </div>
 
-      {/* Main Layout */}
-      <div className="grid gap-6 lg:grid-cols-4">
-        {/* Sidebar */}
-        <Card className="lg:col-span-1 h-fit">
-          <CardContent className="p-2">
-            <nav className="space-y-1">
-              {tabs.map(tab => {
-                const Icon = tab.icon
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-left",
-                      activeTab === tab.id
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                    )}
+      {/* Settings Accordion */}
+      <Accordion
+        type="multiple"
+        value={openSections}
+        onValueChange={setOpenSections}
+        className="space-y-4"
+      >
+        {/* AI Providers Section */}
+        <AccordionItem value="ai-providers" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-purple-500/10">
+                <Cpu className="h-5 w-5 text-purple-500" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-semibold">AI Providers</h3>
+                <p className="text-sm text-muted-foreground font-normal">
+                  Local LLM servers and cloud APIs
+                </p>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4 pt-2">
+            <div className="space-y-4">
+              {/* Local Servers */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Local Servers</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAddServerDialog(true)}
+                    className="gap-2"
                   >
-                    <Icon className="h-4 w-4" />
-                    {tab.label}
-                  </button>
-                )
-              })}
-            </nav>
-          </CardContent>
-        </Card>
+                    <Plus className="h-4 w-4" />
+                    Add Server
+                  </Button>
+                </div>
 
-        {/* Content */}
-        <div className="lg:col-span-3 space-y-6">
-          {/* AI Services Tab */}
-          {activeTab === "ai-services" && (
-            <>
-              {/* LLM Status */}
-              <LLMStatus />
-
-              {/* Image Generation */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ImageIcon className="h-5 w-5" />
-                    Image Generation
-                  </CardTitle>
-                  <CardDescription>
-                    Configure AI image generation for logos, icons, and graphics
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-4 rounded-lg border">
-                    <div className="flex items-center gap-3">
-                      <DollarSign className="h-5 w-5 text-yellow-500" />
-                      <div>
-                        <p className="font-medium">Enable Paid Image Generation</p>
-                        <p className="text-sm text-muted-foreground">
-                          Use NanoBanana AI for logos and graphics
-                        </p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={settings.allowPaidImageGen}
-                      onCheckedChange={(checked) => update({ allowPaidImageGen: checked })}
-                    />
+                {localServers.length === 0 ? (
+                  <div className="p-4 rounded-lg border border-dashed text-center text-sm text-muted-foreground">
+                    No local servers configured. Add an LM Studio or Ollama server.
                   </div>
-
-                  {settings.allowPaidImageGen && (
-                    <div className="space-y-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="nanoBananaKey">NanoBanana API Key</Label>
-                        <input
-                          id="nanoBananaKey"
-                          type="password"
-                          placeholder="nb_api_..."
-                          value={settings.nanoBananaApiKey || ""}
-                          onChange={(e) => update({ nanoBananaApiKey: e.target.value })}
-                          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Image generation will use AI to create logos, icons, and marketing graphics for your projects.
-                      </p>
-                    </div>
-                  )}
-
-                  {!settings.allowPaidImageGen && (
-                    <p className="text-sm text-muted-foreground p-3 rounded-lg bg-muted/50">
-                      Image generation requires a paid API key. Projects will use placeholder graphics.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Cost Warning */}
-              <Card className="border-yellow-500/50 bg-yellow-500/5">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
-                    <div className="space-y-1">
-                      <p className="font-medium text-yellow-600">About Paid Services</p>
-                      <p className="text-sm text-muted-foreground">
-                        This application prioritizes <strong>local LLMs</strong> (LM Studio, Ollama) for all AI operations.
-                        Paid services (Claude API, NanoBanana) are only used when explicitly enabled and local options are unavailable.
-                        All core functionality works without any paid subscriptions.
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </>
-          )}
-
-          {/* Connections Tab */}
-          {activeTab === "connections" && (
-            <ConnectionsTab
-              services={services}
-              setAddServerDialog={setAddServerDialog}
-              setAddApiDialog={setAddApiDialog}
-              setAddGitDialog={setAddGitDialog}
-              handleResetSetup={handleResetSetup}
-              handleOpenEditConnection={handleOpenEditConnection}
-              handleOpenDeleteConnection={handleOpenDeleteConnection}
-            />
-          )}
-
-          {/* Notifications Tab */}
-          {activeTab === "notifications" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Notification Preferences</CardTitle>
-                <CardDescription>Control how and when you receive notifications</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Email Updates - Master Toggle */}
-                <div className="space-y-3">
-                  <div
-                    className="flex items-center justify-between p-4 rounded-lg border"
-                  >
-                    <div>
-                      <p className="font-medium">Email Updates</p>
-                      <p className="text-sm text-muted-foreground">
-                        Master toggle for all email notifications
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setEmailUpdatesEnabled(!emailUpdatesEnabled)}
-                      className={cn(
-                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                        emailUpdatesEnabled ? "bg-primary" : "bg-muted"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                          emailUpdatesEnabled ? "translate-x-6" : "translate-x-1"
-                        )}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Email Sub-options - only shown when Email Updates is ON */}
-                  {emailUpdatesEnabled && (
-                    <div className="ml-6 space-y-2 border-l-2 border-muted pl-4">
-                      {emailSubOptions.map(option => (
-                        <div
-                          key={option.id}
-                          className="flex items-center justify-between p-3 rounded-lg border bg-muted/30"
-                        >
-                          <div>
-                            <p className="font-medium text-sm">{option.label}</p>
-                            <p className="text-xs text-muted-foreground">{option.description}</p>
+                ) : (
+                  <div className="space-y-2">
+                    {localServers.map(server => (
+                      <div
+                        key={server.id}
+                        className="p-4 rounded-lg border bg-card"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "h-2.5 w-2.5 rounded-full",
+                              server.status === "connected" ? "bg-green-500" :
+                              server.status === "checking" ? "bg-yellow-500 animate-pulse" :
+                              "bg-gray-400"
+                            )} />
+                            <div>
+                              <p className="font-medium">{server.name}</p>
+                              <p className="text-xs text-muted-foreground font-mono">{server.url}</p>
+                            </div>
                           </div>
-                          <button
-                            onClick={() => toggleEmailSubOption(option.id)}
-                            className={cn(
-                              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                              option.enabled ? "bg-primary" : "bg-muted"
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
-                                option.enabled ? "translate-x-[18px]" : "translate-x-1"
-                              )}
-                            />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={server.status === "connected" ? "success" : "secondary"}>
+                              {server.status === "connected" ? "Connected" :
+                               server.status === "checking" ? "Checking..." : "Offline"}
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteServerDialog(server)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
+
+                        {server.status === "connected" && server.models.length > 0 && (
+                          <div className="mt-3 pt-3 border-t">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-xs text-muted-foreground">Default Model</Label>
+                              <Select
+                                value={server.defaultModel || ""}
+                                onValueChange={(value) => handleServerModelChange(server.id, value)}
+                              >
+                                <SelectTrigger className="w-[200px] h-8 text-xs">
+                                  <SelectValue placeholder="Select model..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {server.models.map(model => (
+                                    <SelectItem key={model} value={model}>
+                                      {model}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Cloud Providers */}
+              <div className="space-y-3 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Cloud Providers</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAddCloudDialog(true)}
+                    className="gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Provider
+                  </Button>
+                </div>
+
+                {cloudProviders.filter(p => p.enabled).length === 0 ? (
+                  <div className="p-4 rounded-lg border border-dashed text-center text-sm text-muted-foreground">
+                    No cloud providers configured. Add Anthropic, OpenAI, or Google AI.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {cloudProviders.filter(p => p.enabled).map(provider => {
+                      const info = PROVIDER_INFO[provider.provider]
+                      return (
+                        <div
+                          key={provider.provider}
+                          className="p-4 rounded-lg border bg-card"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="h-2.5 w-2.5 rounded-full bg-green-500" />
+                              <div>
+                                <p className={cn("font-medium", info?.color)}>{info?.name || provider.provider}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {provider.authMethod === "oauth" ? (
+                                    <span className="flex items-center gap-1">
+                                      <CheckCircle className="h-3 w-3 text-green-500" />
+                                      {provider.oauthUser?.email || "OAuth connected"}
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center gap-1">
+                                      <Key className="h-3 w-3" />
+                                      API key configured
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="success">Connected</Badge>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemoveCloudProvider(provider.provider)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Paid Services Toggle */}
+              <div className="p-4 rounded-lg border bg-muted/30 mt-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Zap className="h-5 w-5 text-yellow-500" />
+                    <div>
+                      <Label className="font-medium">Enable Paid Services</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Allow fallback to cloud APIs when local servers unavailable
+                      </p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={settings.allowPaidLLM}
+                    onCheckedChange={(checked) => update({ allowPaidLLM: checked })}
+                  />
+                </div>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Default Model Section */}
+        <AccordionItem value="default-model" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-yellow-500/10">
+                <Star className="h-5 w-5 text-yellow-500" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-semibold">Default Model</h3>
+                <p className="text-sm text-muted-foreground font-normal">
+                  {globalSettings.defaultModel?.displayName || "Not configured"}
+                </p>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4 pt-2">
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Select the default AI model for new projects and operations.
+                Local models are prioritized over paid cloud services.
+              </p>
+
+              {availableModels.length === 0 ? (
+                <div className="p-4 rounded-lg border border-dashed text-center text-sm text-muted-foreground">
+                  No models available. Configure AI providers first.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {/* Local Models */}
+                  {availableModels.filter(m => m.isLocal).length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground uppercase">Local Models (Free)</Label>
+                      {availableModels.filter(m => m.isLocal).map(model => (
+                        <button
+                          key={`${model.serverId}-${model.modelId}`}
+                          onClick={() => handleSetDefaultModel(model.provider, model.serverId, model.modelId, model.displayName)}
+                          className={cn(
+                            "w-full p-3 rounded-lg border text-left transition-colors",
+                            globalSettings.defaultModel?.modelId === model.modelId &&
+                            globalSettings.defaultModel?.serverId === model.serverId
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-accent"
+                          )}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">{model.displayName}</span>
+                            {globalSettings.defaultModel?.modelId === model.modelId &&
+                             globalSettings.defaultModel?.serverId === model.serverId && (
+                              <Badge variant="secondary" className="gap-1">
+                                <Star className="h-3 w-3" />
+                                Default
+                              </Badge>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Cloud Models */}
+                  {availableModels.filter(m => !m.isLocal).length > 0 && (
+                    <div className="space-y-2 pt-4 border-t">
+                      <Label className="text-xs text-muted-foreground uppercase">Cloud Models (Paid)</Label>
+                      {availableModels.filter(m => !m.isLocal).map(model => (
+                        <button
+                          key={`${model.provider}-${model.modelId}`}
+                          onClick={() => handleSetDefaultModel(model.provider, model.serverId, model.modelId, model.displayName)}
+                          className={cn(
+                            "w-full p-3 rounded-lg border text-left transition-colors",
+                            globalSettings.defaultModel?.modelId === model.modelId &&
+                            globalSettings.defaultModel?.provider === model.provider
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-accent"
+                          )}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">{model.displayName}</span>
+                            {globalSettings.defaultModel?.modelId === model.modelId &&
+                             globalSettings.defaultModel?.provider === model.provider && (
+                              <Badge variant="secondary" className="gap-1">
+                                <Star className="h-3 w-3" />
+                                Default
+                              </Badge>
+                            )}
+                          </div>
+                        </button>
                       ))}
                     </div>
                   )}
                 </div>
+              )}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
 
-                {/* Other notification settings */}
-                {notifications.map(setting => (
-                  <div
-                    key={setting.id}
-                    className="flex items-center justify-between p-4 rounded-lg border"
-                  >
-                    <div>
-                      <p className="font-medium">{setting.label}</p>
-                      <p className="text-sm text-muted-foreground">{setting.description}</p>
-                    </div>
+        {/* User Interface Section */}
+        <AccordionItem value="user-interface" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-pink-500/10">
+                <Palette className="h-5 w-5 text-pink-500" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-semibold">User Interface</h3>
+                <p className="text-sm text-muted-foreground font-normal">
+                  Theme and display preferences
+                </p>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4 pt-2">
+            <div className="space-y-6">
+              {/* Theme */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Theme</Label>
+                <div className="grid grid-cols-3 gap-3">
+                  {(["dark", "light", "system"] as const).map(t => (
                     <button
-                      onClick={() => toggleSetting(notifications, setNotifications, setting.id)}
+                      key={t}
+                      onClick={() => {
+                        setTheme(t)
+                        update({ theme: t })
+                      }}
                       className={cn(
-                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                        setting.enabled ? "bg-primary" : "bg-muted"
+                        "p-4 rounded-lg border text-center transition-colors capitalize",
+                        theme === t ? "border-primary bg-primary/5" : "hover:bg-accent"
                       )}
                     >
-                      <span
-                        className={cn(
-                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                          setting.enabled ? "translate-x-6" : "translate-x-1"
-                        )}
-                      />
+                      {t}
                     </button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Automation Tab */}
-          {activeTab === "automation" && (
-            <>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Automation Settings</CardTitle>
-                  <CardDescription>Configure automatic behaviors for the pipeline</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {automationSettings.map(setting => (
-                    <div
-                      key={setting.id}
-                      className="flex items-center justify-between p-4 rounded-lg border"
-                    >
-                      <div>
-                        <p className="font-medium">{setting.label}</p>
-                        <p className="text-sm text-muted-foreground">{setting.description}</p>
-                      </div>
-                      <button
-                        onClick={() => toggleSetting(automationSettings, setAutomationSettings, setting.id)}
-                        className={cn(
-                          "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                          setting.enabled ? "bg-primary" : "bg-muted"
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                            setting.enabled ? "translate-x-6" : "translate-x-1"
-                          )}
-                        />
-                      </button>
-                    </div>
                   ))}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Budget Limits</CardTitle>
-                  <CardDescription>Set spending limits and alerts</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Daily Budget</label>
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                        <input
-                          type="number"
-                          defaultValue="35.00"
-                          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Monthly Budget</label>
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                        <input
-                          type="number"
-                          defaultValue="750.00"
-                          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Alert Threshold</label>
-                    <p className="text-xs text-muted-foreground">Alert when this percentage of budget is used</p>
-                    <input
-                      type="range"
-                      min="50"
-                      max="100"
-                      defaultValue="80"
-                      className="w-full"
+              {/* Accent Color */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Accent Color</Label>
+                <div className="flex gap-3">
+                  {["blue", "green", "purple", "orange", "pink"].map(color => (
+                    <button
+                      key={color}
+                      onClick={() => setAccentColor(color)}
+                      className={cn(
+                        "h-8 w-8 rounded-full ring-2 ring-offset-2 ring-offset-background transition-all",
+                        color === "blue" && "bg-blue-500",
+                        color === "green" && "bg-green-500",
+                        color === "purple" && "bg-purple-500",
+                        color === "orange" && "bg-orange-500",
+                        color === "pink" && "bg-pink-500",
+                        accentColor === color ? "ring-current" : "ring-transparent hover:ring-current/50"
+                      )}
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>50%</span>
-                      <span>80%</span>
-                      <span>100%</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </>
-          )}
+                  ))}
+                </div>
+              </div>
 
-          {/* Security Tab */}
-          {activeTab === "security" && (
-            <Card>
-              <CardHeader>
+              {/* Auto Speak */}
+              <div className="flex items-center justify-between p-4 rounded-lg border">
+                <div>
+                  <Label className="font-medium">Auto-speak Responses</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Automatically speak AI responses aloud
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.autoSpeak}
+                  onCheckedChange={(checked) => update({ autoSpeak: checked })}
+                />
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Integrations Section */}
+        <AccordionItem value="integrations" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-500/10">
+                <GitBranch className="h-5 w-5 text-blue-500" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-semibold">Integrations</h3>
+                <p className="text-sm text-muted-foreground font-normal">
+                  Git, Linear, and other services
+                </p>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4 pt-2">
+            <div className="space-y-4">
+              {/* Git */}
+              <div className="p-4 rounded-lg border">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Security Settings</CardTitle>
-                    <CardDescription>Manage security and access controls</CardDescription>
-                  </div>
-                  {securitySaveStatus === "saved" && (
-                    <div className="flex items-center gap-2 text-green-500 text-sm">
-                      <CheckCircle className="h-4 w-4" />
-                      Saved
-                    </div>
-                  )}
-                  {securitySaveStatus === "saving" && (
-                    <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Saving...
-                    </div>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {securitySettings.map(setting => (
-                  <div key={setting.id} className="p-4 rounded-lg border space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{setting.label}</p>
-                        <p className="text-sm text-muted-foreground">{setting.description}</p>
-                      </div>
-                      {setting.type === "toggle" ? (
-                        <button
-                          onClick={() => toggleSecuritySetting(setting.id)}
-                          className={cn(
-                            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                            setting.enabled ? "bg-primary" : "bg-muted"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                              setting.enabled ? "translate-x-6" : "translate-x-1"
-                            )}
-                          />
-                        </button>
-                      ) : setting.type === "select" && setting.options ? (
-                        <div className="flex gap-1">
-                          {setting.options.map(option => (
-                            <button
-                              key={option.value}
-                              onClick={() => updateSecuritySelect(setting.id, option.value)}
-                              className={cn(
-                                "px-3 py-1 text-xs rounded-full transition-colors",
-                                setting.value === option.value
-                                  ? option.variant === "success" ? "bg-green-500/20 text-green-500 ring-1 ring-green-500/50"
-                                  : option.variant === "warning" ? "bg-yellow-500/20 text-yellow-500 ring-1 ring-yellow-500/50"
-                                  : "bg-red-500/20 text-red-500 ring-1 ring-red-500/50"
-                                  : "bg-muted text-muted-foreground hover:bg-accent"
-                              )}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Appearance Tab */}
-          {activeTab === "appearance" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Appearance</CardTitle>
-                <CardDescription>Customize the look and feel</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-3">
-                  <label className="text-sm font-medium">Theme</label>
-                  <div className="grid grid-cols-3 gap-4">
-                    {["Dark", "Light", "System"].map(theme => (
-                      <button
-                        key={theme}
-                        className={cn(
-                          "p-4 rounded-lg border text-center transition-colors",
-                          theme === "Dark" ? "border-primary bg-accent" : "hover:bg-accent/50"
-                        )}
-                      >
-                        <p className="font-medium">{theme}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <label className="text-sm font-medium">Accent Color</label>
-                  <div className="flex gap-3">
-                    {["blue", "green", "purple", "orange", "pink"].map(color => (
-                      <button
-                        key={color}
-                        className={cn(
-                          "h-8 w-8 rounded-full ring-2 ring-offset-2 ring-offset-background transition-all",
-                          color === "blue" && "bg-blue-500 ring-blue-500",
-                          color === "green" && "bg-green-500 ring-transparent hover:ring-green-500",
-                          color === "purple" && "bg-purple-500 ring-transparent hover:ring-purple-500",
-                          color === "orange" && "bg-orange-500 ring-transparent hover:ring-orange-500",
-                          color === "pink" && "bg-pink-500 ring-transparent hover:ring-pink-500"
-                        )}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <label className="text-sm font-medium">Sidebar</label>
-                  <div className="flex items-center justify-between p-4 rounded-lg border">
+                  <div className="flex items-center gap-3">
+                    <GitBranch className="h-5 w-5 text-orange-500" />
                     <div>
-                      <p className="font-medium">Collapsed by default</p>
-                      <p className="text-sm text-muted-foreground">Start with sidebar collapsed</p>
+                      <p className="font-medium">Git</p>
+                      <p className="text-sm text-muted-foreground">
+                        Version control integration
+                      </p>
                     </div>
-                    <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-muted">
-                      <span className="inline-block h-4 w-4 transform rounded-full bg-white translate-x-1" />
-                    </button>
                   </div>
+                  <Badge variant="secondary">Auto-detected</Badge>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              </div>
 
-          {/* Data Tab */}
-          {activeTab === "data" && (
-            <>
+              {/* Linear */}
+              <div className="p-4 rounded-lg border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Workflow className="h-5 w-5 text-purple-500" />
+                    <div>
+                      <p className="font-medium">Linear</p>
+                      <p className="text-sm text-muted-foreground">
+                        Issue tracking
+                      </p>
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm">Connect</Button>
+                </div>
+              </div>
+
+              {/* n8n */}
+              <div className="p-4 rounded-lg border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Zap className="h-5 w-5 text-yellow-500" />
+                    <div>
+                      <p className="font-medium">n8n</p>
+                      <p className="text-sm text-muted-foreground">
+                        Workflow automation
+                      </p>
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm">Configure</Button>
+                </div>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Advanced Section */}
+        <AccordionItem value="advanced" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-gray-500/10">
+                <Code2 className="h-5 w-5 text-gray-500" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-semibold">Advanced</h3>
+                <p className="text-sm text-muted-foreground font-normal">
+                  Developer options and data management
+                </p>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4 pt-2">
+            <div className="space-y-6">
               {/* Data Summary */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2">
-                        <FileJson className="h-5 w-5" />
-                        Stored Data
-                      </CardTitle>
-                      <CardDescription>Overview of data stored in your browser</CardDescription>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={refreshDataSummary} className="gap-2">
-                      <RefreshCw className="h-4 w-4" />
-                      Refresh
-                    </Button>
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Stored Data</Label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-lg border text-center">
+                    <p className="text-xl font-bold">{dataSummary.projects}</p>
+                    <p className="text-xs text-muted-foreground">Projects</p>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="p-4 rounded-lg border text-center">
-                      <p className="text-2xl font-bold">{dataSummary.projects}</p>
-                      <p className="text-sm text-muted-foreground">Projects</p>
-                    </div>
-                    <div className="p-4 rounded-lg border text-center">
-                      <p className="text-2xl font-bold">{dataSummary.packets}</p>
-                      <p className="text-sm text-muted-foreground">Packets</p>
-                    </div>
-                    <div className="p-4 rounded-lg border text-center">
-                      <p className="text-2xl font-bold">{dataSummary.buildPlans}</p>
-                      <p className="text-sm text-muted-foreground">Build Plans</p>
-                    </div>
-                    <div className="p-4 rounded-lg border text-center">
-                      <p className="text-2xl font-bold">{dataSummary.totalKeys}</p>
-                      <p className="text-sm text-muted-foreground">Total Keys</p>
-                    </div>
+                  <div className="p-3 rounded-lg border text-center">
+                    <p className="text-xl font-bold">{dataSummary.packets}</p>
+                    <p className="text-xs text-muted-foreground">Packets</p>
                   </div>
-                  <div className="mt-4 flex gap-2">
-                    {dataSummary.hasSettings && (
-                      <Badge variant="outline">Settings Configured</Badge>
-                    )}
-                    {dataSummary.hasGitLabToken && (
-                      <Badge variant="outline" className="text-green-500 border-green-500/50">GitLab Connected</Badge>
-                    )}
+                  <div className="p-3 rounded-lg border text-center">
+                    <p className="text-xl font-bold">{dataSummary.buildPlans}</p>
+                    <p className="text-xs text-muted-foreground">Build Plans</p>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="p-3 rounded-lg border text-center">
+                    <p className="text-xl font-bold">{dataSummary.totalKeys}</p>
+                    <p className="text-xs text-muted-foreground">Total Keys</p>
+                  </div>
+                </div>
+              </div>
 
               {/* Import/Export */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Import & Export</CardTitle>
-                  <CardDescription>Backup or restore your Claudia data</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-4 rounded-lg border">
-                    <div>
-                      <p className="font-medium">Export All Data</p>
-                      <p className="text-sm text-muted-foreground">
-                        Download a JSON backup of all projects, settings, and configurations
-                      </p>
-                    </div>
-                    <Button onClick={handleExportData} className="gap-2">
-                      <DownloadIcon className="h-4 w-4" />
-                      Export
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Import & Export</Label>
+                <div className="flex gap-3">
+                  <Button variant="outline" onClick={handleExportData} className="gap-2">
+                    <DownloadIcon className="h-4 w-4" />
+                    Export Data
+                  </Button>
+                  <label>
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleImportData}
+                      className="hidden"
+                    />
+                    <Button variant="outline" asChild className="gap-2 cursor-pointer">
+                      <span>
+                        <Upload className="h-4 w-4" />
+                        Import Data
+                      </span>
                     </Button>
-                  </div>
-                  <div className="flex items-center justify-between p-4 rounded-lg border">
+                  </label>
+                </div>
+              </div>
+
+              {/* Danger Zone */}
+              <div className="space-y-3 pt-4 border-t">
+                <button
+                  onClick={() => setShowDangerZone(!showDangerZone)}
+                  className="flex items-center gap-2 text-destructive"
+                >
+                  <AlertOctagon className="h-4 w-4" />
+                  <Label className="text-sm font-medium cursor-pointer">Danger Zone</Label>
+                </button>
+
+                {showDangerZone && (
+                  <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 space-y-4">
                     <div>
-                      <p className="font-medium">Import Data</p>
+                      <p className="font-medium text-destructive">Delete All Data</p>
                       <p className="text-sm text-muted-foreground">
-                        Restore from a previously exported backup file
+                        Permanently delete all projects, packets, and settings.
                       </p>
                     </div>
-                    <label>
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={handleImportData}
-                        className="hidden"
-                        disabled={importingData}
-                      />
-                      <Button asChild disabled={importingData} className="gap-2 cursor-pointer">
-                        <span>
-                          {importingData ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Upload className="h-4 w-4" />
-                          )}
-                          Import
-                        </span>
-                      </Button>
-                    </label>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Danger Zone - Hidden by Default */}
-              <Card className="border-destructive/30">
-                <CardHeader>
-                  <button
-                    onClick={() => setShowDangerZone(!showDangerZone)}
-                    className="flex items-center justify-between w-full text-left"
-                  >
-                    <div className="flex items-center gap-2">
-                      <AlertOctagon className="h-5 w-5 text-destructive" />
-                      <div>
-                        <CardTitle className="text-destructive">Danger Zone</CardTitle>
-                        <CardDescription>Irreversible actions</CardDescription>
-                      </div>
-                    </div>
-                    <span className={cn(
-                      "text-xs text-muted-foreground transition-transform",
-                      showDangerZone && "rotate-180"
-                    )}>
-                      ▼
-                    </span>
-                  </button>
-                </CardHeader>
-                {showDangerZone && (
-                  <CardContent className="space-y-4 border-t pt-4">
-                    {/* Clear Project Data */}
-                    <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-destructive">Clear Project Data</p>
-                          <p className="text-sm text-muted-foreground">
-                            Remove all projects and packets, but keep settings and connections
-                          </p>
-                        </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm">
+                        Type <code className="px-1 py-0.5 bg-muted rounded font-mono">DELETE ALL</code> to confirm:
+                      </Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={confirmClear}
+                          onChange={(e) => setConfirmClear(e.target.value)}
+                          placeholder="Type DELETE ALL"
+                          className="max-w-xs"
+                        />
                         <Button
                           variant="destructive"
-                          onClick={() => setClearProjectsDialog(true)}
+                          onClick={handleClearAllData}
+                          disabled={confirmClear !== "DELETE ALL" || clearingData}
                           className="gap-2"
                         >
-                          <Trash2 className="h-4 w-4" />
-                          Clear Projects
+                          {clearingData ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                          Delete
                         </Button>
                       </div>
                     </div>
-
-                    {/* Delete All Data */}
-                    <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 space-y-4">
-                      <div>
-                        <p className="font-medium text-destructive">Delete All Data</p>
-                        <p className="text-sm text-muted-foreground">
-                          Permanently delete all Claudia data including projects, packets, build plans,
-                          settings, and configurations. Your GitLab token will be preserved.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          onClick={handleExportData}
-                          className="gap-2"
-                        >
-                          <DownloadIcon className="h-4 w-4" />
-                          Export First
-                        </Button>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="confirmDelete" className="text-sm">
-                          Type <code className="px-1 py-0.5 bg-muted rounded font-mono">DELETE ALL</code> to confirm:
-                        </Label>
-                        <div className="flex gap-2">
-                          <Input
-                            id="confirmDelete"
-                            value={confirmClear}
-                            onChange={(e) => setConfirmClear(e.target.value)}
-                            placeholder="Type DELETE ALL"
-                            className="max-w-xs"
-                          />
-                          <Button
-                            variant="destructive"
-                            onClick={handleClearAllData}
-                            disabled={confirmClear !== "DELETE ALL" || clearingData}
-                            className="gap-2"
-                          >
-                            {clearingData ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                            Delete Everything
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
+                  </div>
                 )}
-              </Card>
-            </>
-          )}
-        </div>
-      </div>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       {/* Add Local Server Dialog */}
       <Dialog open={addServerDialog} onOpenChange={setAddServerDialog}>
@@ -1492,7 +1090,7 @@ function SettingsPageContent() {
               Add Local AI Server
             </DialogTitle>
             <DialogDescription>
-              Connect to an LM Studio or Ollama server on your network
+              Connect to an LM Studio or Ollama server
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1516,23 +1114,23 @@ function SettingsPageContent() {
                 />
                 <Button
                   variant="outline"
-                  onClick={handleTestConnection}
-                  disabled={!newServerUrl || testingConnection}
+                  onClick={handleTestNewServer}
+                  disabled={!newServerUrl || testingServer}
                 >
-                  {testingConnection ? (
+                  {testingServer ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     "Test"
                   )}
                 </Button>
               </div>
-              {connectionStatus === "success" && (
+              {serverTestResult.status === "success" && (
                 <p className="text-xs text-green-500 flex items-center gap-1">
                   <CheckCircle className="h-3 w-3" />
-                  Connection successful
+                  Connected - {serverTestResult.models.length} models available
                 </p>
               )}
-              {connectionStatus === "error" && (
+              {serverTestResult.status === "error" && (
                 <p className="text-xs text-red-500 flex items-center gap-1">
                   <XCircle className="h-3 w-3" />
                   Connection failed
@@ -1540,34 +1138,21 @@ function SettingsPageContent() {
               )}
             </div>
 
-            {/* Model Selection - only show after successful connection */}
-            {connectionStatus === "success" && serverModels.length > 0 && (
+            {serverTestResult.status === "success" && serverTestResult.models.length > 0 && (
               <div className="space-y-2">
                 <Label>Select Default Model</Label>
-                <p className="text-xs text-muted-foreground">
-                  Choose which model to use by default on this server
-                </p>
-                <div className="max-h-48 overflow-y-auto space-y-2 border rounded-lg p-2">
-                  {serverModels.map(model => (
-                    <button
-                      key={model}
-                      onClick={() => setSelectedServerModel(model)}
-                      className={cn(
-                        "w-full text-left p-2 rounded text-sm transition-colors",
-                        selectedServerModel === model
-                          ? "bg-primary text-primary-foreground"
-                          : "hover:bg-accent"
-                      )}
-                    >
-                      {model}
-                    </button>
-                  ))}
-                </div>
-                {!selectedServerModel && (
-                  <p className="text-xs text-amber-500">
-                    Please select a model before adding
-                  </p>
-                )}
+                <Select value={selectedNewModel} onValueChange={setSelectedNewModel}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a model..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {serverTestResult.models.map(model => (
+                      <SelectItem key={model} value={model}>
+                        {model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
           </div>
@@ -1577,7 +1162,7 @@ function SettingsPageContent() {
             </Button>
             <Button
               onClick={handleAddServer}
-              disabled={!newServerName || !newServerUrl || (serverModels.length > 0 && !selectedServerModel)}
+              disabled={!newServerName || !newServerUrl || serverTestResult.status !== "success"}
             >
               Add Server
             </Button>
@@ -1585,531 +1170,131 @@ function SettingsPageContent() {
         </DialogContent>
       </Dialog>
 
-      {/* Add API Service Dialog */}
-      <Dialog open={addApiDialog} onOpenChange={(open) => {
-        setAddApiDialog(open)
-        if (!open) {
-          // Reset state when closing
-          setNewApiProvider("anthropic")
-          setNewApiKey("")
-          setApiKeyStatus("idle")
-          setShowApiKey(false)
-          setAnthropicAuthMethod("oauth")
-          setAnthropicOAuthStatus("idle")
-          setAnthropicOAuthUser(null)
-          setAnthropicOAuthTokens(null)
-          setApiKeyError("")
-        }
-      }}>
+      {/* Add Cloud Provider Dialog */}
+      <Dialog open={addCloudDialog} onOpenChange={setAddCloudDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Cloud className="h-5 w-5" />
-              Add Cloud AI Provider
+              Add Cloud Provider
             </DialogTitle>
             <DialogDescription>
               Connect to a cloud AI provider
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            {/* Provider Selection */}
             <div className="space-y-2">
               <Label>Select Provider</Label>
               <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: "anthropic" as const, name: "Anthropic", sub: "Claude", color: "text-orange-500" },
-                  { id: "openai" as const, name: "OpenAI", sub: "GPT-4/o1", color: "text-emerald-500" },
-                  { id: "google" as const, name: "Google", sub: "Gemini", color: "text-blue-500" }
-                ].map(provider => (
-                  <button
-                    key={provider.id}
-                    onClick={() => {
-                      setNewApiProvider(provider.id)
-                      setApiKeyStatus("idle")
-                      setApiKeyError("")
-                      setNewApiKey("")
-                      if (provider.id === "anthropic") {
-                        setAnthropicAuthMethod("oauth")
-                        setAnthropicOAuthStatus("idle")
-                      }
-                    }}
-                    className={cn(
-                      "p-3 rounded-lg border text-center transition-colors",
-                      newApiProvider === provider.id
-                        ? "border-primary bg-primary/5"
-                        : "hover:bg-accent"
-                    )}
-                  >
-                    <span className={cn("font-medium text-sm block", provider.color)}>
-                      {provider.name}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{provider.sub}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Anthropic - OAuth primary, API key secondary */}
-            {newApiProvider === "anthropic" && (
-              <div className="space-y-4 pt-2 border-t">
-                {/* OAuth Connected State */}
-                {anthropicOAuthStatus === "connected" && anthropicOAuthUser && (
-                  <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/30">
-                    <div className="flex items-center gap-3 mb-2">
-                      {anthropicOAuthUser.picture && (
-                        <img
-                          src={anthropicOAuthUser.picture}
-                          alt=""
-                          className="h-10 w-10 rounded-full"
-                        />
-                      )}
-                      <div>
-                        <p className="font-medium">{anthropicOAuthUser.name || anthropicOAuthUser.email}</p>
-                        <p className="text-xs text-muted-foreground">{anthropicOAuthUser.email}</p>
-                      </div>
-                      <CheckCircle className="h-5 w-5 text-green-500 ml-auto" />
-                    </div>
-                    <p className="text-xs text-green-600">
-                      Ready to connect with your Anthropic Max subscription
-                    </p>
-                  </div>
-                )}
-
-                {/* OAuth Option - Primary */}
-                {anthropicAuthMethod === "oauth" && anthropicOAuthStatus !== "connected" && (
-                  <div className="space-y-3">
-                    <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="font-medium">Sign in with Google</span>
-                        <Badge variant="secondary" className="text-xs">Max Plan</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Use your Anthropic Max subscription ($200/month) - not pay-per-use credits
-                      </p>
-                      <Button
-                        className="w-full gap-2"
-                        onClick={startAnthropicOAuth}
-                        disabled={anthropicOAuthStatus === "connecting"}
-                      >
-                        {anthropicOAuthStatus === "connecting" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <svg className="h-4 w-4" viewBox="0 0 24 24">
-                            <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                            <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                            <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                            <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                          </svg>
-                        )}
-                        Sign in with Google to use Max plan
-                      </Button>
-                    </div>
-
-                    {anthropicOAuthStatus === "error" && apiKeyError && (
-                      <p className="text-xs text-red-500 flex items-center gap-1">
-                        <XCircle className="h-3 w-3" />
-                        {apiKeyError}
-                      </p>
-                    )}
-
+                {(["anthropic", "openai", "google"] as const).map(provider => {
+                  const info = PROVIDER_INFO[provider]
+                  return (
                     <button
-                      onClick={() => setAnthropicAuthMethod("apiKey")}
-                      className="w-full text-xs text-muted-foreground hover:text-primary text-center py-2"
-                    >
-                      or use API key (pay-per-use credits)
-                    </button>
-                  </div>
-                )}
-
-                {/* API Key Option - Secondary */}
-                {anthropicAuthMethod === "apiKey" && (
-                  <div className="space-y-3">
-                    <div className="p-4 rounded-lg bg-muted/50 border">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="font-medium">API Key</span>
-                        <Badge variant="outline" className="text-xs">Pay-per-use</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Uses separate API credits, billed by usage (not your Max subscription)
-                      </p>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <Input
-                            type={showApiKey ? "text" : "password"}
-                            placeholder="sk-ant-api03-..."
-                            value={newApiKey}
-                            onChange={(e) => {
-                              setNewApiKey(e.target.value)
-                              setApiKeyStatus("idle")
-                            }}
-                            className="pr-10"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowApiKey(!showApiKey)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          >
-                            {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </button>
-                        </div>
-                        <Button
-                          variant="outline"
-                          onClick={handleTestApiKey}
-                          disabled={!newApiKey || testingApiKey}
-                        >
-                          {testingApiKey ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            "Test"
-                          )}
-                        </Button>
-                      </div>
-                      {apiKeyStatus === "success" && (
-                        <p className="text-xs text-green-500 flex items-center gap-1 mt-2">
-                          <CheckCircle className="h-3 w-3" />
-                          API key is valid
-                        </p>
-                      )}
-                      {apiKeyStatus === "error" && (
-                        <p className="text-xs text-red-500 flex items-center gap-1 mt-2">
-                          <XCircle className="h-3 w-3" />
-                          {apiKeyError}
-                        </p>
-                      )}
-                      <a
-                        href="https://console.anthropic.com/settings/keys"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-2"
-                      >
-                        Get API key from Anthropic Console
-                      </a>
-                    </div>
-
-                    <button
-                      onClick={() => setAnthropicAuthMethod("oauth")}
-                      className="w-full text-xs text-muted-foreground hover:text-primary text-center py-2"
-                    >
-                      or sign in with Google (Max subscription)
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* OpenAI / Google - API Key Only */}
-            {newApiProvider !== "anthropic" && (
-              <div className="space-y-3 pt-2 border-t">
-                <div className="space-y-2">
-                  <Label htmlFor="apiKey">API Key</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {newApiProvider === "openai" ? "Get your key from platform.openai.com" :
-                     "Get your key from aistudio.google.com"}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      id="apiKey"
-                      type={showApiKey ? "text" : "password"}
-                      placeholder={newApiProvider === "openai" ? "sk-..." : "AIza..."}
-                      value={newApiKey}
-                      onChange={(e) => {
-                        setNewApiKey(e.target.value)
-                        setApiKeyStatus("idle")
+                      key={provider}
+                      onClick={() => {
+                        setSelectedCloudProvider(provider)
+                        setApiKeyTestResult({ status: "idle" })
+                        setNewApiKey("")
                       }}
-                      className="pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className={cn(
+                        "p-3 rounded-lg border text-center transition-colors",
+                        selectedCloudProvider === provider
+                          ? "border-primary bg-primary/5"
+                          : "hover:bg-accent"
+                      )}
                     >
-                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      <span className={cn("font-medium text-sm block", info?.color)}>
+                        {info?.name}
+                      </span>
                     </button>
-                  </div>
-                  <Button
-                    variant="outline"
-                    onClick={handleTestApiKey}
-                    disabled={!newApiKey || testingApiKey}
-                  >
-                    {testingApiKey ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      "Test"
-                    )}
-                  </Button>
-                </div>
-                {apiKeyStatus === "success" && (
-                  <p className="text-xs text-green-500 flex items-center gap-1">
-                    <CheckCircle className="h-3 w-3" />
-                    API key is valid
-                  </p>
-                )}
-                {apiKeyStatus === "error" && (
-                  <p className="text-xs text-red-500 flex items-center gap-1">
-                    <XCircle className="h-3 w-3" />
-                    {apiKeyError}
-                  </p>
-                )}
+                  )
+                })}
               </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddApiDialog(false)}>
-              Cancel
-            </Button>
-            {newApiProvider === "anthropic" ? (
-              anthropicOAuthStatus === "connected" ? (
-                <Button onClick={handleAddAnthropicOAuth}>
-                  Connect with Max Plan
-                </Button>
-              ) : anthropicAuthMethod === "apiKey" ? (
-                <Button
-                  onClick={handleAddApiService}
-                  disabled={apiKeyStatus !== "success"}
-                >
-                  Connect with API Key
-                </Button>
-              ) : null
-            ) : (
-              <Button
-                onClick={handleAddApiService}
-                disabled={apiKeyStatus !== "success"}
-              >
-                Connect
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </div>
 
-      {/* Add Git Remote Dialog */}
-      <Dialog open={addGitDialog} onOpenChange={setAddGitDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <GitBranch className="h-5 w-5" />
-              Add Git Remote
-            </DialogTitle>
-            <DialogDescription>
-              Connect to a Git repository
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="gitName">Repository Name</Label>
-              <Input
-                id="gitName"
-                placeholder="e.g., My Project"
-                value={newGitName}
-                onChange={(e) => setNewGitName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="gitUrl">Repository URL</Label>
-              <Input
-                id="gitUrl"
-                placeholder="https://gitlab.com/user/repo.git"
-                value={newGitUrl}
-                onChange={(e) => setNewGitUrl(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddGitDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleAddGitRemote}
-              disabled={!newGitName || !newGitUrl}
-            >
-              Add Remote
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Connection Dialog */}
-      <Dialog open={editConnectionDialog} onOpenChange={(open) => {
-        setEditConnectionDialog(open)
-        if (!open) {
-          setSelectedConnection(null)
-          setEditName("")
-          setEditUrl("")
-          setEditApiKey("")
-          setEditConnectionStatus("idle")
-        }
-      }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="h-5 w-5" />
-              Edit Connection
-            </DialogTitle>
-            <DialogDescription>
-              Update the connection settings for {selectedConnection?.name}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="editName">Connection Name</Label>
-              <Input
-                id="editName"
-                placeholder="e.g., My Local LLM"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="editUrl">URL / Endpoint</Label>
+              <Label htmlFor="apiKey">API Key</Label>
               <div className="flex gap-2">
-                <Input
-                  id="editUrl"
-                  placeholder="http://localhost:1234"
-                  value={editUrl}
-                  onChange={(e) => {
-                    setEditUrl(e.target.value)
-                    setEditConnectionStatus("idle")
-                  }}
-                />
+                <div className="relative flex-1">
+                  <Input
+                    id="apiKey"
+                    type={showApiKey ? "text" : "password"}
+                    placeholder={selectedCloudProvider === "anthropic" ? "sk-ant-..." :
+                                selectedCloudProvider === "openai" ? "sk-..." : "AI..."}
+                    value={newApiKey}
+                    onChange={(e) => {
+                      setNewApiKey(e.target.value)
+                      setApiKeyTestResult({ status: "idle" })
+                    }}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
                 <Button
                   variant="outline"
-                  onClick={handleTestEditConnection}
-                  disabled={!editUrl || testingEditConnection}
+                  onClick={handleTestApiKey}
+                  disabled={!newApiKey || testingApiKey}
                 >
-                  {testingEditConnection ? (
+                  {testingApiKey ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     "Test"
                   )}
                 </Button>
               </div>
-              {editConnectionStatus === "success" && (
+              {apiKeyTestResult.status === "success" && (
                 <p className="text-xs text-green-500 flex items-center gap-1">
                   <CheckCircle className="h-3 w-3" />
-                  Connection successful
+                  API key valid
                 </p>
               )}
-              {editConnectionStatus === "error" && (
+              {apiKeyTestResult.status === "error" && (
                 <p className="text-xs text-red-500 flex items-center gap-1">
                   <XCircle className="h-3 w-3" />
-                  Connection failed
+                  {apiKeyTestResult.error}
                 </p>
               )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="editApiKey">API Key (optional)</Label>
-              <Input
-                id="editApiKey"
-                type="password"
-                placeholder="Enter API key if required..."
-                value={editApiKey}
-                onChange={(e) => setEditApiKey(e.target.value)}
-              />
-            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditConnectionDialog(false)}>
+            <Button variant="outline" onClick={() => setAddCloudDialog(false)}>
               Cancel
             </Button>
             <Button
-              onClick={handleSaveEditConnection}
-              disabled={!editName || !editUrl}
+              onClick={handleAddCloudProvider}
+              disabled={!newApiKey || apiKeyTestResult.status !== "success"}
             >
-              Save Changes
+              Add Provider
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Connection Confirmation Dialog */}
-      <Dialog open={deleteConnectionDialog} onOpenChange={(open) => {
-        setDeleteConnectionDialog(open)
-        if (!open) {
-          setSelectedConnection(null)
-        }
-      }}>
+      {/* Delete Server Confirmation Dialog */}
+      <Dialog open={!!deleteServerDialog} onOpenChange={() => setDeleteServerDialog(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="h-5 w-5" />
-              Remove Connection
-            </DialogTitle>
+            <DialogTitle>Delete Server</DialogTitle>
             <DialogDescription>
-              Are you sure you want to remove this connection?
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            {selectedConnection && (
-              <div className="p-4 rounded-lg border bg-muted/50">
-                <p className="font-medium">{selectedConnection.name}</p>
-                <p className="text-sm text-muted-foreground font-mono">{selectedConnection.url}</p>
-              </div>
-            )}
-            <p className="text-sm text-muted-foreground mt-4">
-              This action cannot be undone. The connection will be permanently removed from your settings.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConnectionDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteConnection}
-              className="gap-2"
-            >
-              <Trash2 className="h-4 w-4" />
-              Remove Connection
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Clear Projects Confirmation Dialog */}
-      <Dialog open={clearProjectsDialog} onOpenChange={setClearProjectsDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertOctagon className="h-5 w-5" />
-              Clear All Projects
-            </DialogTitle>
-            <DialogDescription>
+              Are you sure you want to remove "{deleteServerDialog?.name}"?
               This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5">
-              <p className="text-sm">
-                This will permanently delete:
-              </p>
-              <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside space-y-1">
-                <li>All projects ({dataSummary.projects} projects)</li>
-                <li>All work packets ({dataSummary.packets} packets)</li>
-                <li>All build plans ({dataSummary.buildPlans} build plans)</li>
-              </ul>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Your settings, connections, and API keys will be preserved.
-            </p>
-          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setClearProjectsDialog(false)}>
+            <Button variant="outline" onClick={() => setDeleteServerDialog(null)}>
               Cancel
             </Button>
             <Button
               variant="destructive"
-              onClick={handleClearProjectData}
-              disabled={clearingProjects}
-              className="gap-2"
+              onClick={() => deleteServerDialog && handleDeleteServer(deleteServerDialog)}
             >
-              {clearingProjects ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-              Clear All Projects
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2120,7 +1305,11 @@ function SettingsPageContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    }>
       <SettingsPageContent />
     </Suspense>
   )
