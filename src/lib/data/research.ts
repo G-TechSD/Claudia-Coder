@@ -11,8 +11,6 @@
 
 import type {
   PriorArtResearch,
-  CompetitorAnalysis,
-  MarketGapAnalysis,
   PriorArtRecommendation
 } from "./types"
 import {

@@ -9,7 +9,6 @@
 import {
   ProjectResource,
   ResourceType,
-  ResourceStorageType,
   BrainDump,
   BrainDumpStatus,
   TranscriptionData

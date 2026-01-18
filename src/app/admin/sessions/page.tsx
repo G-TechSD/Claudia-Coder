@@ -8,14 +8,6 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { cn } from "@/lib/utils"
-import {
   Play,
   XCircle,
   Loader2,
@@ -24,7 +16,6 @@ import {
   MousePointer,
   AlertCircle,
   Monitor,
-  Calendar,
   Users,
   TrendingUp,
   ChevronRight,
@@ -77,16 +68,6 @@ interface GroupedSession {
   lastSessionAt: string
 }
 
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
 function formatDateShort(dateString: string): string {
   const date = new Date(dateString)
   const now = new Date()
@@ -110,7 +91,7 @@ function formatDuration(seconds: number | null): string {
   return `${hours}h ${remainingMinutes}m`
 }
 
-function getDeviceIcon(deviceType: string | null) {
+function getDeviceIcon() {
   // Return Monitor icon for any device type
   return <Monitor className="h-4 w-4" />
 }
@@ -468,7 +449,7 @@ export default function SessionsPage() {
                         )}
                         {session.deviceType && (
                           <span className="flex items-center gap-1">
-                            {getDeviceIcon(session.deviceType)}
+                            {getDeviceIcon()}
                             {session.browser}
                           </span>
                         )}

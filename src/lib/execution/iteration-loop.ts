@@ -12,7 +12,7 @@
 import type { WorkPacket } from "@/lib/ai/build-plan"
 import type { LinkedRepo } from "@/lib/data/types"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
-import { buildPacketPrompt, buildSelfCritiquePrompt, buildFixPrompt } from "./prompts"
+import { buildPacketPrompt, buildSelfCritiquePrompt } from "./prompts"
 import { parseCodeOutput, applyToGitLab, type FileChange, type ApplyResult } from "./apply-code"
 import { getRepoContext, type RepoContext } from "./repo-context"
 

@@ -21,8 +21,6 @@ import {
   DEFAULT_RECORDER_CONFIG,
   SENSITIVE_INPUT_PATTERNS,
   SENSITIVE_AUTOCOMPLETE_VALUES,
-  RRWebEventType,
-  IncrementalSource,
 } from "./types"
 
 // ============ User Agent Parsing ============

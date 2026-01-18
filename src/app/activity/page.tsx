@@ -15,7 +15,6 @@ import {
   Download,
   GitCommit,
   GitPullRequest,
-  GitMerge,
   GitBranch,
   ExternalLink,
   FolderGit2,
@@ -28,7 +27,7 @@ import {
 import Link from "next/link"
 import { GitActionModal } from "@/components/git-action-modal"
 import { InterviewModal } from "@/components/interview/interview-modal"
-import { useGitAction, useGitLabProjects, useGitLabCommits } from "@/lib/api/hooks"
+import { useGitAction, useGitLabProjects } from "@/lib/api/hooks"
 import { gitlabApi } from "@/lib/api"
 import type { GitLabCommit, GitLabProject } from "@/lib/api"
 
@@ -123,17 +122,6 @@ const statusConfig: Record<ActivityType, {
     label: "Info"
   }
 }
-
-const categoryConfig = {
-  general: { icon: CheckCircle },
-  commit: { icon: GitCommit },
-  pr: { icon: GitPullRequest },
-  merge: { icon: GitMerge },
-  branch: { icon: GitBranch },
-  deploy: { icon: CheckCircle },
-  test: { icon: CheckCircle }
-}
-
 
 function formatTimestamp(date: Date): string {
   const now = new Date()
@@ -472,7 +460,6 @@ export default function ActivityPage() {
               ) : (
                 filteredActivities.map((activity) => {
                   const config = statusConfig[activity.type]
-                  const Icon = config.icon
                   const isSelected = selectedActivity?.id === activity.id
                   return (
                     <div

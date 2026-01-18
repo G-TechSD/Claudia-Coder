@@ -9,7 +9,6 @@
 
 import {
   getAllUserStorageKeys,
-  clearAllUserStorage,
   getUserStorageKey,
   USER_STORAGE_KEYS
 } from "./user-storage"

@@ -11,7 +11,7 @@
 import type { Project, LinkedRepo } from "@/lib/data/types"
 import type { WorkPacket } from "@/lib/ai/build-plan"
 import { runLongHorizonEngine, type LongHorizonResult, type GenerationPhase } from "./long-horizon-engine"
-import { applyToGitLab, applyWithMergeRequest, type FileChange } from "./apply-code"
+import { applyWithMergeRequest, type FileChange } from "./apply-code"
 
 // ============================================================================
 // Types

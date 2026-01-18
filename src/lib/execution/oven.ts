@@ -11,10 +11,10 @@
  * The oven "bakes" packets into complete, working applications.
  */
 
-import type { WorkPacket, BuildPlan } from "@/lib/ai/build-plan"
+import type { WorkPacket } from "@/lib/ai/build-plan"
 import type { LinkedRepo } from "@/lib/data/types"
 import type { Project } from "@/lib/data/types"
-import { runLongHorizonEngine, type LongHorizonUpdate, type LongHorizonResult, type GenerationPhase, type GuardrailConfig } from "./long-horizon-engine"
+import { runLongHorizonEngine, type LongHorizonResult, type GenerationPhase } from "./long-horizon-engine"
 import { createScaffold, detectTemplate, type ProjectTemplate, type ScaffoldResult } from "./scaffolding"
 import { applyToGitLab, applyWithMergeRequest, type FileChange, type ApplyResult } from "./apply-code"
 import { validateFiles, type ValidationResult } from "./validator"
@@ -472,7 +472,6 @@ export async function* bakeProject(
  */
 function determineTemplate(project: Project): ProjectTemplate {
   const desc = (project.description || "").toLowerCase()
-  const name = project.name.toLowerCase()
 
   if (desc.includes("mobile") || desc.includes("flutter") || desc.includes("app")) {
     return "flutter"

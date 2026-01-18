@@ -5,7 +5,6 @@ import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { SessionPlayer } from "@/components/admin/session-player"
 import { cn } from "@/lib/utils"
@@ -19,12 +18,9 @@ import {
   Monitor,
   Globe,
   Calendar,
-  User,
-  Mail,
   Layers,
   ChevronRight,
   Trash2,
-  ExternalLink,
 } from "lucide-react"
 
 interface SessionEvent {
