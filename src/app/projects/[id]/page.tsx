@@ -801,7 +801,7 @@ export default function ProjectDetailPage() {
   const StatusIcon = statusConfig[project.status].icon
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 min-h-0 overflow-auto">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="space-y-1">
@@ -1256,107 +1256,40 @@ export default function ProjectDetailPage() {
           </AccordionContent>
         </AccordionItem>
 
-        {/* Repositories Section */}
-        <AccordionItem value="repos" className="border rounded-lg px-4">
+        {/* AI Models Section - Moved up for visibility */}
+        <AccordionItem value="models" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
-              <GitBranch className="h-4 w-4 text-orange-500" />
-              <span className="font-medium">Repositories</span>
-              {project.repos.length > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">
-                  {project.repos.length}
-                </Badge>
-              )}
+              <Brain className="h-4 w-4 text-pink-500" />
+              <span className="font-medium">AI Models</span>
             </div>
           </AccordionTrigger>
           <AccordionContent className="space-y-4 pt-2">
-            <div className="flex items-center justify-between">
-              <h3 className="font-medium">Linked Repositories</h3>
-              <Button size="sm" onClick={() => setRepoBrowserOpen(true)}>
-                <Link2 className="h-4 w-4 mr-1" />
-                Link Repository
-              </Button>
-            </div>
-
-            {project.repos.length === 0 ? (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <GitBranch className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No repositories linked yet.</p>
-                  <Button className="mt-4" size="sm" onClick={() => setRepoBrowserOpen(true)}>
-                    <Link2 className="h-4 w-4 mr-1" />
-                    Link Your First Repository
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-2">
-                {project.repos.map((repo) => (
-                  <Card key={repo.id}>
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <GitBranch className="h-5 w-5 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">{repo.name}</p>
-                            <p className="text-sm text-muted-foreground">{repo.path}</p>
-                          </div>
-                          <Badge variant="outline" className="text-xs">
-                            {repo.provider}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button variant="ghost" size="sm" asChild>
-                            <a href={repo.url} target="_blank" rel="noopener noreferrer">
-                              <ExternalLink className="h-4 w-4" />
-                            </a>
-                          </Button>
-                          <Button variant="ghost" size="sm">
-                            <Unlink className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                      {/* Local Path Section (Read-only) */}
-                      <div className="flex items-center gap-2 pl-8 border-t pt-3">
-                        <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <span className="text-sm text-muted-foreground flex-shrink-0">Local Path:</span>
-                        <div className="flex items-center gap-2 flex-1">
-                          {repo.localPath ? (
-                            <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
-                              {repo.localPath}
-                            </code>
-                          ) : project.basePath ? (
-                            <code className="text-sm bg-green-500/10 text-green-600 px-2 py-1 rounded flex-1 font-mono">
-                              {project.basePath.replace(/\/+$/, "")}/repos/{repo.name}
-                              <span className="text-muted-foreground ml-2">(auto-mapped)</span>
-                            </code>
-                          ) : (
-                            <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono text-muted-foreground">
-                              ~/claudia-projects/{project.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}/repos/{repo.name}
-                            </code>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
+            <ModelAssignment projectId={project.id} />
           </AccordionContent>
         </AccordionItem>
 
-        {/* Browse Files Section */}
-        <AccordionItem value="files" className="border rounded-lg px-4">
+        {/* Build Plan Section - Always show (not just in planning) */}
+        <AccordionItem value="plan" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
-              <FolderOpen className="h-4 w-4 text-yellow-500" />
-              <span className="font-medium">Browse Files</span>
+              <FileText className="h-4 w-4 text-blue-500" />
+              <span className="font-medium">Build Plan</span>
             </div>
           </AccordionTrigger>
           <AccordionContent className="space-y-4 pt-2">
-            <FileBrowser
+            <BuildPlanEditor
               projectId={project.id}
-              basePath={project.basePath || getEffectiveWorkingDirectory(project)}
+              projectName={project.name}
+              projectDescription={project.description}
+              projectStatus={project.status}
+              workingDirectory={getEffectiveWorkingDirectory(project)}
+              providers={providers}
+              selectedProvider={selectedProvider}
+              onProviderChange={setSelectedProvider}
+              onKickoffGenerated={(kickoffPath) => {
+                console.log(`[project-page] KICKOFF.md generated at: ${kickoffPath}`)
+              }}
             />
           </AccordionContent>
         </AccordionItem>
@@ -1368,9 +1301,7 @@ export default function ProjectDetailPage() {
               <Package className="h-4 w-4 text-purple-500" />
               <span className="font-medium">Work Packets</span>
               {packets.length > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">
-                  {packets.length}
-                </Badge>
+                <span className="text-xs text-muted-foreground ml-1">({packets.length})</span>
               )}
             </div>
           </AccordionTrigger>
@@ -1767,34 +1698,105 @@ export default function ProjectDetailPage() {
           </AccordionContent>
         </AccordionItem>
 
-        {/* AI Models Section */}
-        <AccordionItem value="models" className="border rounded-lg px-4">
+        {/* Repositories Section */}
+        <AccordionItem value="repos" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
-              <Brain className="h-4 w-4 text-pink-500" />
-              <span className="font-medium">AI Models</span>
+              <GitBranch className="h-4 w-4 text-orange-500" />
+              <span className="font-medium">Repositories</span>
+              {project.repos.length > 0 && (
+                <span className="text-xs text-muted-foreground ml-1">({project.repos.length})</span>
+              )}
             </div>
           </AccordionTrigger>
           <AccordionContent className="space-y-4 pt-2">
-            <ModelAssignment projectId={project.id} />
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium">Linked Repositories</h3>
+              <Button size="sm" onClick={() => setRepoBrowserOpen(true)}>
+                <Link2 className="h-4 w-4 mr-1" />
+                Link Repository
+              </Button>
+            </div>
+
+            {project.repos.length === 0 ? (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <GitBranch className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No repositories linked yet.</p>
+                  <Button className="mt-4" size="sm" onClick={() => setRepoBrowserOpen(true)}>
+                    <Link2 className="h-4 w-4 mr-1" />
+                    Link Your First Repository
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-2">
+                {project.repos.map((repo) => (
+                  <Card key={repo.id}>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <GitBranch className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <p className="font-medium">{repo.name}</p>
+                            <p className="text-sm text-muted-foreground">{repo.path}</p>
+                          </div>
+                          <Badge variant="outline" className="text-xs">
+                            {repo.provider}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" asChild>
+                            <a href={repo.url} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                          <Button variant="ghost" size="sm">
+                            <Unlink className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      {/* Local Path Section (Read-only) */}
+                      <div className="flex items-center gap-2 pl-8 border-t pt-3">
+                        <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <span className="text-sm text-muted-foreground flex-shrink-0">Local Path:</span>
+                        <div className="flex items-center gap-2 flex-1">
+                          {repo.localPath ? (
+                            <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
+                              {repo.localPath}
+                            </code>
+                          ) : project.basePath ? (
+                            <code className="text-sm bg-green-500/10 text-green-600 px-2 py-1 rounded flex-1 font-mono">
+                              {project.basePath.replace(/\/+$/, "")}/repos/{repo.name}
+                              <span className="text-muted-foreground ml-2">(auto-mapped)</span>
+                            </code>
+                          ) : (
+                            <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono text-muted-foreground">
+                              ~/claudia-projects/{project.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}/repos/{repo.name}
+                            </code>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </AccordionContent>
         </AccordionItem>
 
-        {/* Prior Art Section */}
-        <AccordionItem value="prior-art" className="border rounded-lg px-4">
+        {/* Browse Files Section */}
+        <AccordionItem value="files" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
-              <Search className="h-4 w-4 text-cyan-500" />
-              <span className="font-medium">Prior Art</span>
+              <FolderOpen className="h-4 w-4 text-yellow-500" />
+              <span className="font-medium">Browse Files</span>
             </div>
           </AccordionTrigger>
           <AccordionContent className="space-y-4 pt-2">
-            <PriorArtSection
+            <FileBrowser
               projectId={project.id}
-              projectName={project.name}
-              projectDescription={project.description}
-              buildPlanObjectives={currentBuildPlan?.originalPlan?.spec?.objectives}
-              techStack={currentBuildPlan?.originalPlan?.spec?.techStack}
+              basePath={project.basePath || getEffectiveWorkingDirectory(project)}
             />
           </AccordionContent>
         </AccordionItem>
@@ -1916,7 +1918,7 @@ export default function ProjectDetailPage() {
           </AccordionContent>
         </AccordionItem>
 
-        {/* Business Dev Section */}
+        {/* Business Dev Section - Combined with Prior Art */}
         <AccordionItem value="business-dev" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
@@ -1924,12 +1926,37 @@ export default function ProjectDetailPage() {
               <span className="font-medium">Business Dev</span>
             </div>
           </AccordionTrigger>
-          <AccordionContent className="space-y-4 pt-2">
-            <BusinessDevSection
-              projectId={project.id}
-              projectName={project.name}
-              projectDescription={project.description}
-            />
+          <AccordionContent className="space-y-6 pt-2">
+            {/* Prior Art / Market Research */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium flex items-center gap-2">
+                <Search className="h-4 w-4 text-cyan-500" />
+                Prior Art & Market Research
+              </h3>
+              <PriorArtSection
+                projectId={project.id}
+                projectName={project.name}
+                projectDescription={project.description}
+                buildPlanObjectives={currentBuildPlan?.originalPlan?.spec?.objectives}
+                techStack={currentBuildPlan?.originalPlan?.spec?.techStack}
+              />
+            </div>
+
+            {/* Divider */}
+            <div className="border-t" />
+
+            {/* Business Development */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-green-500" />
+                Business Planning
+              </h3>
+              <BusinessDevSection
+                projectId={project.id}
+                projectName={project.name}
+                projectDescription={project.description}
+              />
+            </div>
           </AccordionContent>
         </AccordionItem>
 
@@ -1979,34 +2006,6 @@ export default function ProjectDetailPage() {
           </AccordionContent>
         </AccordionItem>
 
-        {/* Build Plan Section - only show when in planning status */}
-        {project.status === "planning" && (
-          <AccordionItem value="plan" className="border rounded-lg px-4 border-blue-500/30 bg-blue-500/5">
-            <AccordionTrigger className="hover:no-underline">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-blue-500" />
-                <span className="font-medium">Build Plan</span>
-                <Badge variant="secondary" className="ml-2 text-xs">Planning Phase</Badge>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="space-y-4 pt-2">
-              <BuildPlanEditor
-                projectId={project.id}
-                projectName={project.name}
-                projectDescription={project.description}
-                projectStatus={project.status}
-                workingDirectory={getEffectiveWorkingDirectory(project)}
-                providers={providers}
-                selectedProvider={selectedProvider}
-                onProviderChange={setSelectedProvider}
-                onKickoffGenerated={(kickoffPath) => {
-                  console.log(`[project-page] KICKOFF.md generated at: ${kickoffPath}`)
-                }}
-              />
-            </AccordionContent>
-          </AccordionItem>
-        )}
-
         {/* Resources/User Uploads Section */}
         <AccordionItem value="resources" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline">
@@ -2014,9 +2013,7 @@ export default function ProjectDetailPage() {
               <Upload className="h-4 w-4 text-teal-500" />
               <span className="font-medium">User Uploads</span>
               {resourceCount > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">
-                  {resourceCount}
-                </Badge>
+                <span className="text-xs text-muted-foreground ml-1">({resourceCount})</span>
               )}
             </div>
           </AccordionTrigger>

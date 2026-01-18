@@ -233,13 +233,72 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
     fetchServers()
   }, [])
 
-  // Load global settings for initial default
+  // Auto-select a default model when servers load and no instances exist
   useEffect(() => {
-    const settings = getGlobalSettings()
-    if (settings.defaultModel && enabledInstances.length === 0) {
-      // Initialize from global default
+    // Only auto-select if we have servers loaded and no enabled instances
+    if (loadingServers || enabledInstances.length > 0) return
+
+    // Prefer online cloud providers first (anthropic > openai > google)
+    const onlineCloudModels = dynamicModels.filter(m => m.type === "cloud")
+    const anthropicModel = onlineCloudModels.find(m => m.provider === "anthropic")
+    const openaiModel = onlineCloudModels.find(m => m.provider === "openai")
+    const googleModel = onlineCloudModels.find(m => m.provider === "google")
+
+    // Then try online local servers
+    const onlineLocalServer = detectedServers.find(s => s.type === "local" && s.status === "online")
+
+    let autoInstance: EnabledInstance | null = null
+
+    if (anthropicModel) {
+      autoInstance = {
+        id: `auto-${Date.now()}`,
+        type: "cloud",
+        provider: "anthropic",
+        displayName: `Anthropic - ${anthropicModel.name}`,
+        modelId: anthropicModel.id,
+        modelName: anthropicModel.name,
+        maxConcurrent: 1
+      }
+    } else if (openaiModel) {
+      autoInstance = {
+        id: `auto-${Date.now()}`,
+        type: "cloud",
+        provider: "openai",
+        displayName: `OpenAI - ${openaiModel.name}`,
+        modelId: openaiModel.id,
+        modelName: openaiModel.name,
+        maxConcurrent: 1
+      }
+    } else if (googleModel) {
+      autoInstance = {
+        id: `auto-${Date.now()}`,
+        type: "cloud",
+        provider: "google",
+        displayName: `Google AI - ${googleModel.name}`,
+        modelId: googleModel.id,
+        modelName: googleModel.name,
+        maxConcurrent: 1
+      }
+    } else if (onlineLocalServer) {
+      autoInstance = {
+        id: `auto-${Date.now()}`,
+        type: "local",
+        provider: onlineLocalServer.name.includes("ollama") ? "ollama" : "lmstudio",
+        displayName: `${onlineLocalServer.displayName} - ${onlineLocalServer.model || "Loaded Model"}`,
+        serverId: onlineLocalServer.name,
+        serverName: onlineLocalServer.displayName,
+        baseUrl: onlineLocalServer.baseUrl,
+        modelId: onlineLocalServer.model || "loaded",
+        modelName: onlineLocalServer.model || "Currently Loaded",
+        maxConcurrent: 1
+      }
     }
-  }, [enabledInstances.length])
+
+    if (autoInstance) {
+      setEnabledInstances([autoInstance])
+      setDefaultInstance(autoInstance)
+    }
+  }, [loadingServers, detectedServers, dynamicModels, enabledInstances.length])
 
   // Persist enabled instances to localStorage whenever they change
   useEffect(() => {
