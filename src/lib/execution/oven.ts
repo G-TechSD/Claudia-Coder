@@ -310,8 +310,6 @@ export async function* bakeProject(
       }
     })
 
-    let packetResult: LongHorizonResult | undefined
-
     for await (const update of engine) {
       // Forward long-horizon updates
       yield emit({
@@ -328,8 +326,8 @@ export async function* bakeProject(
     }
 
     // Get final result
-    const { value } = await engine.next()
-    packetResult = value as LongHorizonResult
+    const { value: engineValue } = await engine.next()
+    const packetResult = engineValue as LongHorizonResult | undefined
 
     if (packetResult) {
       totalIterations += packetResult.totalIterations
@@ -507,14 +505,12 @@ export async function bakeProjectSimple(
 ): Promise<BakeResult> {
   const oven = bakeProject(project, packets, repo, config)
 
-  let result: BakeResult | undefined
-
   for await (const update of oven) {
     onUpdate?.(update)
   }
 
-  const { value } = await oven.next()
-  result = value as BakeResult
+  const { value: ovenValue } = await oven.next()
+  const result = ovenValue as BakeResult | undefined
 
   return result || {
     success: false,

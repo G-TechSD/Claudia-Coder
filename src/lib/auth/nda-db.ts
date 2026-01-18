@@ -204,10 +204,10 @@ export function isInviteCodeValid(code: string): {
 }
 
 /**
- * Use an invite code for a user
+ * Redeem an invite code for a user
  * Also updates the user's role to beta_tester (unless they're the admin)
  */
-export function useInviteCode(code: string, userId: string): boolean {
+export function redeemInviteCode(code: string, userId: string): boolean {
   const { valid, invite } = isInviteCodeValid(code)
 
   if (!valid || !invite) {

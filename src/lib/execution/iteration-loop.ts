@@ -422,8 +422,6 @@ export async function executeWithIteration(
     onApprovalNeeded: options?.onApprovalNeeded
   })
 
-  let result: IterationResult | undefined
-
   for await (const update of loop) {
     options?.onUpdate?.(update)
 
@@ -434,8 +432,8 @@ export async function executeWithIteration(
   }
 
   // Get the return value from the generator
-  const { value } = await loop.next()
-  result = value as IterationResult
+  const { value: finalValue } = await loop.next()
+  const result = finalValue as IterationResult | undefined
 
   return result || {
     success: false,

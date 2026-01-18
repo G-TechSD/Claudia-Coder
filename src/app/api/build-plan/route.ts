@@ -248,14 +248,16 @@ export async function POST(request: NextRequest) {
         const byPriority: Record<string, number> = {}
         existingPackets.forEach((p: ExistingPacketInfo) => {
           byStatus[p.status || 'unknown'] = (byStatus[p.status || 'unknown'] || 0) + 1
-          byPriority[(p as any).priority || 'medium'] = (byPriority[(p as any).priority || 'medium'] || 0) + 1
+          const priority = (p as ExistingPacketInfo & { priority?: string }).priority || 'medium'
+          byPriority[priority] = (byPriority[priority] || 0) + 1
         })
         sourcesContextParts.push(`  - By status: ${Object.entries(byStatus).map(([s, c]) => `${s}: ${c}`).join(', ')}`)
         sourcesContextParts.push(`  - By priority: ${Object.entries(byPriority).map(([p, c]) => `${p}: ${c}`).join(', ')}`)
       } else {
         sourcesContextParts.push(`EXISTING WORK PACKETS: ${existingPackets.length} packets analyzed.`)
         existingPackets.forEach((p: ExistingPacketInfo, i: number) => {
-          sourcesContextParts.push(`  ${i + 1}. [${p.id}] ${p.title} (${p.status || 'unknown'}, ${(p as any).priority || 'medium'})`)
+          const priority = (p as ExistingPacketInfo & { priority?: string }).priority || 'medium'
+          sourcesContextParts.push(`  ${i + 1}. [${p.id}] ${p.title} (${p.status || 'unknown'}, ${priority})`)
         })
       }
     }

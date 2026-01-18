@@ -128,7 +128,7 @@ export default function UsersPage() {
 
   // Filter and sort users
   const filteredUsers = React.useMemo(() => {
-    let result = users.filter((user) => {
+    const result = users.filter((user) => {
       // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase()

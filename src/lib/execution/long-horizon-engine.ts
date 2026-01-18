@@ -551,14 +551,12 @@ export async function executeLongHorizon(
 ): Promise<LongHorizonResult> {
   const engine = runLongHorizonEngine(packet, repo, options)
 
-  let result: LongHorizonResult | undefined
-
   for await (const update of engine) {
     options.onUpdate?.(update)
   }
 
-  const { value } = await engine.next()
-  result = value as LongHorizonResult
+  const { value: finalValue } = await engine.next()
+  const result = finalValue as LongHorizonResult | undefined
 
   return result || {
     success: false,

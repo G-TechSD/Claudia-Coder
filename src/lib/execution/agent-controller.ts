@@ -418,8 +418,6 @@ class AgentControllerClass {
           }
         })
 
-        let result: LongHorizonResult | undefined
-
         for await (const update of engine) {
           if (this.state !== "running") break
 
@@ -433,8 +431,8 @@ class AgentControllerClass {
           this.notifyListeners()
         }
 
-        const { value } = await engine.next()
-        result = value as LongHorizonResult
+        const { value: finalValue } = await engine.next()
+        const result = finalValue as LongHorizonResult | undefined
 
         if (result) {
           totalIterations += result.totalIterations

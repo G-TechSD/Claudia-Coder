@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSessionWithBypass } from "@/lib/auth/api-helpers"
 import {
   isInviteCodeValid,
-  useInviteCode,
+  redeemInviteCode,
   createInviteCode,
   getInviterDetails,
   getInvitesByUser,
@@ -133,7 +133,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const success = useInviteCode(code, session.user.id)
+    const success = redeemInviteCode(code, session.user.id)
 
     if (!success) {
       return NextResponse.json(
