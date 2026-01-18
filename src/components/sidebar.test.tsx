@@ -7,6 +7,14 @@ import { Sidebar } from "./sidebar"
 // Mock Next.js navigation
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+  }),
 }))
 
 // Mock Next.js Link component

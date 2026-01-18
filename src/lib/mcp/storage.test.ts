@@ -22,6 +22,11 @@ Object.defineProperty(global, 'localStorage', {
   value: localStorageMock,
 });
 
+// Mock window to simulate browser environment (needed for typeof window checks)
+Object.defineProperty(global, 'window', {
+  value: { localStorage: localStorageMock },
+});
+
 describe('MCP Storage', () => {
   beforeEach(() => {
     localStorageMock.clear();
