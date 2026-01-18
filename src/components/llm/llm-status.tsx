@@ -62,9 +62,46 @@ export function LLMStatus({ compact = false }: { compact?: boolean }) {
 
   useEffect(() => {
     fetchStatus()
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchStatus, 30000)
-    return () => clearInterval(interval)
+
+    // Poll every 5 minutes (reduced from 30s to avoid page refresh issues)
+    // Only poll when the document is visible
+    const POLL_INTERVAL = 300000 // 5 minutes
+    let interval: NodeJS.Timeout | null = null
+
+    const startPolling = () => {
+      if (!interval) {
+        interval = setInterval(fetchStatus, POLL_INTERVAL)
+      }
+    }
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval)
+        interval = null
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        // Refresh immediately when tab becomes visible, then resume polling
+        fetchStatus()
+        startPolling()
+      } else {
+        stopPolling()
+      }
+    }
+
+    // Start polling if document is visible
+    if (document.visibilityState === "visible") {
+      startPolling()
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      stopPolling()
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [])
 
   if (compact) {

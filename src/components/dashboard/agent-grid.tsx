@@ -123,10 +123,45 @@ export function AgentGrid() {
   useEffect(() => {
     fetchLLMStatus()
 
-    // Refresh every 30 seconds (same as LLMStatus component)
-    const interval = setInterval(fetchLLMStatus, 30000)
+    // Poll every 5 minutes (reduced from 30s to avoid page refresh issues)
+    // Only poll when the document is visible
+    const POLL_INTERVAL = 300000 // 5 minutes
+    let interval: NodeJS.Timeout | null = null
 
-    return () => clearInterval(interval)
+    const startPolling = () => {
+      if (!interval) {
+        interval = setInterval(fetchLLMStatus, POLL_INTERVAL)
+      }
+    }
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval)
+        interval = null
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        // Refresh immediately when tab becomes visible, then resume polling
+        fetchLLMStatus()
+        startPolling()
+      } else {
+        stopPolling()
+      }
+    }
+
+    // Start polling if document is visible
+    if (document.visibilityState === "visible") {
+      startPolling()
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      stopPolling()
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [fetchLLMStatus])
 
   // Show loading state on initial load
