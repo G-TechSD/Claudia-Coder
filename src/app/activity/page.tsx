@@ -242,8 +242,8 @@ export default function ActivityPage() {
 
     window.addEventListener("storage", handleStorageChange)
 
-    // Poll periodically to catch updates from both sources
-    const interval = setInterval(loadAllActivities, 3000)
+    // Poll periodically to catch updates from both sources (30s to prevent refresh issues)
+    const interval = setInterval(loadAllActivities, 30000)
 
     return () => {
       window.removeEventListener("storage", handleStorageChange)

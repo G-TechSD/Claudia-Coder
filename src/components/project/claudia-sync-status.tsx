@@ -379,8 +379,8 @@ export function ClaudiaSyncStatus({ projectId, projectPath, className }: Claudia
   useEffect(() => {
     fetchSyncStatus()
 
-    // Poll every 7 seconds (between 5-10 as requested)
-    const interval = setInterval(fetchSyncStatus, 7000)
+    // Poll every 60 seconds (reduced from 7s to prevent page refresh issues)
+    const interval = setInterval(fetchSyncStatus, 60000)
 
     return () => clearInterval(interval)
   }, [fetchSyncStatus])

@@ -82,7 +82,7 @@ export function useSubAgents(options: UseSubAgentsOptions): UseSubAgentsReturn {
   const {
     sessionId,
     enablePolling = false,
-    pollingInterval = 2000,
+    pollingInterval = 10000,
     onSubAgentCreated,
     onStatusChange,
     onSubAgentCompleted,
@@ -357,7 +357,7 @@ export function useSubAgents(options: UseSubAgentsOptions): UseSubAgentsReturn {
     [subAgents]
   )
 
-  // Polling effect
+  // Polling effect - only poll when there are actively running sub-agents
   useEffect(() => {
     if (!enablePolling || !sessionId) {
       return
@@ -366,13 +366,18 @@ export function useSubAgents(options: UseSubAgentsOptions): UseSubAgentsReturn {
     // Initial fetch
     refresh()
 
-    // Set up polling interval
+    // Only set up polling if there are running sub-agents (reduces unnecessary requests)
+    if (!hasRunning) {
+      return
+    }
+
+    // Set up polling interval (10s default, only when actively running)
     const intervalId = setInterval(refresh, pollingInterval)
 
     return () => {
       clearInterval(intervalId)
     }
-  }, [enablePolling, sessionId, pollingInterval, refresh])
+  }, [enablePolling, sessionId, pollingInterval, refresh, hasRunning])
 
   // Clear sub-agents when session changes
   useEffect(() => {
