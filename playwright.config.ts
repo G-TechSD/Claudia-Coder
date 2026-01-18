@@ -30,8 +30,9 @@ export default defineConfig({
   ],
 
   // Run local dev server before tests if needed
-  webServer: {
-    command: 'npm run dev',
+  // Skip webServer if CLAUDIA_TEST_URL is set (server already running)
+  webServer: process.env.CLAUDIA_TEST_URL ? undefined : {
+    command: 'npm run claudia',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
