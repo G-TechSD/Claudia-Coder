@@ -894,10 +894,24 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                     }}
                   >
                     <SelectTrigger className="w-[160px] h-8">
-                      <SelectValue placeholder="Auto" />
+                      <span className="truncate">
+                        {override?.modelId
+                          ? enabledInstances.find(i => i.modelId === override.modelId)?.displayName ||
+                            enabledInstances.find(i => i.modelId === override.modelId)?.modelName ||
+                            override.modelId
+                          : defaultInstance
+                            ? `Auto (${defaultInstance.displayName || defaultInstance.modelName})`
+                            : "Auto"
+                        }
+                      </span>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auto">Auto</SelectItem>
+                      <SelectItem value="auto">
+                        {defaultInstance
+                          ? `Auto (${defaultInstance.displayName || defaultInstance.modelName})`
+                          : "Auto"
+                        }
+                      </SelectItem>
                       {enabledInstances.map(i => (
                         <SelectItem key={i.id} value={i.modelId}>
                           {i.displayName || i.modelName || i.modelId || "Unknown Model"}

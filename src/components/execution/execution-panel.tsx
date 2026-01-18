@@ -101,7 +101,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
   const [error, setError] = React.useState<string | null>(null)
   const [refinementCount, setRefinementCount] = React.useState(0)
   const [isRefining, setIsRefining] = React.useState(false)
-  const [executionMode, setExecutionMode] = React.useState<ExecutionMode>("auto")
+  const [executionMode, setExecutionMode] = React.useState<ExecutionMode>("turbo")
   const [lastUsedMode, setLastUsedMode] = React.useState<string | null>(null)
   const [betaLimitReached, setBetaLimitReached] = React.useState(false)
   const [n8nStatus, setN8NStatus] = React.useState<N8NStatus>({
@@ -704,9 +704,9 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-2 text-center">
-              {executionMode === "auto" && "Uses Local when available, falls back to Turbo"}
+              {executionMode === "auto" && "Uses Claude Code when available, falls back to Local"}
               {executionMode === "local" && "LM Studio - No internet required, zero subscriptions"}
-              {executionMode === "turbo" && "Claude Code - Higher quality, requires API subscription"}
+              {executionMode === "turbo" && "Claude Code - Higher quality (recommended)"}
               {executionMode === "n8n" && "Multi-stage quality pipeline with iteration loops"}
             </p>
           </div>

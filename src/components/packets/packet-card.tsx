@@ -11,7 +11,9 @@ import {
   Loader2,
   CheckCircle2,
   Circle,
-  ListChecks
+  ListChecks,
+  Pencil,
+  Trash2
 } from "lucide-react"
 
 export interface PacketTask {
@@ -36,6 +38,8 @@ interface PacketCardProps {
   onStart: () => void
   onStop: () => void
   isExecuting: boolean
+  onEdit?: () => void
+  onDelete?: () => void
 }
 
 const priorityConfig: Record<Packet["priority"], { label: string; variant: "default" | "secondary" | "warning" | "error" }> = {
@@ -64,7 +68,7 @@ function getStatusConfig(status: string): StatusConfigValue {
   return statusConfig[status as Packet["status"]] ?? defaultStatusConfig
 }
 
-export function PacketCard({ packet, onStart, onStop, isExecuting }: PacketCardProps) {
+export function PacketCard({ packet, onStart, onStop, isExecuting, onEdit, onDelete }: PacketCardProps) {
   const completedTasks = packet.tasks.filter(task => task.completed).length
   const totalTasks = packet.tasks.length
   const progressPercent = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0
@@ -91,8 +95,42 @@ export function PacketCard({ packet, onStart, onStop, isExecuting }: PacketCardP
             </CardTitle>
           </div>
 
-          {/* Status indicator */}
+          {/* Status and Actions */}
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Edit/Delete buttons */}
+            {(onEdit || onDelete) && (
+              <div className="flex items-center gap-1 mr-2">
+                {onEdit && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEdit()
+                    }}
+                    title="Edit packet"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {onDelete && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDelete()
+                    }}
+                    title="Delete packet"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            )}
+            {/* Status indicator */}
             <StatusIcon
               className={cn(
                 "h-4 w-4",

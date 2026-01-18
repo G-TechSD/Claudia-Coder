@@ -55,7 +55,10 @@ import {
   DollarSign,
   Search,
   BookOpen,
-  Download
+  Download,
+  ChevronDown,
+  ChevronRight,
+  Settings
 } from "lucide-react"
 import { getProject, updateProject, trashProject, restoreProject, seedSampleProjects, updateRepoLocalPath, toggleProjectStar, getEffectiveWorkingDirectory } from "@/lib/data/projects"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
@@ -105,6 +108,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog"
 import type { Project, ProjectStatus, InterviewMessage, StoredBuildPlan } from "@/lib/data/types"
 
 interface ProviderOption {
@@ -205,18 +218,28 @@ export default function ProjectDetailPage() {
 
   // Navigation state
   const [activeTab, setActiveTab] = useState("overview")
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   // Batch execution state
   const [concurrency, setConcurrency] = useState(1)
   const [customConcurrency, setCustomConcurrency] = useState('')
   const [showCustomInput, setShowCustomInput] = useState(false)
 
+  // Packet edit/delete state
+  const [editingPacket, setEditingPacket] = useState<{
+    id: string
+    title: string
+    description: string
+    priority: string
+  } | null>(null)
+  const [deletePacketId, setDeletePacketId] = useState<string | null>(null)
+
   // Ref for ExecutionPanel to trigger execution programmatically
   const executionPanelRef = useRef<ExecutionPanelRef>(null)
 
   // Execution session restoration state
   const [restoredSession, setRestoredSession] = useState<RestoredSession | null>(null)
-  const [sessionPollingInterval, setSessionPollingInterval] = useState<NodeJS.Timeout | null>(null)
+  // sessionPollingInterval removed - polling is disabled to prevent page disruption
 
   // Starred projects hook for sidebar sync
   const { toggleStar } = useStarredProjects()
@@ -249,35 +272,10 @@ export default function ProjectDetailPage() {
           }
           setRestoredSession(restored)
 
-          // Start polling for updates while session is running
-          const pollInterval = setInterval(async () => {
-            try {
-              const pollResponse = await fetch(`/api/execution-sessions?sessionId=${data.session.id}`)
-              const pollData = await pollResponse.json()
-
-              if (pollData.success && pollData.session) {
-                const updatedSession: RestoredSession = {
-                  id: pollData.session.id,
-                  status: pollData.session.status,
-                  progress: pollData.session.progress,
-                  events: pollData.session.events || [],
-                  currentPacketIndex: pollData.session.currentPacketIndex || 0
-                }
-                setRestoredSession(updatedSession)
-
-                // Stop polling if session is no longer running
-                if (pollData.session.status !== "running") {
-                  console.log(`[ProjectPage] Session ${pollData.session.id} completed with status: ${pollData.session.status}`)
-                  clearInterval(pollInterval)
-                  setSessionPollingInterval(null)
-                }
-              }
-            } catch (pollError) {
-              console.error("[ProjectPage] Error polling session:", pollError)
-            }
-          }, 2000) // Poll every 2 seconds
-
-          setSessionPollingInterval(pollInterval)
+          // Session polling disabled to prevent page disruption
+          // The ExecutionPanel component handles its own session state updates
+          // via events, so polling is not necessary for UI updates
+          console.log(`[ProjectPage] Active session found, polling disabled to prevent page disruption`)
         }
       } catch (error) {
         console.error("[ProjectPage] Error checking for active sessions:", error)
@@ -285,14 +283,8 @@ export default function ProjectDetailPage() {
     }
 
     checkActiveSession()
-
-    // Cleanup polling interval on unmount
-    return () => {
-      if (sessionPollingInterval) {
-        clearInterval(sessionPollingInterval)
-      }
-    }
-  }, [projectId]) // eslint-disable-line react-hooks/exhaustive-deps
+    // No cleanup needed - polling is disabled
+  }, [projectId])
 
   // Load packets and build plan status for this project
   useEffect(() => {
@@ -549,6 +541,105 @@ export default function ProjectDetailPage() {
     setSelectedRun(run)
   }
 
+  // Handler for editing a packet
+  const handleEditPacket = (packetId: string) => {
+    const packet = packets.find(p => p.id === packetId)
+    if (packet) {
+      setEditingPacket({
+        id: packet.id,
+        title: packet.title,
+        description: packet.description,
+        priority: packet.priority
+      })
+    }
+  }
+
+  // Handler for saving packet edits
+  const handleSavePacketEdit = () => {
+    if (!editingPacket || !projectId) return
+
+    // Update local state
+    setPackets(prev => prev.map(p =>
+      p.id === editingPacket.id
+        ? { ...p, title: editingPacket.title, description: editingPacket.description, priority: editingPacket.priority }
+        : p
+    ))
+
+    // Update localStorage
+    const storedPackets = localStorage.getItem("claudia_packets")
+    if (storedPackets) {
+      try {
+        const allPackets = JSON.parse(storedPackets)
+        const projectPackets = allPackets[projectId] || []
+        const updatedProjectPackets = projectPackets.map((p: { id: string; title: string; description: string; priority: string }) =>
+          p.id === editingPacket.id
+            ? { ...p, title: editingPacket.title, description: editingPacket.description, priority: editingPacket.priority }
+            : p
+        )
+        allPackets[projectId] = updatedProjectPackets
+        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+      } catch {
+        console.error("Failed to save packet edit")
+      }
+    }
+
+    // Close dialog
+    setEditingPacket(null)
+  }
+
+  // Handler for deleting a packet
+  const handleDeletePacket = (packetId: string) => {
+    setDeletePacketId(packetId)
+  }
+
+  // Handler for confirming packet deletion
+  const handleConfirmDeletePacket = () => {
+    if (!deletePacketId || !projectId) return
+
+    // Update local state
+    setPackets(prev => prev.filter(p => p.id !== deletePacketId))
+
+    // Clear selection if deleted packet was selected
+    if (selectedPacketId === deletePacketId) {
+      setSelectedPacketId(null)
+      setSelectedRun(null)
+    }
+
+    // Update localStorage
+    const storedPackets = localStorage.getItem("claudia_packets")
+    if (storedPackets) {
+      try {
+        const allPackets = JSON.parse(storedPackets)
+        const projectPackets = allPackets[projectId] || []
+        const updatedProjectPackets = projectPackets.filter((p: { id: string }) => p.id !== deletePacketId)
+        allPackets[projectId] = updatedProjectPackets
+        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+      } catch {
+        console.error("Failed to delete packet")
+      }
+    }
+
+    // Also clean up associated runs
+    const storedRuns = localStorage.getItem("claudia_packet_runs")
+    if (storedRuns) {
+      try {
+        const allRuns = JSON.parse(storedRuns)
+        delete allRuns[deletePacketId]
+        localStorage.setItem("claudia_packet_runs", JSON.stringify(allRuns))
+        setPacketRuns(prev => {
+          const updated = { ...prev }
+          delete updated[deletePacketId]
+          return updated
+        })
+      } catch {
+        console.error("Failed to delete packet runs")
+      }
+    }
+
+    // Close dialog
+    setDeletePacketId(null)
+  }
+
   // Handler for running all pending packets
   const handleRunAllPackets = async () => {
     if (!projectId) return
@@ -725,10 +816,10 @@ export default function ProjectDetailPage() {
     setEditingLocalPath("")
   }
 
-  // Handler for Start Build hero - collapses accordions, scrolls to execution panel, and triggers GO
+  // Handler for Start Build hero - opens packets accordion, scrolls to execution panel, and triggers GO
   const handleStartBuild = useCallback(() => {
-    // 1. Collapse all accordions by setting activeTab to empty string
-    setActiveTab("")
+    // 1. Open packets accordion so Activity and Build Progress remain visible
+    setActiveTab("packets")
 
     // 2. Find and scroll to the execution panel
     const executionPanel = document.querySelector('[data-execution-panel]')
@@ -925,7 +1016,7 @@ export default function ProjectDetailPage() {
   const StatusIcon = statusConfig[project.status].icon
 
   return (
-    <div className="p-6 space-y-6 min-h-0 overflow-auto">
+    <div className="p-6 space-y-6 min-h-0 overflow-auto bg-background">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="space-y-1">
@@ -1382,19 +1473,6 @@ export default function ProjectDetailPage() {
           </AccordionContent>
         </AccordionItem>
 
-        {/* AI Models Section - Moved up for visibility */}
-        <AccordionItem value="models" className="border rounded-lg px-4">
-          <AccordionTrigger className="hover:no-underline">
-            <div className="flex items-center gap-2">
-              <Brain className="h-4 w-4 text-pink-500" />
-              <span className="font-medium">AI Models</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="space-y-4 pt-2">
-            <ModelAssignment projectId={project.id} />
-          </AccordionContent>
-        </AccordionItem>
-
         {/* Build Plan Section - Always show (not just in planning) */}
         <AccordionItem value="plan" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline">
@@ -1591,6 +1669,8 @@ export default function ProjectDetailPage() {
                             onStart={() => handleStartPacket(packet.id)}
                             onStop={() => handleStopPacket(packet.id)}
                             isExecuting={isExecuting}
+                            onEdit={() => handleEditPacket(packet.id)}
+                            onDelete={() => handleDeletePacket(packet.id)}
                           />
                         </div>
                       )
@@ -1823,9 +1903,48 @@ export default function ProjectDetailPage() {
             </Card>
           </AccordionContent>
         </AccordionItem>
+      </Accordion>
 
-        {/* Repositories Section */}
-        <AccordionItem value="repos" className="border rounded-lg px-4">
+      {/* Advanced Settings Section - Collapsible */}
+      <div className="border rounded-lg">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Settings className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium text-muted-foreground">Advanced</span>
+            <span className="text-xs text-muted-foreground ml-1">(9 sections)</span>
+          </div>
+          {showAdvanced ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+
+        {showAdvanced && (
+          <div className="border-t px-4 pb-4">
+            <Accordion
+              type="single"
+              collapsible
+              className="space-y-2 pt-2"
+            >
+              {/* AI Models Section */}
+              <AccordionItem value="models" className="border rounded-lg px-4">
+                <AccordionTrigger className="hover:no-underline">
+                  <div className="flex items-center gap-2">
+                    <Brain className="h-4 w-4 text-pink-500" />
+                    <span className="font-medium">AI Models</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-4 pt-2">
+                  <ModelAssignment projectId={project.id} />
+                </AccordionContent>
+              </AccordionItem>
+
+              {/* Repositories Section */}
+              <AccordionItem value="repos" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
               <GitBranch className="h-4 w-4 text-orange-500" />
@@ -2235,7 +2354,10 @@ export default function ProjectDetailPage() {
             />
           </AccordionContent>
         </AccordionItem>
-      </Accordion>
+            </Accordion>
+          </div>
+        )}
+      </div>
 
       {/* Repo Browser Modal */}
       <RepoBrowser
@@ -2270,6 +2392,87 @@ export default function ProjectDetailPage() {
           console.log("Comment added:", comment)
         }}
       />
+
+      {/* Edit Packet Dialog */}
+      <Dialog open={!!editingPacket} onOpenChange={(open) => !open && setEditingPacket(null)}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Edit Work Packet</DialogTitle>
+            <DialogDescription>
+              Make changes to the work packet details below.
+            </DialogDescription>
+          </DialogHeader>
+          {editingPacket && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-title">Title</Label>
+                <Input
+                  id="edit-title"
+                  value={editingPacket.title}
+                  onChange={(e) => setEditingPacket({ ...editingPacket, title: e.target.value })}
+                  placeholder="Packet title"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-description">Description</Label>
+                <Textarea
+                  id="edit-description"
+                  value={editingPacket.description}
+                  onChange={(e) => setEditingPacket({ ...editingPacket, description: e.target.value })}
+                  placeholder="Packet description"
+                  rows={4}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-priority">Priority</Label>
+                <Select
+                  value={editingPacket.priority}
+                  onValueChange={(value) => setEditingPacket({ ...editingPacket, priority: value })}
+                >
+                  <SelectTrigger id="edit-priority">
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="critical">Critical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingPacket(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSavePacketEdit}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Packet Confirmation Dialog */}
+      <Dialog open={!!deletePacketId} onOpenChange={(open) => !open && setDeletePacketId(null)}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Delete Work Packet</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this work packet? This action cannot be undone.
+              All associated execution history will also be removed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletePacketId(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmDeletePacket}>
+              Delete Packet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

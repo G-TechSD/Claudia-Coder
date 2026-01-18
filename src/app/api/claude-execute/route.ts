@@ -1,15 +1,17 @@
 /**
  * Claudia Execution API
  * Executes work packets using:
+ * - TURBO MODE (Preferred): Claude Code CLI - higher quality, cloud-powered
  * - N8N MODE: N8N workflow orchestration - handles iteration loops and quality validation
  * - LOCAL MODE (Free): LM Studio - works completely offline, no subscriptions
- * - TURBO MODE (Paid): Claude Code CLI - higher quality but requires API key
+ *
+ * TURBO MODE (Claude Code) is the preferred default for higher quality execution.
+ * It is automatically selected when available.
  *
  * N8N MODE triggers an external N8N workflow that handles the iteration loop,
  * quality validation, and progress tracking. Results are delivered via callback.
  *
- * LOCAL MODE is the default fallback and works in the desert with no internet.
- * TURBO MODE is optional premium for users who want faster/better refinement.
+ * LOCAL MODE is the fallback option that works offline with no internet.
  *
  * MANDATORY QUALITY GATES:
  * All execution modes enforce mandatory quality gates before marking code as complete:
@@ -417,26 +419,26 @@ export async function POST(request: NextRequest) {
       const claudeResult = await executeWithClaudeCode(prompt, repoPath, options, emit)
       result = { ...claudeResult, mode: "turbo" }
     } else {
-      // Auto mode: Try LM Studio first, fall back to Claude Code
-      const lmStudioAvailable = await getAvailableServer()
+      // Auto mode: Prefer Claude Code (turbo), fall back to LM Studio (local)
+      const claudeAvailable = await checkLocalClaudeAvailable()
 
-      if (lmStudioAvailable) {
-        emit("thinking", `Using Local Mode (${lmStudioAvailable.name})...`, "Free, works offline")
-        result = await executeWithLMStudio(prompt, repoPath, packet, options, emit)
+      if (claudeAvailable) {
+        emit("thinking", "Using Claude Code (auto-selected)...", "Premium mode - higher quality")
+        const claudeResult = await executeWithClaudeCode(prompt, repoPath, options, emit)
+        result = { ...claudeResult, mode: "turbo" }
       } else {
-        // Fall back to Claude Code if no LM Studio available
-        const claudeAvailable = await checkLocalClaudeAvailable()
-        if (claudeAvailable) {
-          emit("thinking", "No LM Studio available, using Claude Code...", "Falling back to premium mode")
-          const claudeResult = await executeWithClaudeCode(prompt, repoPath, options, emit)
-          result = { ...claudeResult, mode: "turbo" }
+        // Fall back to LM Studio if Claude Code not available
+        const lmStudioAvailable = await getAvailableServer()
+        if (lmStudioAvailable) {
+          emit("thinking", `No Claude Code available, using Local Mode (${lmStudioAvailable.name})...`, "Falling back to free offline mode")
+          result = await executeWithLMStudio(prompt, repoPath, packet, options, emit)
         } else {
           // Persist failure event - no backend available
           await persistActivityEvents(events, body.projectId, projectName, packet.id, packet.title, "none", false)
           return NextResponse.json({
             success: false,
             events,
-            error: "No execution backend available. Start LM Studio or install Claude Code CLI.",
+            error: "No execution backend available. Install Claude Code CLI or start LM Studio.",
             duration: Date.now() - startTime
           })
         }
@@ -1871,14 +1873,15 @@ export async function GET() {
 
   const lmStudioAvailable = lmStudioServer !== null
 
-  // Determine recommended mode priority: n8n > local > turbo
+  // Determine recommended mode priority: turbo > n8n > local
+  // Claude Code (turbo) is preferred for higher quality execution
   let recommendedMode: ExecutionMode | "none" = "none"
-  if (n8nAvailable) {
+  if (claudeLocalAvailable || claudeRemoteAvailable) {
+    recommendedMode = "turbo"
+  } else if (n8nAvailable) {
     recommendedMode = "n8n"
   } else if (lmStudioAvailable) {
     recommendedMode = "local"
-  } else if (claudeLocalAvailable || claudeRemoteAvailable) {
-    recommendedMode = "turbo"
   }
 
   return NextResponse.json({

@@ -375,14 +375,13 @@ export function ClaudiaSyncStatus({ projectId, projectPath, className }: Claudia
     }
   }, [projectId, projectPath])
 
-  // Poll for updates
+  // Fetch status on mount only - no auto-polling to prevent any page disruption
+  // Users can manually refresh using the "Scan Now" button
   useEffect(() => {
     fetchSyncStatus()
-
-    // Poll every 60 seconds (reduced from 7s to prevent page refresh issues)
-    const interval = setInterval(fetchSyncStatus, 60000)
-
-    return () => clearInterval(interval)
+    // Auto-polling disabled - was causing potential page disruption issues
+    // const interval = setInterval(fetchSyncStatus, 60000)
+    // return () => clearInterval(interval)
   }, [fetchSyncStatus])
 
   // Manual scan trigger
