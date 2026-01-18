@@ -18,10 +18,16 @@ import * as path from "path"
 const execAsync = promisify(exec)
 
 // Visual Testing VM configuration
+// NOTE: VISUAL_TEST_HOST must be set via environment variable - no hardcoded fallback
 const VISUAL_TEST_VM = {
-  host: process.env.VISUAL_TEST_HOST || "172.18.22.114",
+  host: process.env.VISUAL_TEST_HOST || "",
   user: process.env.VISUAL_TEST_USER || "localhost",
   display: ":1"
+}
+
+// Check if visual testing VM is configured
+const isVisualTestConfigured = (): boolean => {
+  return !!process.env.VISUAL_TEST_HOST && process.env.VISUAL_TEST_HOST.length > 0
 }
 
 // FeedbackItem interface kept for future use
@@ -32,6 +38,17 @@ const VISUAL_TEST_VM = {
 // }
 
 export async function POST(request: NextRequest) {
+  // Check if visual testing is configured
+  if (!isVisualTestConfigured()) {
+    return NextResponse.json({
+      success: false,
+      passed: false,
+      error: "Visual testing VM not configured. Set VISUAL_TEST_HOST environment variable.",
+      notConfigured: true,
+      issues: ["Visual testing VM not configured"]
+    }, { status: 503 })
+  }
+
   const body = await request.json()
   const {
     vmHost = VISUAL_TEST_VM.host,
@@ -220,6 +237,15 @@ export async function POST(request: NextRequest) {
  * GET - Check visual testing VM status
  */
 export async function GET() {
+  // Check if visual testing is configured
+  if (!isVisualTestConfigured()) {
+    return NextResponse.json({
+      status: "not_configured",
+      configured: false,
+      error: "Visual testing VM not configured. Set VISUAL_TEST_HOST environment variable."
+    })
+  }
+
   const { host, user, display } = VISUAL_TEST_VM
   const sshOpts = "-o StrictHostKeyChecking=no -o ConnectTimeout=5"
 

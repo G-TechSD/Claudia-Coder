@@ -76,9 +76,15 @@ const execAsync = promisify(exec)
 const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000
 
 // SSH configuration for remote execution
-const SSH_HOST = process.env.CLAUDE_CODE_HOST || "172.18.22.114"
+// NOTE: If CLAUDE_CODE_HOST is not set, remote execution will be skipped and local execution will be used
+const SSH_HOST = process.env.CLAUDE_CODE_HOST || ""
 const SSH_USER = process.env.CLAUDE_CODE_USER || "localhost"
 const SSH_KEY_PATH = process.env.CLAUDE_CODE_SSH_KEY || "~/.ssh/id_rsa"
+
+// Check if remote execution is configured
+const isRemoteConfigured = (): boolean => {
+  return !!process.env.CLAUDE_CODE_HOST && process.env.CLAUDE_CODE_HOST.length > 0
+}
 
 // Execution mode: "local" (LM Studio - free), "turbo" (Claude Code - paid), "n8n" (N8N workflow)
 type ExecutionMode = "local" | "turbo" | "n8n" | "auto"
@@ -1845,8 +1851,14 @@ async function checkLocalClaudeAvailable(): Promise<boolean> {
 
 /**
  * Check if remote host is reachable via SSH
+ * Returns false if CLAUDE_CODE_HOST is not configured
  */
 async function checkRemoteAvailable(): Promise<boolean> {
+  // If remote host is not configured, return false immediately
+  if (!isRemoteConfigured()) {
+    return false
+  }
+
   try {
     await execAsync(
       `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes ${SSH_USER}@${SSH_HOST} "echo ok"`,

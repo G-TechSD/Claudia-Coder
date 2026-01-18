@@ -239,8 +239,12 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
   } | null>(null)
 
   // Visual Testing VM config
+  // NOTE: Host is fetched from server-side configuration via API
+  // The actual host is set via VISUAL_TEST_HOST environment variable on the server
   const VISUAL_TEST_VM = {
-    host: "172.18.22.114",
+    // Empty host - server will use its own configuration from env vars
+    // If not configured server-side, visual testing features will be gracefully skipped
+    host: "",
     user: "localhost",
     display: ":1"
   }

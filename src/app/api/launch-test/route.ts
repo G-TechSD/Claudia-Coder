@@ -21,11 +21,17 @@ import { validatePort, getSuggestedPorts } from "@/lib/execution/port-config"
 const execAsync = promisify(exec)
 
 // Visual Testing VM configuration
+// NOTE: VISUAL_TEST_HOST must be set via environment variable - no hardcoded fallback
 const VISUAL_TEST_VM = {
-  host: process.env.VISUAL_TEST_HOST || "172.18.22.114",
+  host: process.env.VISUAL_TEST_HOST || "",
   user: process.env.VISUAL_TEST_USER || "localhost",
   sshKey: process.env.VISUAL_TEST_SSH_KEY || "~/.ssh/id_rsa",
   display: ":1"
+}
+
+// Check if visual testing VM is configured
+const isVisualTestConfigured = (): boolean => {
+  return !!process.env.VISUAL_TEST_HOST && process.env.VISUAL_TEST_HOST.length > 0
 }
 
 // Store running processes
@@ -351,6 +357,15 @@ async function handleScreenshot(body: {
   display?: string
   url?: string
 }) {
+  // Check if visual testing is configured
+  if (!isVisualTestConfigured() && !body.vmHost) {
+    return NextResponse.json({
+      success: false,
+      error: "Visual testing VM not configured. Set VISUAL_TEST_HOST environment variable.",
+      notConfigured: true
+    })
+  }
+
   const host = body.vmHost || VISUAL_TEST_VM.host
   const user = body.vmUser || VISUAL_TEST_VM.user
   const display = body.display || VISUAL_TEST_VM.display
@@ -436,6 +451,17 @@ async function handleVisualVerify(body: {
   projectId: string
   feedbackItems: Array<{ id: string; text: string }>
 }) {
+  // Check if visual testing is configured
+  if (!isVisualTestConfigured() && !body.vmHost) {
+    return NextResponse.json({
+      success: false,
+      passed: false,
+      error: "Visual testing VM not configured. Set VISUAL_TEST_HOST environment variable.",
+      notConfigured: true,
+      issues: ["Visual testing VM not configured"]
+    })
+  }
+
   const host = body.vmHost || VISUAL_TEST_VM.host
   const user = body.vmUser || VISUAL_TEST_VM.user
   const display = body.display || VISUAL_TEST_VM.display
