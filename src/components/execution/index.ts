@@ -5,5 +5,5 @@
 
 export { GoButton, HeroGoButton } from "./go-button"
 export { ActivityStream, ActivityIndicator, type ActivityEvent } from "./activity-stream"
-export { ExecutionPanel, ExecutionWidget } from "./execution-panel"
+export { ExecutionPanel, ExecutionWidget, type ExecutionPanelRef, type RestoredSession } from "./execution-panel"
 export { LaunchTestPanel } from "./launch-test-panel"

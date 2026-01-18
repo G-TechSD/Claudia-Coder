@@ -98,26 +98,104 @@ export function usePacketExecution(packetId: string, projectId: string): UsePack
     }
   }, [])
 
-  // Poll for execution status updates (mock implementation)
-  const startPolling = useCallback((runId: string) => {
+  // Terminal statuses that indicate execution has finished
+  const TERMINAL_STATUSES: PacketRunStatus[] = ["completed", "failed", "cancelled"]
+
+  // Maximum polling duration (30 minutes) to prevent infinite polling
+  const MAX_POLLING_DURATION_MS = 30 * 60 * 1000
+
+  // Poll for execution status updates
+  // Supports both local packet run status and N8N callback endpoint for async workflows
+  const startPolling = useCallback((runId: string, sessionId?: string) => {
     // Clear any existing polling
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current)
     }
 
-    pollingIntervalRef.current = setInterval(() => {
+    const pollingStartTime = Date.now()
+
+    pollingIntervalRef.current = setInterval(async () => {
+      // Check for maximum polling duration timeout
+      if (Date.now() - pollingStartTime > MAX_POLLING_DURATION_MS) {
+        console.warn(`[usePacketExecution] Polling timeout reached for run ${runId}`)
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current)
+          pollingIntervalRef.current = null
+        }
+        // Update run status to failed due to timeout
+        updatePacketRun(runId, {
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          output: "Execution timed out after 30 minutes"
+        })
+        setIsExecuting(false)
+        refreshRuns()
+        return
+      }
+
+      // First, check local packet run status
       const run = getPacketRun(runId)
       if (run) {
         setCurrentRun(run)
 
-        // Stop polling if execution is complete
-        if (run.status !== "running") {
+        // Only stop polling for terminal statuses (completed, failed, cancelled)
+        // Do NOT stop for "pending" or "running" - keep polling
+        if (TERMINAL_STATUSES.includes(run.status)) {
           if (pollingIntervalRef.current) {
             clearInterval(pollingIntervalRef.current)
             pollingIntervalRef.current = null
           }
           setIsExecuting(false)
           refreshRuns()
+          return
+        }
+      }
+
+      // If we have a sessionId, also poll the N8N callback endpoint for async workflow updates
+      if (sessionId) {
+        try {
+          const response = await fetch(`/api/n8n-callback?sessionId=${encodeURIComponent(sessionId)}`)
+          if (response.ok) {
+            const callbackData = await response.json()
+
+            // Check if N8N workflow has completed or errored
+            if (callbackData.status === "complete") {
+              // Update the packet run with the final results
+              updatePacketRun(runId, {
+                status: "completed",
+                completedAt: new Date().toISOString(),
+                output: callbackData.finalOutput || "N8N workflow completed successfully"
+              })
+
+              if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current)
+                pollingIntervalRef.current = null
+              }
+              setIsExecuting(false)
+              refreshRuns()
+              return
+            } else if (callbackData.status === "error") {
+              // Update the packet run with the error
+              updatePacketRun(runId, {
+                status: "failed",
+                completedAt: new Date().toISOString(),
+                output: callbackData.error || "N8N workflow failed",
+                exitCode: 1
+              })
+
+              if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current)
+                pollingIntervalRef.current = null
+              }
+              setIsExecuting(false)
+              refreshRuns()
+              return
+            }
+            // If status is "running", continue polling
+          }
+        } catch (error) {
+          // Log but don't stop polling on network errors - the N8N workflow might still complete
+          console.warn(`[usePacketExecution] Error polling N8N callback:`, error)
         }
       }
     }, 1000) // Poll every second

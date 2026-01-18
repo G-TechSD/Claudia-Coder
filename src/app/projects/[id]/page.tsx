@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -80,7 +80,7 @@ import { getBuildPlanForProject } from "@/lib/data/build-plans"
 import { FolderInitializer } from "@/components/project/folder-initializer"
 import { BrainDumpList } from "@/components/brain-dump/brain-dump-list"
 import { AudioRecorder } from "@/components/brain-dump/audio-recorder"
-import { ExecutionPanel, LaunchTestPanel } from "@/components/execution"
+import { ExecutionPanel, LaunchTestPanel, type ExecutionPanelRef, type RestoredSession } from "@/components/execution"
 import { ClaudeCodeTerminal } from "@/components/claude-code/terminal"
 import { ClaudiaSyncStatus } from "@/components/project/claudia-sync-status"
 import { BusinessDevSection } from "@/components/project/business-dev-section"
@@ -211,6 +211,13 @@ export default function ProjectDetailPage() {
   const [customConcurrency, setCustomConcurrency] = useState('')
   const [showCustomInput, setShowCustomInput] = useState(false)
 
+  // Ref for ExecutionPanel to trigger execution programmatically
+  const executionPanelRef = useRef<ExecutionPanelRef>(null)
+
+  // Execution session restoration state
+  const [restoredSession, setRestoredSession] = useState<RestoredSession | null>(null)
+  const [sessionPollingInterval, setSessionPollingInterval] = useState<NodeJS.Timeout | null>(null)
+
   // Starred projects hook for sidebar sync
   const { toggleStar } = useStarredProjects()
 
@@ -219,6 +226,73 @@ export default function ProjectDetailPage() {
 
   // Auth hook for user-scoped storage
   const { user } = useAuth()
+
+  // Check for active execution sessions on mount and restore state if found
+  useEffect(() => {
+    if (!projectId) return
+
+    const checkActiveSession = async () => {
+      try {
+        const response = await fetch(`/api/execution-sessions?projectId=${projectId}`)
+        const data = await response.json()
+
+        if (data.success && data.session && data.session.status === "running") {
+          console.log(`[ProjectPage] Found active execution session: ${data.session.id}`)
+
+          // Convert server session to RestoredSession format
+          const restored: RestoredSession = {
+            id: data.session.id,
+            status: data.session.status,
+            progress: data.session.progress,
+            events: data.session.events || [],
+            currentPacketIndex: data.session.currentPacketIndex || 0
+          }
+          setRestoredSession(restored)
+
+          // Start polling for updates while session is running
+          const pollInterval = setInterval(async () => {
+            try {
+              const pollResponse = await fetch(`/api/execution-sessions?sessionId=${data.session.id}`)
+              const pollData = await pollResponse.json()
+
+              if (pollData.success && pollData.session) {
+                const updatedSession: RestoredSession = {
+                  id: pollData.session.id,
+                  status: pollData.session.status,
+                  progress: pollData.session.progress,
+                  events: pollData.session.events || [],
+                  currentPacketIndex: pollData.session.currentPacketIndex || 0
+                }
+                setRestoredSession(updatedSession)
+
+                // Stop polling if session is no longer running
+                if (pollData.session.status !== "running") {
+                  console.log(`[ProjectPage] Session ${pollData.session.id} completed with status: ${pollData.session.status}`)
+                  clearInterval(pollInterval)
+                  setSessionPollingInterval(null)
+                }
+              }
+            } catch (pollError) {
+              console.error("[ProjectPage] Error polling session:", pollError)
+            }
+          }, 2000) // Poll every 2 seconds
+
+          setSessionPollingInterval(pollInterval)
+        }
+      } catch (error) {
+        console.error("[ProjectPage] Error checking for active sessions:", error)
+      }
+    }
+
+    checkActiveSession()
+
+    // Cleanup polling interval on unmount
+    return () => {
+      if (sessionPollingInterval) {
+        clearInterval(sessionPollingInterval)
+      }
+    }
+  }, [projectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load packets and build plan status for this project
   useEffect(() => {
@@ -651,14 +725,64 @@ export default function ProjectDetailPage() {
     setEditingLocalPath("")
   }
 
-  // Handler for Start Build hero - scrolls to execution panel
-  const handleStartBuild = () => {
-    // Find and scroll to the execution panel
+  // Handler for Start Build hero - collapses accordions, scrolls to execution panel, and triggers GO
+  const handleStartBuild = useCallback(() => {
+    // 1. Collapse all accordions by setting activeTab to empty string
+    setActiveTab("")
+
+    // 2. Find and scroll to the execution panel
     const executionPanel = document.querySelector('[data-execution-panel]')
     if (executionPanel) {
       executionPanel.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
-  }
+
+    // 3. Trigger execution after scroll completes
+    // Use requestAnimationFrame to ensure DOM has updated, then trigger execution
+    // This avoids brittle setTimeout and DOM manipulation
+    const triggerExecution = () => {
+      if (executionPanelRef.current) {
+        executionPanelRef.current.triggerExecution()
+      }
+    }
+
+    // Wait for scroll to complete using scrollend event (with fallback for browsers that don't support it)
+    if ('onscrollend' in window) {
+      // Modern browsers: use scrollend event
+      const handleScrollEnd = () => {
+        window.removeEventListener('scrollend', handleScrollEnd)
+        // Use rAF to ensure paint is complete
+        requestAnimationFrame(triggerExecution)
+      }
+      window.addEventListener('scrollend', handleScrollEnd, { once: true })
+      // Fallback timeout in case scrollend doesn't fire (e.g., if already at position)
+      setTimeout(() => {
+        window.removeEventListener('scrollend', handleScrollEnd)
+        triggerExecution()
+      }, 1000)
+    } else {
+      // Fallback for older browsers: use IntersectionObserver to detect when panel is visible
+      const observer = new IntersectionObserver((entries) => {
+        const entry = entries[0]
+        if (entry && entry.isIntersecting) {
+          observer.disconnect()
+          // Use rAF to ensure paint is complete
+          requestAnimationFrame(triggerExecution)
+        }
+      }, { threshold: 0.5 })
+
+      if (executionPanel) {
+        observer.observe(executionPanel)
+        // Fallback timeout in case observation fails
+        setTimeout(() => {
+          observer.disconnect()
+          triggerExecution()
+        }, 1000)
+      } else {
+        // No panel found, trigger immediately
+        triggerExecution()
+      }
+    }
+  }, [])
 
   // Handler for starting Claude Code session
   const handleStartClaudeCode = async () => {
@@ -1102,6 +1226,7 @@ export default function ProjectDetailPage() {
           {/* GO BUTTON - The Star of the Show */}
           <div data-execution-panel>
             <ExecutionPanel
+              ref={executionPanelRef}
               project={{
                 id: project.id,
                 name: project.name,
@@ -1109,6 +1234,7 @@ export default function ProjectDetailPage() {
                 repos: project.repos
               }}
               packets={packets}
+              restoredSession={restoredSession}
             />
           </div>
 

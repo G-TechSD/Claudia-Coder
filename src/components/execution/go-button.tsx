@@ -15,7 +15,7 @@ interface GoButtonProps {
 }
 
 /**
- * The GO Button - The big green button that starts it all
+ * The GO Button - The big cyan button that starts it all
  *
  * This is what users came here for - one click to start building
  */
@@ -53,21 +53,21 @@ export function GoButton({
         "relative overflow-hidden rounded-xl font-bold tracking-wide",
         "flex items-center justify-center gap-3",
         "transition-all duration-300 ease-out",
-        "focus:outline-none focus:ring-4 focus:ring-green-500/50",
+        "focus:outline-none focus:ring-4 focus:ring-cyan-500/50",
 
         // Size
         sizeClasses[size],
 
         // State-based styles
         isComplete
-          ? "bg-green-600 text-white shadow-lg shadow-green-500/30"
+          ? "bg-cyan-600 text-white shadow-lg shadow-cyan-500/30"
           : isRunning
-          ? "bg-gradient-to-r from-green-500 via-emerald-500 to-green-500 text-white shadow-xl shadow-green-500/40 animate-pulse"
+          ? "bg-gradient-to-r from-cyan-500 via-blue-500 to-cyan-500 text-white shadow-xl shadow-cyan-500/40 animate-pulse"
           : isReady
-          ? "bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-2xl shadow-green-500/50 ring-4 ring-green-400/30 hover:shadow-[0_0_60px_rgba(34,197,94,0.6)] hover:scale-110 active:scale-95"
+          ? "bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-2xl shadow-cyan-500/50 ring-4 ring-cyan-400/30 hover:shadow-[0_0_60px_rgba(6,182,212,0.6)] hover:scale-110 active:scale-95"
           : disabled
           ? "bg-gray-700 text-gray-400 cursor-not-allowed"
-          : "bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/30 hover:from-green-500 hover:to-emerald-500 hover:shadow-xl hover:shadow-green-500/40 hover:scale-105 active:scale-95",
+          : "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30 hover:from-cyan-500 hover:to-blue-500 hover:shadow-xl hover:shadow-cyan-500/40 hover:scale-105 active:scale-95",
 
         className
       )}
@@ -80,7 +80,7 @@ export function GoButton({
       {/* Progress bar overlay when running */}
       {isRunning && progress > 0 && (
         <div
-          className="absolute inset-0 bg-green-400/30 transition-all duration-500"
+          className="absolute inset-0 bg-cyan-400/30 transition-all duration-500"
           style={{ width: `${progress}%` }}
         />
       )}
@@ -143,7 +143,7 @@ export function HeroGoButton({
   progress?: number
 }) {
   return (
-    <div className="flex flex-col items-center gap-6 p-8 rounded-2xl bg-gradient-to-br from-gray-900/50 to-gray-800/30 border border-green-500/20">
+    <div className="flex flex-col items-center gap-6 p-8 rounded-2xl bg-gradient-to-br from-gray-900/50 to-gray-800/30 border border-cyan-500/20">
       {/* Project info */}
       <div className="text-center">
         <h2 className="text-2xl font-bold text-white mb-2">{projectName}</h2>
@@ -153,14 +153,16 @@ export function HeroGoButton({
       </div>
 
       {/* The Button */}
-      <GoButton
-        onClick={onGo}
-        disabled={disabled || packetCount === 0}
-        loading={loading}
-        status={packetCount > 0 ? (status || "ready") : "idle"}
-        progress={progress}
-        size="hero"
-      />
+      <div data-go-button>
+        <GoButton
+          onClick={onGo}
+          disabled={disabled || packetCount === 0}
+          loading={loading}
+          status={packetCount > 0 ? (status || "ready") : "idle"}
+          progress={progress}
+          size="hero"
+        />
+      </div>
 
       {/* Status text */}
       <p className="text-sm text-muted-foreground text-center max-w-md">

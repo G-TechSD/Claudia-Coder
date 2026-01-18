@@ -49,10 +49,36 @@ interface Project {
   }>
 }
 
+/**
+ * Restored session data from server for resuming execution state
+ */
+export interface RestoredSession {
+  id: string
+  status: "running" | "complete" | "error" | "cancelled"
+  progress: number
+  events: Array<{
+    id: string
+    type: "start" | "iteration" | "file_change" | "test" | "complete" | "error" | "info" | "success" | "warning" | "progress"
+    message: string
+    timestamp: string
+    detail?: string
+  }>
+  currentPacketIndex: number
+}
+
 interface ExecutionPanelProps {
   project: Project
   packets: WorkPacket[]
   className?: string
+  /** Optional restored session from server to resume execution state */
+  restoredSession?: RestoredSession | null
+  /** Callback when execution session ID changes (for external tracking/polling) */
+  onSessionChange?: (sessionId: string | null) => void
+}
+
+// Imperative handle exposed via ref
+export interface ExecutionPanelRef {
+  triggerExecution: () => void
 }
 
 type ExecutionStatus = "idle" | "ready" | "running" | "complete" | "error"
@@ -66,8 +92,9 @@ type ExecutionStatus = "idle" | "ready" | "running" | "complete" | "error"
  * - Progress tracking
  * - Error handling with recovery options
  */
-export function ExecutionPanel({ project, packets, className }: ExecutionPanelProps) {
-  const { isBetaTester, betaLimits, refreshBetaLimits } = useAuth()
+export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanelProps>(
+  function ExecutionPanel({ project, packets, className, restoredSession, onSessionChange }, ref) {
+  const { user, isBetaTester, betaLimits, refreshBetaLimits } = useAuth()
   const [status, setStatus] = React.useState<ExecutionStatus>("ready")
   const [progress, setProgress] = React.useState(0)
   const [events, setEvents] = React.useState<ActivityEvent[]>([])
@@ -97,6 +124,46 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
     typeCheck: null,
     build: null
   })
+
+  // Current session ID for tracking (used for polling and session management)
+  const [currentSessionId, setCurrentSessionId] = React.useState<string | null>(null)
+
+  // Ref to store the latest handleGo function for use in useImperativeHandle
+  // This avoids dependency issues with useCallback
+  const handleGoRef = React.useRef<() => void>(() => {})
+
+  // Restore execution state from a restored session on mount or when restoredSession changes
+  React.useEffect(() => {
+    if (restoredSession) {
+      // Map server status to local ExecutionStatus type
+      const statusMap: Record<string, ExecutionStatus> = {
+        running: "running",
+        complete: "complete",
+        error: "error",
+        cancelled: "error" // Treat cancelled as error for display purposes
+      }
+
+      const mappedStatus = statusMap[restoredSession.status] || "ready"
+      setStatus(mappedStatus)
+      setProgress(restoredSession.progress)
+      setCurrentSessionId(restoredSession.id)
+
+      // Convert server events to ActivityEvent format
+      const restoredEvents: ActivityEvent[] = restoredSession.events.map(evt => ({
+        id: evt.id,
+        type: evt.type as ActivityEvent["type"],
+        message: evt.message,
+        timestamp: new Date(evt.timestamp),
+        detail: evt.detail
+      }))
+      setEvents(restoredEvents)
+
+      // Notify parent of session restoration
+      onSessionChange?.(restoredSession.id)
+
+      console.log(`[ExecutionPanel] Restored session ${restoredSession.id} with status: ${restoredSession.status}, progress: ${restoredSession.progress}%`)
+    }
+  }, [restoredSession, onSessionChange])
 
   // Persist events to localStorage whenever they change
   React.useEffect(() => {
@@ -133,6 +200,60 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
     }])
   }
 
+  // Helper function to update session on the server
+  const updateSession = async (
+    sessionIdToUpdate: string,
+    updates: {
+      progress?: number
+      currentPacketIndex?: number
+      status?: "running" | "complete" | "error" | "cancelled"
+      qualityGates?: {
+        passed: boolean
+        tests: { success: boolean; output: string; errorCount?: number }
+        typeCheck: { success: boolean; output: string; errorCount?: number }
+        build: { success: boolean; output: string }
+      }
+      output?: string
+      error?: string
+    },
+    event?: {
+      type: "info" | "success" | "error" | "warning" | "progress"
+      message: string
+      detail?: string
+    }
+  ) => {
+    try {
+      await fetch("/api/execution-sessions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: sessionIdToUpdate, updates, event })
+      })
+    } catch (err) {
+      console.error("[ExecutionPanel] Failed to update session:", err)
+    }
+  }
+
+  // Helper function to complete session on the server
+  const completeSession = async (
+    sessionIdToComplete: string,
+    action: "complete" | "cancel" = "complete",
+    errorMessage?: string
+  ) => {
+    try {
+      const params = new URLSearchParams({ sessionId: sessionIdToComplete, action })
+      if (errorMessage) {
+        params.set("error", errorMessage)
+      }
+      await fetch(`/api/execution-sessions?${params.toString()}`, {
+        method: "DELETE"
+      })
+      setCurrentSessionId(null)
+      onSessionChange?.(null)
+    } catch (err) {
+      console.error("[ExecutionPanel] Failed to complete session:", err)
+    }
+  }
+
   const handleGo = async () => {
     if (readyPackets.length === 0) return
 
@@ -162,6 +283,33 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
 
     addEvent("start", "Execution started", `Processing ${readyPackets.length} packets`)
 
+    // Create execution session on the server
+    let activeSessionId: string | null = null
+    try {
+      const sessionResponse = await fetch("/api/execution-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: project.id,
+          packetIds: readyPackets.map(p => p.id),
+          userId: user?.id || "anonymous",
+          projectName: project.name,
+          packetTitles: readyPackets.map(p => p.title),
+          mode: executionMode
+        })
+      })
+      const sessionData = await sessionResponse.json()
+      if (sessionData.success && sessionData.session) {
+        activeSessionId = sessionData.session.id
+        setCurrentSessionId(activeSessionId)
+        onSessionChange?.(activeSessionId)
+        console.log(`[ExecutionPanel] Created session ${activeSessionId}`)
+      }
+    } catch (err) {
+      console.error("[ExecutionPanel] Failed to create session:", err)
+      // Continue execution even if session creation fails
+    }
+
     try {
       // Process packets sequentially
       for (let i = 0; i < readyPackets.length; i++) {
@@ -174,6 +322,15 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
         })
 
         setProgress(packetProgress)
+
+        // Update session progress on the server
+        if (activeSessionId) {
+          updateSession(
+            activeSessionId,
+            { progress: packetProgress, currentPacketIndex: i },
+            { type: "progress", message: `Starting: ${packet.title}`, detail: packet.description }
+          )
+        }
 
         // Call the Claudia execution API
         const response = await fetch("/api/claude-execute", {
@@ -208,6 +365,10 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
           setBetaLimitReached(true)
           setError(result.error)
           setStatus("error")
+          // Complete session with error
+          if (activeSessionId) {
+            await completeSession(activeSessionId, "complete", result.error)
+          }
           // Refresh beta limits to get updated count
           if (refreshBetaLimits) {
             await refreshBetaLimits()
@@ -265,10 +426,23 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
             typeCheck: result.qualityGates.typeCheck?.success ?? null,
             build: result.qualityGates.build?.success ?? null
           })
+
+          // Update session with quality gates
+          if (activeSessionId) {
+            updateSession(activeSessionId, { qualityGates: result.qualityGates })
+          }
         }
 
         if (!result.success) {
           addEvent("error", `Failed: ${packet.title}`, result.error)
+          // Update session with error event
+          if (activeSessionId) {
+            updateSession(
+              activeSessionId,
+              {},
+              { type: "error", message: `Failed: ${packet.title}`, detail: result.error }
+            )
+          }
           continue
         }
 
@@ -283,9 +457,25 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
           addEvent("file_change", `Modified ${result.filesChanged.length} files`, undefined, {
             files: result.filesChanged
           })
+          // Update session with file change event
+          if (activeSessionId) {
+            updateSession(
+              activeSessionId,
+              {},
+              { type: "info", message: `Modified ${result.filesChanged.length} files` }
+            )
+          }
         }
 
         addEvent("complete", `Completed: ${packet.title}`, `Duration: ${Math.round(result.duration / 1000)}s`)
+        // Update session with completion event for this packet
+        if (activeSessionId) {
+          updateSession(
+            activeSessionId,
+            {},
+            { type: "success", message: `Completed: ${packet.title}`, detail: `Duration: ${Math.round(result.duration / 1000)}s` }
+          )
+        }
       }
 
       setProgress(100)
@@ -294,13 +484,31 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
         progress: 100
       })
 
+      // Complete the session successfully
+      if (activeSessionId) {
+        await updateSession(
+          activeSessionId,
+          { progress: 100, status: "complete", output: `${readyPackets.length} packets executed successfully` },
+          { type: "success", message: "All packets completed!" }
+        )
+        await completeSession(activeSessionId, "complete")
+      }
+
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error"
       setError(message)
       setStatus("error")
       addEvent("error", "Execution failed", message)
+
+      // Complete session with error
+      if (activeSessionId) {
+        await completeSession(activeSessionId, "complete", message)
+      }
     }
   }
+
+  // Keep ref updated with latest handleGo
+  handleGoRef.current = handleGo
 
   const handleRetry = () => {
     setStatus("ready")
@@ -375,6 +583,16 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
       setIsRefining(false)
     }
   }
+
+  // Expose triggerExecution method via ref for parent components
+  React.useImperativeHandle(ref, () => ({
+    triggerExecution: () => {
+      // Only trigger if we have ready packets and a repo
+      if (readyPackets.length > 0 && project.repos?.length > 0) {
+        handleGoRef.current()
+      }
+    }
+  }), [readyPackets.length, project.repos?.length])
 
   return (
     <div className={cn("space-y-6", className)}>
@@ -785,7 +1003,7 @@ export function ExecutionPanel({ project, packets, className }: ExecutionPanelPr
       </Card>
     </div>
   )
-}
+})
 
 /**
  * Compact execution widget for dashboard/sidebar
