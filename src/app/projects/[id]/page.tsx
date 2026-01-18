@@ -6,8 +6,12 @@ import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent } from "@/components/ui/tabs"
-import { ProjectNavigation } from "@/components/project/project-navigation"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { cn } from "@/lib/utils"
 import {
   ArrowLeft,
@@ -960,53 +964,23 @@ export default function ProjectDetailPage() {
         </Card>
       )}
 
-      {/* Development Bar - Quick access to dev tools */}
-      <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-lg border">
-        {[
-          { value: "repos", label: "Repositories", icon: GitBranch, count: project.repos.length },
-          { value: "files", label: "Browse Files", icon: FolderOpen, iconColor: "text-yellow-500" },
-          { value: "packets", label: "Work Packets", icon: Package, count: packets.length },
-          { value: "claude-code", label: "Claude Code", icon: Terminal, iconColor: "text-purple-500" },
-          { value: "models", label: "AI Models", icon: Brain },
-        ].map((item) => {
-          const Icon = item.icon
-          const isActive = activeTab === item.value
-          return (
-            <Button
-              key={item.value}
-              variant={isActive ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setActiveTab(item.value)}
-              className={cn(
-                "gap-2 transition-all",
-                isActive && "shadow-sm"
-              )}
-            >
-              <Icon className={cn("h-4 w-4", !isActive && item.iconColor)} />
-              {item.label}
-              {item.count !== undefined && item.count > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">
-                  {item.count}
-                </Badge>
-              )}
-            </Button>
-          )
-        })}
-      </div>
-
-      {/* Navigation */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <ProjectNavigation
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          resourceCount={resourceCount}
-          repoCount={project.repos.length}
-          packetCount={packets.length}
-          hasInterview={!!project.creationInterview}
-        />
-
-        {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-6">
+      {/* Accordion Sections */}
+      <Accordion
+        type="single"
+        collapsible
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value || "")}
+        className="space-y-2"
+      >
+        {/* Overview Section */}
+        <AccordionItem value="overview" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-blue-500" />
+              <span className="font-medium">Overview</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-6 pt-2">
           {/* Vision Display - Shows game/creative vision prominently */}
           <VisionDisplay projectId={project.id} />
 
@@ -1279,740 +1253,866 @@ export default function ProjectDetailPage() {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
+          </AccordionContent>
+        </AccordionItem>
 
-        {/* Build Plan Tab */}
-        <TabsContent value="plan" className="space-y-4">
-          <BuildPlanEditor
-            projectId={project.id}
-            projectName={project.name}
-            projectDescription={project.description}
-            projectStatus={project.status}
-            workingDirectory={getEffectiveWorkingDirectory(project)}
-            providers={providers}
-            selectedProvider={selectedProvider}
-            onProviderChange={setSelectedProvider}
-            onKickoffGenerated={(kickoffPath) => {
-              console.log(`[project-page] KICKOFF.md generated at: ${kickoffPath}`)
-            }}
-          />
-        </TabsContent>
-
-        {/* AI Models Tab */}
-        <TabsContent value="models" className="space-y-4">
-          <ModelAssignment projectId={project.id} />
-        </TabsContent>
-
-        {/* Repos Tab */}
-        <TabsContent value="repos" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium">Linked Repositories</h3>
-            <Button size="sm" onClick={() => setRepoBrowserOpen(true)}>
-              <Link2 className="h-4 w-4 mr-1" />
-              Link Repository
-            </Button>
-          </div>
-
-          {project.repos.length === 0 ? (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <GitBranch className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">No repositories linked yet.</p>
-                <Button className="mt-4" size="sm" onClick={() => setRepoBrowserOpen(true)}>
-                  <Link2 className="h-4 w-4 mr-1" />
-                  Link Your First Repository
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-2">
-              {project.repos.map((repo) => (
-                <Card key={repo.id}>
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <GitBranch className="h-5 w-5 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">{repo.name}</p>
-                          <p className="text-sm text-muted-foreground">{repo.path}</p>
-                        </div>
-                        <Badge variant="outline" className="text-xs">
-                          {repo.provider}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="sm" asChild>
-                          <a href={repo.url} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <Unlink className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    {/* Local Path Section (Read-only) */}
-                    <div className="flex items-center gap-2 pl-8 border-t pt-3">
-                      <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                      <span className="text-sm text-muted-foreground flex-shrink-0">Local Path:</span>
-                      <div className="flex items-center gap-2 flex-1">
-                        {repo.localPath ? (
-                          <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
-                            {repo.localPath}
-                          </code>
-                        ) : project.basePath ? (
-                          <code className="text-sm bg-green-500/10 text-green-600 px-2 py-1 rounded flex-1 font-mono">
-                            {project.basePath.replace(/\/+$/, "")}/repos/{repo.name}
-                            <span className="text-muted-foreground ml-2">(auto-mapped)</span>
-                          </code>
-                        ) : (
-                          <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono text-muted-foreground">
-                            ~/claudia-projects/{project.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}/repos/{repo.name}
-                          </code>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Files Tab */}
-        <TabsContent value="files" className="space-y-4">
-          <FileBrowser
-            projectId={project.id}
-            basePath={project.basePath || getEffectiveWorkingDirectory(project)}
-          />
-        </TabsContent>
-
-        {/* Packets Tab */}
-        <TabsContent value="packets" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium">Work Packets</h3>
+        {/* Repositories Section */}
+        <AccordionItem value="repos" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
-              {/* Concurrency Selector */}
-              <Select
-                value={showCustomInput ? "custom" : concurrency === (packets.length || 10) ? "all" : String(concurrency)}
-                onValueChange={handleConcurrencyChange}
-                disabled={isBatchExecuting}
-              >
-                <SelectTrigger className="w-[140px] h-9">
-                  <SelectValue placeholder="Concurrency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1 (Sequential)</SelectItem>
-                  <SelectItem value="2">2</SelectItem>
-                  <SelectItem value="3">3</SelectItem>
-                  <SelectItem value="5">5</SelectItem>
-                  <SelectItem value="10">10</SelectItem>
-                  <SelectItem value="all">All (Parallel)</SelectItem>
-                  <SelectItem value="custom">Custom...</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Custom Concurrency Input */}
-              {showCustomInput && (
-                <Input
-                  type="number"
-                  min="1"
-                  max="50"
-                  value={customConcurrency}
-                  onChange={(e) => setCustomConcurrency(e.target.value)}
-                  placeholder="N"
-                  className="w-[70px] h-9"
-                  disabled={isBatchExecuting}
-                />
-              )}
-
-              {/* Run All Packets Button */}
-              <Button
-                size="sm"
-                variant="default"
-                onClick={handleRunAllPackets}
-                disabled={pendingPackets.length === 0 || isBatchExecuting}
-                className="gap-2"
-              >
-                {isBatchExecuting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Running {batchProgress.current}/{batchProgress.total}
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4" />
-                    Run All ({pendingPackets.length})
-                  </>
-                )}
-              </Button>
-
-              <Button size="sm" variant="outline">
-                <Package className="h-4 w-4 mr-1" />
-                Create Packet
-              </Button>
-            </div>
-          </div>
-
-          {/* Batch Execution Progress */}
-          {isBatchExecuting && (
-            <Card className="border-primary/30 bg-primary/5">
-              <CardContent className="p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span className="font-medium">
-                        Running packet {batchProgress.current} of {batchProgress.total}
-                      </span>
-                    </div>
-                    <span className="text-sm text-muted-foreground">
-                      {Math.round((batchProgress.current / batchProgress.total) * 100)}%
-                    </span>
-                  </div>
-                  {/* Progress Bar */}
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all duration-300"
-                      style={{
-                        width: `${(batchProgress.current / batchProgress.total) * 100}%`
-                      }}
-                    />
-                  </div>
-                  {/* Show current packet being processed */}
-                  {batchProgress.current > 0 && batchProgress.current <= pendingPackets.length && (
-                    <p className="text-sm text-muted-foreground">
-                      Processing: {pendingPackets[batchProgress.current - 1]?.title || "..."}
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {packets.length === 0 ? (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">No packets created yet.</p>
-                <Button className="mt-4" size="sm">
-                  <Package className="h-4 w-4 mr-1" />
-                  Create Your First Packet
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="flex gap-6">
-              {/* Packet Cards Grid */}
-              <div className={cn(
-                "transition-all duration-300",
-                selectedPacketId ? "w-1/2" : "w-full"
-              )}>
-                <div className={cn(
-                  "grid gap-4",
-                  selectedPacketId ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
-                )}>
-                  {packets.map((packet) => {
-                    // Convert packet to the format expected by PacketCard
-                    const packetForCard: Packet = {
-                      id: packet.id,
-                      title: packet.title,
-                      description: packet.description,
-                      type: packet.type,
-                      priority: packet.priority as Packet["priority"],
-                      status: packet.status as Packet["status"],
-                      tasks: packet.tasks.map(t => ({
-                        id: t.id,
-                        title: t.description,
-                        completed: t.completed
-                      })),
-                      acceptanceCriteria: packet.acceptanceCriteria
-                    }
-
-                    const isExecuting = executingPacketId === packet.id
-                    const isSelected = selectedPacketId === packet.id
-
-                    return (
-                      <div
-                        key={packet.id}
-                        className={cn(
-                          "cursor-pointer transition-all",
-                          isSelected && "ring-2 ring-primary rounded-lg"
-                        )}
-                        onClick={() => setSelectedPacketId(
-                          selectedPacketId === packet.id ? null : packet.id
-                        )}
-                      >
-                        <PacketCard
-                          packet={packetForCard}
-                          onStart={() => handleStartPacket(packet.id)}
-                          onStop={() => handleStopPacket(packet.id)}
-                          isExecuting={isExecuting}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Detail Panel - shows when a packet is selected */}
-              {selectedPacketId && selectedPacket && (
-                <div className="w-1/2 space-y-4">
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg">{selectedPacket.title}</CardTitle>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedPacketId(null)
-                            setSelectedRun(null)
-                          }}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {selectedPacket.description}
-                      </p>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {/* Execution History */}
-                      <div>
-                        <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-                          <Clock className="h-4 w-4" />
-                          Execution History
-                        </h4>
-                        <PacketHistory
-                          runs={selectedPacketRuns}
-                          onSelectRun={handleSelectRun}
-                          selectedRunId={selectedRun?.id}
-                          className="max-h-[200px]"
-                        />
-                      </div>
-
-                      {/* Selected Run Output */}
-                      {selectedRun && (
-                        <div className="space-y-3">
-                          <PacketOutput
-                            run={selectedRun}
-                            onClose={() => setSelectedRun(null)}
-                          />
-
-                          {/* Feedback Section */}
-                          {selectedRun.status !== "running" && (
-                            <PacketFeedback
-                              run={selectedRun}
-                              onFeedback={(rating, comment) =>
-                                handlePacketFeedback(selectedRun, rating, comment)
-                              }
-                            />
-                          )}
-                        </div>
-                      )}
-
-                      {/* No runs yet message */}
-                      {selectedPacketRuns.length === 0 && !selectedRun && (
-                        <div className="text-center py-8 text-muted-foreground">
-                          <Play className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-sm">No execution history yet</p>
-                          <p className="text-xs mt-1">Click &quot;Start&quot; on the packet card to begin</p>
-                        </div>
-                      )}
-
-                      {/* Execution error */}
-                      {executionError && executingPacketId === selectedPacketId && (
-                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-                          <div className="flex items-center gap-2">
-                            <AlertCircle className="h-4 w-4" />
-                            <span className="font-medium">Execution Error</span>
-                          </div>
-                          <p className="mt-1">{executionError}</p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Resources Tab */}
-        <TabsContent value="resources" className="space-y-6">
-          {/* File Uploads Section */}
-          <ResourceUpload
-            projectId={project.id}
-            onUploadComplete={() => refreshResourceCount()}
-          />
-
-          {/* Brain Dumps Section - between upload and list */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Voice Brain Dumps
-              </span>
-            </div>
-          </div>
-
-          {isRecordingBrainDump ? (
-            <AudioRecorder
-              projectId={project.id}
-              projectName={project.name}
-              projectDescription={project.description}
-              onRecordingComplete={handleBrainDumpRecorded}
-              onPacketsApproved={handleBrainDumpPacketsApproved}
-              onCancel={() => setIsRecordingBrainDump(false)}
-              existingProjectContext={{
-                hasBuildPlan: hasBuildPlan,
-                hasPackets: packets.length > 0,
-                currentPhase: currentBuildPlan?.originalPlan?.phases?.[0]?.name
-              }}
-            />
-          ) : (
-            <BrainDumpList
-              projectId={project.id}
-              onSelect={(brainDumpId) => {
-                // TODO: Open brain dump review modal
-                console.log("View brain dump:", brainDumpId)
-              }}
-              onStartNew={() => setIsRecordingBrainDump(true)}
-            />
-          )}
-
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Uploaded Files
-              </span>
-            </div>
-          </div>
-
-          {/* Resource List */}
-          <ResourceList
-            projectId={project.id}
-            projectName={project.name}
-            projectDescription={project.description}
-            onPacketCreate={(transcription, resource) => {
-              console.log("Packet created from transcription:", resource.name)
-              // Refresh packets list
-              const storedPackets = localStorage.getItem("claudia_packets")
-              if (storedPackets) {
-                try {
-                  const allPackets = JSON.parse(storedPackets)
-                  const projectPackets = allPackets[project.id] || []
-                  setPackets(projectPackets)
-                } catch {
-                  console.error("Failed to parse packets")
-                }
-              }
-            }}
-            onMarkdownPacketsCreated={(packets) => {
-              console.log("Packets created from markdown:", packets.length)
-              // Refresh packets list
-              const storedPackets = localStorage.getItem("claudia_packets")
-              if (storedPackets) {
-                try {
-                  const allPackets = JSON.parse(storedPackets)
-                  const projectPackets = allPackets[project.id] || []
-                  setPackets(projectPackets)
-                } catch {
-                  console.error("Failed to parse packets")
-                }
-              }
-            }}
-          />
-        </TabsContent>
-
-        {/* Interview Tab */}
-        <TabsContent value="interview" className="space-y-4">
-          {project.creationInterview ? (
-            <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-medium">Creation Interview</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Completed on {new Date(project.creationInterview.completedAt || project.creationInterview.createdAt).toLocaleString()}
-                  </p>
-                </div>
-                <Badge variant={project.creationInterview.status === "completed" ? "default" : "secondary"}>
-                  {project.creationInterview.status}
+              <GitBranch className="h-4 w-4 text-orange-500" />
+              <span className="font-medium">Repositories</span>
+              {project.repos.length > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">
+                  {project.repos.length}
                 </Badge>
-              </div>
+              )}
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium">Linked Repositories</h3>
+              <Button size="sm" onClick={() => setRepoBrowserOpen(true)}>
+                <Link2 className="h-4 w-4 mr-1" />
+                Link Repository
+              </Button>
+            </div>
 
-              {/* Interview Transcript */}
+            {project.repos.length === 0 ? (
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm font-medium">Transcript</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 max-h-[400px] overflow-auto">
-                  {project.creationInterview.messages.map((message) => (
-                    <MessageBubble key={message.id} message={message} />
-                  ))}
+                <CardContent className="p-8 text-center">
+                  <GitBranch className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No repositories linked yet.</p>
+                  <Button className="mt-4" size="sm" onClick={() => setRepoBrowserOpen(true)}>
+                    <Link2 className="h-4 w-4 mr-1" />
+                    Link Your First Repository
+                  </Button>
                 </CardContent>
               </Card>
+            ) : (
+              <div className="space-y-2">
+                {project.repos.map((repo) => (
+                  <Card key={repo.id}>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <GitBranch className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <p className="font-medium">{repo.name}</p>
+                            <p className="text-sm text-muted-foreground">{repo.path}</p>
+                          </div>
+                          <Badge variant="outline" className="text-xs">
+                            {repo.provider}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" asChild>
+                            <a href={repo.url} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                          <Button variant="ghost" size="sm">
+                            <Unlink className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      {/* Local Path Section (Read-only) */}
+                      <div className="flex items-center gap-2 pl-8 border-t pt-3">
+                        <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <span className="text-sm text-muted-foreground flex-shrink-0">Local Path:</span>
+                        <div className="flex items-center gap-2 flex-1">
+                          {repo.localPath ? (
+                            <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono">
+                              {repo.localPath}
+                            </code>
+                          ) : project.basePath ? (
+                            <code className="text-sm bg-green-500/10 text-green-600 px-2 py-1 rounded flex-1 font-mono">
+                              {project.basePath.replace(/\/+$/, "")}/repos/{repo.name}
+                              <span className="text-muted-foreground ml-2">(auto-mapped)</span>
+                            </code>
+                          ) : (
+                            <code className="text-sm bg-muted px-2 py-1 rounded flex-1 font-mono text-muted-foreground">
+                              ~/claudia-projects/{project.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}/repos/{repo.name}
+                            </code>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </AccordionContent>
+        </AccordionItem>
 
-              {/* Extracted Insights */}
-              {(project.creationInterview.summary || project.creationInterview.keyPoints) && (
-                <Card className="bg-primary/5 border-primary/20">
-                  <CardHeader>
-                    <CardTitle className="text-sm font-medium flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-primary" />
-                      Extracted Insights
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {project.creationInterview.summary && (
-                      <div>
-                        <h4 className="text-xs text-muted-foreground uppercase mb-1">Summary</h4>
-                        <p className="text-sm">{project.creationInterview.summary}</p>
-                      </div>
-                    )}
-                    {project.creationInterview.keyPoints && project.creationInterview.keyPoints.length > 0 && (
-                      <div>
-                        <h4 className="text-xs text-muted-foreground uppercase mb-1">Key Points</h4>
-                        <ul className="text-sm space-y-1">
-                          {project.creationInterview.keyPoints.map((point, i) => (
-                            <li key={i} className="flex items-start gap-2">
-                              <CheckCircle2 className="h-4 w-4 text-primary mt-0.5" />
-                              {point}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {project.creationInterview.suggestedActions && project.creationInterview.suggestedActions.length > 0 && (
-                      <div>
-                        <h4 className="text-xs text-muted-foreground uppercase mb-1">Suggested Actions</h4>
-                        <ul className="text-sm space-y-1">
-                          {project.creationInterview.suggestedActions.map((action, i) => (
-                            <li key={i} className="flex items-start gap-2">
-                              <span className="text-muted-foreground">→</span>
-                              {action}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+        {/* Browse Files Section */}
+        <AccordionItem value="files" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <FolderOpen className="h-4 w-4 text-yellow-500" />
+              <span className="font-medium">Browse Files</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            <FileBrowser
+              projectId={project.id}
+              basePath={project.basePath || getEffectiveWorkingDirectory(project)}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Work Packets Section */}
+        <AccordionItem value="packets" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Package className="h-4 w-4 text-purple-500" />
+              <span className="font-medium">Work Packets</span>
+              {packets.length > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">
+                  {packets.length}
+                </Badge>
               )}
-            </>
-          ) : (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground mb-4">
-                  This project was created without an interview.
-                </p>
-                <Button size="sm">
-                  <Mic className="h-4 w-4 mr-1" />
-                  Start Interview
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium">Work Packets</h3>
+              <div className="flex items-center gap-2">
+                {/* Concurrency Selector */}
+                <Select
+                  value={showCustomInput ? "custom" : concurrency === (packets.length || 10) ? "all" : String(concurrency)}
+                  onValueChange={handleConcurrencyChange}
+                  disabled={isBatchExecuting}
+                >
+                  <SelectTrigger className="w-[140px] h-9">
+                    <SelectValue placeholder="Concurrency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 (Sequential)</SelectItem>
+                    <SelectItem value="2">2</SelectItem>
+                    <SelectItem value="3">3</SelectItem>
+                    <SelectItem value="5">5</SelectItem>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="all">All (Parallel)</SelectItem>
+                    <SelectItem value="custom">Custom...</SelectItem>
+                  </SelectContent>
+                </Select>
 
-        {/* Security Tab */}
-        <TabsContent value="security" className="space-y-4">
-          <Card>
-            <CardContent className="p-12 text-center">
-              <Shield className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">Red Team Security Scanner</h3>
-              <p className="text-muted-foreground mb-4 max-w-md mx-auto">
-                Automated security scanning of all project files and scripts.
-                Identifies vulnerabilities, code smells, and security risks.
-              </p>
-              <Badge variant="secondary" className="text-base px-4 py-1">
-                Coming Soon
-              </Badge>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                {/* Custom Concurrency Input */}
+                {showCustomInput && (
+                  <Input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={customConcurrency}
+                    onChange={(e) => setCustomConcurrency(e.target.value)}
+                    placeholder="N"
+                    className="w-[70px] h-9"
+                    disabled={isBatchExecuting}
+                  />
+                )}
 
-        {/* Launch & Test Tab */}
-        <TabsContent value="launch-test" className="space-y-4">
-          <LaunchTestPanel
-            project={{
-              id: project.id,
-              name: project.name,
-              description: project.description,
-              workingDirectory: getEffectiveWorkingDirectory(project),
-              repos: project.repos
-            }}
-          />
-        </TabsContent>
-
-        {/* Claude Code Tab */}
-        <TabsContent value="claude-code" className="space-y-4">
-          {/* Sync Status - Shows Claude Code activity and pending requests */}
-          <ClaudiaSyncStatus
-            projectId={project.id}
-            projectPath={claudeCodeWorkDir || getEffectiveWorkingDirectory(project) || ""}
-          />
-
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Terminal className="h-5 w-5 text-purple-500" />
-                    Claude Code Terminal
-                  </CardTitle>
-                  <CardDescription>
-                    Interactive Claude Code session for {project.name}
-                  </CardDescription>
-                </div>
+                {/* Run All Packets Button */}
                 <Button
-                  onClick={handleStartClaudeCode}
-                  disabled={claudeCodeLoading}
+                  size="sm"
+                  variant="default"
+                  onClick={handleRunAllPackets}
+                  disabled={pendingPackets.length === 0 || isBatchExecuting}
                   className="gap-2"
                 >
-                  {claudeCodeLoading ? (
+                  {isBatchExecuting ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Preparing...
+                      Running {batchProgress.current}/{batchProgress.total}
                     </>
                   ) : (
                     <>
                       <Play className="h-4 w-4" />
-                      {claudeCodeStarted ? "Restart Session" : "Start Session"}
+                      Run All ({pendingPackets.length})
                     </>
                   )}
                 </Button>
+
+                <Button size="sm" variant="outline">
+                  <Package className="h-4 w-4 mr-1" />
+                  Create Packet
+                </Button>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Working Directory Info */}
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <FolderOpen className="h-4 w-4" />
-                  <span>Working Directory:</span>
-                  <code className="bg-muted px-2 py-0.5 rounded text-xs font-mono">
-                    {claudeCodeWorkDir || getEffectiveWorkingDirectory(project) || "Will be created on start"}
-                  </code>
+            </div>
+
+            {/* Batch Execution Progress */}
+            {isBatchExecuting && (
+              <Card className="border-primary/30 bg-primary/5">
+                <CardContent className="p-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                        <span className="font-medium">
+                          Running packet {batchProgress.current} of {batchProgress.total}
+                        </span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {Math.round((batchProgress.current / batchProgress.total) * 100)}%
+                      </span>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all duration-300"
+                        style={{
+                          width: `${(batchProgress.current / batchProgress.total) * 100}%`
+                        }}
+                      />
+                    </div>
+                    {/* Show current packet being processed */}
+                    {batchProgress.current > 0 && batchProgress.current <= pendingPackets.length && (
+                      <p className="text-sm text-muted-foreground">
+                        Processing: {pendingPackets[batchProgress.current - 1]?.title || "..."}
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {packets.length === 0 ? (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No packets created yet.</p>
+                  <Button className="mt-4" size="sm">
+                    <Package className="h-4 w-4 mr-1" />
+                    Create Your First Packet
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="flex gap-6">
+                {/* Packet Cards Grid */}
+                <div className={cn(
+                  "transition-all duration-300",
+                  selectedPacketId ? "w-1/2" : "w-full"
+                )}>
+                  <div className={cn(
+                    "grid gap-4",
+                    selectedPacketId ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
+                  )}>
+                    {packets.map((packet) => {
+                      // Convert packet to the format expected by PacketCard
+                      const packetForCard: Packet = {
+                        id: packet.id,
+                        title: packet.title,
+                        description: packet.description,
+                        type: packet.type,
+                        priority: packet.priority as Packet["priority"],
+                        status: packet.status as Packet["status"],
+                        tasks: packet.tasks.map(t => ({
+                          id: t.id,
+                          title: t.description,
+                          completed: t.completed
+                        })),
+                        acceptanceCriteria: packet.acceptanceCriteria
+                      }
+
+                      const isExecuting = executingPacketId === packet.id
+                      const isSelected = selectedPacketId === packet.id
+
+                      return (
+                        <div
+                          key={packet.id}
+                          className={cn(
+                            "cursor-pointer transition-all",
+                            isSelected && "ring-2 ring-primary rounded-lg"
+                          )}
+                          onClick={() => setSelectedPacketId(
+                            selectedPacketId === packet.id ? null : packet.id
+                          )}
+                        >
+                          <PacketCard
+                            packet={packetForCard}
+                            onStart={() => handleStartPacket(packet.id)}
+                            onStop={() => handleStopPacket(packet.id)}
+                            isExecuting={isExecuting}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-                {project.repos.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <GitBranch className="h-4 w-4" />
-                    <span>{project.repos[0].name}</span>
+
+                {/* Detail Panel - shows when a packet is selected */}
+                {selectedPacketId && selectedPacket && (
+                  <div className="w-1/2 space-y-4">
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-lg">{selectedPacket.title}</CardTitle>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedPacketId(null)
+                              setSelectedRun(null)
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {selectedPacket.description}
+                        </p>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Execution History */}
+                        <div>
+                          <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                            <Clock className="h-4 w-4" />
+                            Execution History
+                          </h4>
+                          <PacketHistory
+                            runs={selectedPacketRuns}
+                            onSelectRun={handleSelectRun}
+                            selectedRunId={selectedRun?.id}
+                            className="max-h-[200px]"
+                          />
+                        </div>
+
+                        {/* Selected Run Output */}
+                        {selectedRun && (
+                          <div className="space-y-3">
+                            <PacketOutput
+                              run={selectedRun}
+                              onClose={() => setSelectedRun(null)}
+                            />
+
+                            {/* Feedback Section */}
+                            {selectedRun.status !== "running" && (
+                              <PacketFeedback
+                                run={selectedRun}
+                                onFeedback={(rating, comment) =>
+                                  handlePacketFeedback(selectedRun, rating, comment)
+                                }
+                              />
+                            )}
+                          </div>
+                        )}
+
+                        {/* No runs yet message */}
+                        {selectedPacketRuns.length === 0 && !selectedRun && (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Play className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                            <p className="text-sm">No execution history yet</p>
+                            <p className="text-xs mt-1">Click &quot;Start&quot; on the packet card to begin</p>
+                          </div>
+                        )}
+
+                        {/* Execution error */}
+                        {executionError && executingPacketId === selectedPacketId && (
+                          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                            <div className="flex items-center gap-2">
+                              <AlertCircle className="h-4 w-4" />
+                              <span className="font-medium">Execution Error</span>
+                            </div>
+                            <p className="mt-1">{executionError}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
                   </div>
                 )}
               </div>
+            )}
+          </AccordionContent>
+        </AccordionItem>
 
-              {/* Error Display */}
-              {claudeCodeError && (
-                <div className="flex items-center gap-2 text-red-500 text-sm p-3 bg-red-500/10 rounded-lg">
-                  <AlertTriangle className="h-4 w-4" />
-                  {claudeCodeError}
-                </div>
-              )}
+        {/* Claude Code Section */}
+        <AccordionItem value="claude-code" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Terminal className="h-4 w-4 text-purple-500" />
+              <span className="font-medium">Claude Code</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            {/* Sync Status - Shows Claude Code activity and pending requests */}
+            <ClaudiaSyncStatus
+              projectId={project.id}
+              projectPath={claudeCodeWorkDir || getEffectiveWorkingDirectory(project) || ""}
+            />
 
-              {/* Terminal */}
-              {claudeCodeStarted && claudeCodeWorkDir ? (
-                <ClaudeCodeTerminal
-                  key={claudeCodeKey}
-                  projectId={project.id}
-                  projectName={project.name}
-                  projectDescription={project.description}
-                  workingDirectory={claudeCodeWorkDir}
-                  bypassPermissions={bypassPermissions}
-                  className="h-[500px]"
-                  onSessionEnd={() => setClaudeCodeStarted(false)}
-                  currentPacket={selectedPacket ? {
-                    id: selectedPacket.id,
-                    title: selectedPacket.title,
-                    description: selectedPacket.description,
-                    type: selectedPacket.type,
-                    priority: selectedPacket.priority,
-                    tasks: selectedPacket.tasks,
-                    acceptanceCriteria: selectedPacket.acceptanceCriteria
-                  } : undefined}
-                  allPackets={packets.map(p => ({ id: p.id, title: p.title, status: p.status }))}
-                />
-              ) : (
-                <div className="h-[500px] rounded-lg bg-zinc-900 border border-zinc-800 p-4 font-mono text-sm flex flex-col">
-                  <div className="flex-1 flex flex-col items-center justify-center text-zinc-500">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Terminal className="h-5 w-5 text-purple-500" />
+                      Claude Code Terminal
+                    </CardTitle>
+                    <CardDescription>
+                      Interactive Claude Code session for {project.name}
+                    </CardDescription>
+                  </div>
+                  <Button
+                    onClick={handleStartClaudeCode}
+                    disabled={claudeCodeLoading}
+                    className="gap-2"
+                  >
                     {claudeCodeLoading ? (
                       <>
-                        <Loader2 className="h-12 w-12 mb-4 animate-spin text-zinc-400" />
-                        <p className="text-zinc-400">Preparing working directory...</p>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Preparing...
                       </>
                     ) : (
                       <>
-                        <Terminal className="h-12 w-12 mb-4 opacity-50" />
-                        <p className="text-zinc-400">Ready to launch Claude Code</p>
-                        <p className="mt-2 text-zinc-600 text-sm">Project: {project.name}</p>
-                        <p className="text-zinc-600 mt-4 text-sm">Click &quot;Start Session&quot; above to begin...</p>
+                        <Play className="h-4 w-4" />
+                        {claudeCodeStarted ? "Restart Session" : "Start Session"}
                       </>
                     )}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Working Directory Info */}
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <FolderOpen className="h-4 w-4" />
+                    <span>Working Directory:</span>
+                    <code className="bg-muted px-2 py-0.5 rounded text-xs font-mono">
+                      {claudeCodeWorkDir || getEffectiveWorkingDirectory(project) || "Will be created on start"}
+                    </code>
+                  </div>
+                  {project.repos.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <GitBranch className="h-4 w-4" />
+                      <span>{project.repos[0].name}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Error Display */}
+                {claudeCodeError && (
+                  <div className="flex items-center gap-2 text-red-500 text-sm p-3 bg-red-500/10 rounded-lg">
+                    <AlertTriangle className="h-4 w-4" />
+                    {claudeCodeError}
+                  </div>
+                )}
+
+                {/* Terminal */}
+                {claudeCodeStarted && claudeCodeWorkDir ? (
+                  <ClaudeCodeTerminal
+                    key={claudeCodeKey}
+                    projectId={project.id}
+                    projectName={project.name}
+                    projectDescription={project.description}
+                    workingDirectory={claudeCodeWorkDir}
+                    bypassPermissions={bypassPermissions}
+                    className="h-[500px]"
+                    onSessionEnd={() => setClaudeCodeStarted(false)}
+                    currentPacket={selectedPacket ? {
+                      id: selectedPacket.id,
+                      title: selectedPacket.title,
+                      description: selectedPacket.description,
+                      type: selectedPacket.type,
+                      priority: selectedPacket.priority,
+                      tasks: selectedPacket.tasks,
+                      acceptanceCriteria: selectedPacket.acceptanceCriteria
+                    } : undefined}
+                    allPackets={packets.map(p => ({ id: p.id, title: p.title, status: p.status }))}
+                  />
+                ) : (
+                  <div className="h-[500px] rounded-lg bg-zinc-900 border border-zinc-800 p-4 font-mono text-sm flex flex-col">
+                    <div className="flex-1 flex flex-col items-center justify-center text-zinc-500">
+                      {claudeCodeLoading ? (
+                        <>
+                          <Loader2 className="h-12 w-12 mb-4 animate-spin text-zinc-400" />
+                          <p className="text-zinc-400">Preparing working directory...</p>
+                        </>
+                      ) : (
+                        <>
+                          <Terminal className="h-12 w-12 mb-4 opacity-50" />
+                          <p className="text-zinc-400">Ready to launch Claude Code</p>
+                          <p className="mt-2 text-zinc-600 text-sm">Project: {project.name}</p>
+                          <p className="text-zinc-600 mt-4 text-sm">Click &quot;Start Session&quot; above to begin...</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Options */}
+                <div className="flex items-center gap-4 p-3 rounded-lg border border-orange-500/20 bg-orange-500/5">
+                  <input
+                    type="checkbox"
+                    id="bypass-permissions-project"
+                    checked={bypassPermissions}
+                    onChange={(e) => setBypassPermissions(e.target.checked)}
+                    className="rounded"
+                  />
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="bypass-permissions-project"
+                      className="flex items-center gap-2 cursor-pointer font-medium text-sm"
+                    >
+                      <AlertTriangle className="h-4 w-4 text-orange-500" />
+                      Dangerously bypass permissions
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Skip permission prompts for file operations. Use with caution.
+                    </p>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* AI Models Section */}
+        <AccordionItem value="models" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Brain className="h-4 w-4 text-pink-500" />
+              <span className="font-medium">AI Models</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            <ModelAssignment projectId={project.id} />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Prior Art Section */}
+        <AccordionItem value="prior-art" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 text-cyan-500" />
+              <span className="font-medium">Prior Art</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            <PriorArtSection
+              projectId={project.id}
+              projectName={project.name}
+              projectDescription={project.description}
+              buildPlanObjectives={currentBuildPlan?.originalPlan?.spec?.objectives}
+              techStack={currentBuildPlan?.originalPlan?.spec?.techStack}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Documentation Section */}
+        <AccordionItem value="docs" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-orange-500" />
+              <span className="font-medium">Documentation</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            <DocsBrowser
+              projectId={project.id}
+              workingDirectory={getEffectiveWorkingDirectory(project) || ""}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Interview Section */}
+        <AccordionItem value="interview" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-indigo-500" />
+              <span className="font-medium">Interview</span>
+              {project.creationInterview && (
+                <Sparkles className="h-3 w-3 text-primary" />
               )}
-
-              {/* Options */}
-              <div className="flex items-center gap-4 p-3 rounded-lg border border-orange-500/20 bg-orange-500/5">
-                <input
-                  type="checkbox"
-                  id="bypass-permissions-project"
-                  checked={bypassPermissions}
-                  onChange={(e) => setBypassPermissions(e.target.checked)}
-                  className="rounded"
-                />
-                <div className="space-y-1">
-                  <label
-                    htmlFor="bypass-permissions-project"
-                    className="flex items-center gap-2 cursor-pointer font-medium text-sm"
-                  >
-                    <AlertTriangle className="h-4 w-4 text-orange-500" />
-                    Dangerously bypass permissions
-                  </label>
-                  <p className="text-xs text-muted-foreground">
-                    Skip permission prompts for file operations. Use with caution.
-                  </p>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            {project.creationInterview ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium">Creation Interview</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Completed on {new Date(project.creationInterview.completedAt || project.creationInterview.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <Badge variant={project.creationInterview.status === "completed" ? "default" : "secondary"}>
+                    {project.creationInterview.status}
+                  </Badge>
                 </div>
+
+                {/* Interview Transcript */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-medium">Transcript</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 max-h-[400px] overflow-auto">
+                    {project.creationInterview.messages.map((message) => (
+                      <MessageBubble key={message.id} message={message} />
+                    ))}
+                  </CardContent>
+                </Card>
+
+                {/* Extracted Insights */}
+                {(project.creationInterview.summary || project.creationInterview.keyPoints) && (
+                  <Card className="bg-primary/5 border-primary/20">
+                    <CardHeader>
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        Extracted Insights
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {project.creationInterview.summary && (
+                        <div>
+                          <h4 className="text-xs text-muted-foreground uppercase mb-1">Summary</h4>
+                          <p className="text-sm">{project.creationInterview.summary}</p>
+                        </div>
+                      )}
+                      {project.creationInterview.keyPoints && project.creationInterview.keyPoints.length > 0 && (
+                        <div>
+                          <h4 className="text-xs text-muted-foreground uppercase mb-1">Key Points</h4>
+                          <ul className="text-sm space-y-1">
+                            {project.creationInterview.keyPoints.map((point, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <CheckCircle2 className="h-4 w-4 text-primary mt-0.5" />
+                                {point}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {project.creationInterview.suggestedActions && project.creationInterview.suggestedActions.length > 0 && (
+                        <div>
+                          <h4 className="text-xs text-muted-foreground uppercase mb-1">Suggested Actions</h4>
+                          <ul className="text-sm space-y-1">
+                            {project.creationInterview.suggestedActions.map((action, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="text-muted-foreground">-&gt;</span>
+                                {action}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            ) : (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground mb-4">
+                    This project was created without an interview.
+                  </p>
+                  <Button size="sm">
+                    <Mic className="h-4 w-4 mr-1" />
+                    Start Interview
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Business Dev Section */}
+        <AccordionItem value="business-dev" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-green-500" />
+              <span className="font-medium">Business Dev</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            <BusinessDevSection
+              projectId={project.id}
+              projectName={project.name}
+              projectDescription={project.description}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Security Section */}
+        <AccordionItem value="security" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-red-500" />
+              <span className="font-medium">Security</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            <Card>
+              <CardContent className="p-12 text-center">
+                <Shield className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
+                <h3 className="text-xl font-semibold mb-2">Red Team Security Scanner</h3>
+                <p className="text-muted-foreground mb-4 max-w-md mx-auto">
+                  Automated security scanning of all project files and scripts.
+                  Identifies vulnerabilities, code smells, and security risks.
+                </p>
+                <Badge variant="secondary" className="text-base px-4 py-1">
+                  Coming Soon
+                </Badge>
+              </CardContent>
+            </Card>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Launch & Test Section */}
+        <AccordionItem value="launch-test" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-blue-500" />
+              <span className="font-medium">Launch & Test</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            <LaunchTestPanel
+              project={{
+                id: project.id,
+                name: project.name,
+                description: project.description,
+                workingDirectory: getEffectiveWorkingDirectory(project),
+                repos: project.repos
+              }}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Build Plan Section - only show when in planning status */}
+        {project.status === "planning" && (
+          <AccordionItem value="plan" className="border rounded-lg px-4 border-blue-500/30 bg-blue-500/5">
+            <AccordionTrigger className="hover:no-underline">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-blue-500" />
+                <span className="font-medium">Build Plan</span>
+                <Badge variant="secondary" className="ml-2 text-xs">Planning Phase</Badge>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </AccordionTrigger>
+            <AccordionContent className="space-y-4 pt-2">
+              <BuildPlanEditor
+                projectId={project.id}
+                projectName={project.name}
+                projectDescription={project.description}
+                projectStatus={project.status}
+                workingDirectory={getEffectiveWorkingDirectory(project)}
+                providers={providers}
+                selectedProvider={selectedProvider}
+                onProviderChange={setSelectedProvider}
+                onKickoffGenerated={(kickoffPath) => {
+                  console.log(`[project-page] KICKOFF.md generated at: ${kickoffPath}`)
+                }}
+              />
+            </AccordionContent>
+          </AccordionItem>
+        )}
 
-        {/* Business Dev Tab */}
-        <TabsContent value="business-dev" className="space-y-4">
-          <BusinessDevSection
-            projectId={project.id}
-            projectName={project.name}
-            projectDescription={project.description}
-          />
-        </TabsContent>
+        {/* Resources/User Uploads Section */}
+        <AccordionItem value="resources" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Upload className="h-4 w-4 text-teal-500" />
+              <span className="font-medium">User Uploads</span>
+              {resourceCount > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">
+                  {resourceCount}
+                </Badge>
+              )}
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-6 pt-2">
+            {/* File Uploads Section */}
+            <ResourceUpload
+              projectId={project.id}
+              onUploadComplete={() => refreshResourceCount()}
+            />
 
-        {/* Prior Art Tab */}
-        <TabsContent value="prior-art" className="space-y-4">
-          <PriorArtSection
-            projectId={project.id}
-            projectName={project.name}
-            projectDescription={project.description}
-            buildPlanObjectives={currentBuildPlan?.originalPlan?.spec?.objectives}
-            techStack={currentBuildPlan?.originalPlan?.spec?.techStack}
-          />
-        </TabsContent>
+            {/* Brain Dumps Section - between upload and list */}
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Voice Brain Dumps
+                </span>
+              </div>
+            </div>
 
-        {/* Docs Tab */}
-        <TabsContent value="docs" className="space-y-4">
-          <DocsBrowser
-            projectId={project.id}
-            workingDirectory={getEffectiveWorkingDirectory(project) || ""}
-          />
-        </TabsContent>
-      </Tabs>
+            {isRecordingBrainDump ? (
+              <AudioRecorder
+                projectId={project.id}
+                projectName={project.name}
+                projectDescription={project.description}
+                onRecordingComplete={handleBrainDumpRecorded}
+                onPacketsApproved={handleBrainDumpPacketsApproved}
+                onCancel={() => setIsRecordingBrainDump(false)}
+                existingProjectContext={{
+                  hasBuildPlan: hasBuildPlan,
+                  hasPackets: packets.length > 0,
+                  currentPhase: currentBuildPlan?.originalPlan?.phases?.[0]?.name
+                }}
+              />
+            ) : (
+              <BrainDumpList
+                projectId={project.id}
+                onSelect={(brainDumpId) => {
+                  // TODO: Open brain dump review modal
+                  console.log("View brain dump:", brainDumpId)
+                }}
+                onStartNew={() => setIsRecordingBrainDump(true)}
+              />
+            )}
+
+            {/* Divider */}
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Uploaded Files
+                </span>
+              </div>
+            </div>
+
+            {/* Resource List */}
+            <ResourceList
+              projectId={project.id}
+              projectName={project.name}
+              projectDescription={project.description}
+              onPacketCreate={(transcription, resource) => {
+                console.log("Packet created from transcription:", resource.name)
+                // Refresh packets list
+                const storedPackets = localStorage.getItem("claudia_packets")
+                if (storedPackets) {
+                  try {
+                    const allPackets = JSON.parse(storedPackets)
+                    const projectPackets = allPackets[project.id] || []
+                    setPackets(projectPackets)
+                  } catch {
+                    console.error("Failed to parse packets")
+                  }
+                }
+              }}
+              onMarkdownPacketsCreated={(packets) => {
+                console.log("Packets created from markdown:", packets.length)
+                // Refresh packets list
+                const storedPackets = localStorage.getItem("claudia_packets")
+                if (storedPackets) {
+                  try {
+                    const allPackets = JSON.parse(storedPackets)
+                    const projectPackets = allPackets[project.id] || []
+                    setPackets(projectPackets)
+                  } catch {
+                    console.error("Failed to parse packets")
+                  }
+                }
+              }}
+            />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       {/* Repo Browser Modal */}
       <RepoBrowser
