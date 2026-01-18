@@ -69,12 +69,12 @@ export function ProjectsPreview() {
       setProjects(loadActiveProjects(userId))
     }
 
-    // Refresh periodically
+    // Refresh periodically (30s to avoid interrupting user flow)
     const interval = setInterval(() => {
       if (userId) {
         setProjects(loadActiveProjects(userId))
       }
-    }, 5000)
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [userId])

@@ -82,13 +82,28 @@ export function AgentControl() {
   // Load status from localStorage on mount
   useEffect(() => {
     loadStatus()
-    // Poll for updates when running
-    const interval = setInterval(() => {
-      if (status.state === "running") {
+
+    // Only poll frequently when agent is actively running
+    // Otherwise, use a much longer interval or skip polling entirely
+    let interval: NodeJS.Timeout | null = null
+
+    if (status.state === "running") {
+      // Fast polling (1s) only when agent is actively running
+      interval = setInterval(() => {
         loadStatus()
+      }, 1000)
+    } else {
+      // Slow polling (30s) when idle to catch external state changes
+      interval = setInterval(() => {
+        loadStatus()
+      }, 30000)
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval)
       }
-    }, 1000)
-    return () => clearInterval(interval)
+    }
   }, [status.state])
 
   const loadStatus = () => {

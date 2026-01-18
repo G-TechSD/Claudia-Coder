@@ -229,10 +229,10 @@ export function ActivityPreview() {
     // Initial load
     loadAllActivities()
 
-    // Refresh periodically
+    // Refresh periodically (30s to avoid interrupting user flow)
     const interval = setInterval(() => {
       loadAllActivities()
-    }, 3000)
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [loadAllActivities])

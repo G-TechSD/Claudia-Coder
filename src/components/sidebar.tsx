@@ -275,7 +275,8 @@ export function Sidebar() {
     }
     window.addEventListener("storage", handleStorageChange)
 
-    const interval = setInterval(updateTrashedCount, 2000)
+    // Refresh periodically (30s to avoid interrupting user flow)
+    const interval = setInterval(updateTrashedCount, 30000)
 
     return () => {
       window.removeEventListener("storage", handleStorageChange)

@@ -97,12 +97,12 @@ export default function Dashboard() {
       setMetrics(loadMetrics(userId))
     }
 
-    // Refresh metrics periodically
+    // Refresh metrics periodically (30s to avoid interrupting user flow)
     const interval = setInterval(() => {
       if (userId) {
         setMetrics(loadMetrics(userId))
       }
-    }, 5000)
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [userId])
