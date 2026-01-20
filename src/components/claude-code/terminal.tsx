@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
-import { Play, Square, RefreshCw, Loader2, FileText, History, Shield, Radio, Zap, Users, PanelRight, PanelBottom, Layers, GripVertical } from "lucide-react"
+import { Play, Square, RefreshCw, Loader2, FileText, History, Shield, Radio, Zap, Users, PanelRight, PanelBottom, Layers, GripVertical, AlertTriangle } from "lucide-react"
 import {
   Tooltip,
   TooltipContent,
@@ -20,6 +20,7 @@ const STORAGE_KEY_NEVER_LOSE_SESSION = "claude-code-never-lose-session"
 const STORAGE_KEY_RECENT_SESSIONS = "claude-code-recent-sessions"
 const STORAGE_KEY_BACKGROUND_SESSIONS = "claude-code-background-sessions"
 const STORAGE_KEY_AUTO_KICKOFF = "claude-code-auto-kickoff"
+const STORAGE_KEY_BYPASS_PERMISSIONS = "claude-code-bypass-permissions"
 const STORAGE_KEY_MINI_ME_MODE = "claude-code-mini-me-mode"
 const STORAGE_KEY_MINI_ME_LAYOUT = "claude-code-mini-me-layout"
 const STORAGE_KEY_MINI_ME_PANEL_SIZE = "claude-code-mini-me-panel-size"
@@ -95,7 +96,8 @@ function ResizeHandle({
 }
 
 interface RecentSession {
-  id: string
+  id: string                    // Claudia's session ID
+  claudeSessionId?: string      // Claude CLI's internal session ID for --resume
   projectId: string
   projectName: string
   startedAt: string
@@ -162,10 +164,11 @@ export function ClaudeCodeTerminal({
   const sessionIdRef = useRef<string | null>(null)
 
   // Session management states
-  const [continueSession, setContinueSession] = useState(false)
+  const [continueSession, setContinueSession] = useState(true) // Default ON for better UX
   const [resumeSessionId, setResumeSessionId] = useState<string>("")
   const [neverLoseSession, setNeverLoseSession] = useState(false)
   const [autoKickoff, setAutoKickoff] = useState(false)
+  const [bypassPermissionsLocal, setBypassPermissionsLocal] = useState(false) // Dangerous mode toggle
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>([])
   const [backgroundSessions, setBackgroundSessions] = useState<BackgroundSession[]>([])
   const [showSessionOptions, setShowSessionOptions] = useState(false)
@@ -199,6 +202,12 @@ export function ClaudeCodeTerminal({
       const savedAutoKickoff = localStorage.getItem(STORAGE_KEY_AUTO_KICKOFF)
       if (savedAutoKickoff === "true") {
         setAutoKickoff(true)
+      }
+
+      // Load "bypass permissions" setting
+      const savedBypassPermissions = localStorage.getItem(STORAGE_KEY_BYPASS_PERMISSIONS)
+      if (savedBypassPermissions === "true") {
+        setBypassPermissionsLocal(true)
       }
 
       // Load "mini-me mode" setting
@@ -265,6 +274,13 @@ export function ClaudeCodeTerminal({
       localStorage.setItem(STORAGE_KEY_AUTO_KICKOFF, autoKickoff.toString())
     }
   }, [autoKickoff])
+
+  // Save "bypass permissions" setting when it changes
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY_BYPASS_PERMISSIONS, bypassPermissionsLocal.toString())
+    }
+  }, [bypassPermissionsLocal])
 
   // Save "mini-me mode" setting when it changes
   useEffect(() => {
@@ -666,18 +682,33 @@ export function ClaudeCodeTerminal({
     term.write("\x1b[1;36m● Starting Claude Code session...\x1b[0m\r\n")
     term.write(`\x1b[90m  Directory: ${workingDirectory}\x1b[0m\r\n`)
 
+    // Combine prop and local state for bypass permissions
+    const effectiveBypassPermissions = bypassPermissions || bypassPermissionsLocal
+
     // Show session options being used
     const useContinue = continueSession || neverLoseSession
     const useResume = resumeSessionId && resumeSessionId !== ""
 
+    // Get Claude's session ID for proper resume (not Claudia's session ID)
+    const selectedSession = recentSessions.find(s => s.id === resumeSessionId)
+    const claudeIdToResume = selectedSession?.claudeSessionId
+
     if (useContinue && !useResume) {
       term.write("\x1b[90m  Mode: --continue (resuming last session)\x1b[0m\r\n")
     } else if (useResume) {
-      term.write(`\x1b[90m  Mode: --resume ${resumeSessionId}\x1b[0m\r\n`)
+      if (claudeIdToResume) {
+        term.write(`\x1b[90m  Mode: --resume ${claudeIdToResume}\x1b[0m\r\n`)
+      } else {
+        term.write(`\x1b[33m  Warning: Session selected but no Claude session ID found, using --continue instead\x1b[0m\r\n`)
+      }
     }
 
     if (neverLoseSession) {
       term.write("\x1b[90m  Persistent session: enabled\x1b[0m\r\n")
+    }
+
+    if (effectiveBypassPermissions) {
+      term.write("\x1b[1;33m  WARNING: Bypass permissions enabled (dangerous)\x1b[0m\r\n")
     }
 
     // Generate KICKOFF.md before starting the session
@@ -690,16 +721,20 @@ export function ClaudeCodeTerminal({
     }
 
     try {
+      // Determine resume behavior: use Claude's session ID if available, otherwise fall back to --continue
+      const shouldResume = useResume && !!claudeIdToResume
+      const shouldContinue = useContinue || (useResume && !claudeIdToResume)
+
       const response = await fetch("/api/claude-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId,
           workingDirectory,
-          bypassPermissions,
-          continueSession: useContinue && !useResume, // Only use continue if not resuming
-          resume: useResume,
-          resumeSessionId: useResume ? resumeSessionId : undefined,
+          bypassPermissions: effectiveBypassPermissions,
+          continueSession: shouldContinue && !shouldResume, // Only use continue if not resuming
+          resume: shouldResume,
+          resumeSessionId: shouldResume ? claudeIdToResume : undefined,
           isBackground: neverLoseSession // Track as background if never lose is enabled
         })
       })
@@ -739,6 +774,27 @@ export function ClaudeCodeTerminal({
               setStatus("connected")
               // Send initial prompt once Claude Code is ready
               sendInitialPrompt()
+            }
+          } else if (message.type === "claude_session_id") {
+            // Store Claude's internal session ID for proper --resume functionality
+            const claudeId = message.claudeSessionId
+            console.log("[Terminal] Received Claude session ID:", claudeId)
+
+            // Update the stored session with Claude's session ID
+            try {
+              const savedSessions = localStorage.getItem(STORAGE_KEY_RECENT_SESSIONS)
+              if (savedSessions) {
+                const sessions: RecentSession[] = JSON.parse(savedSessions)
+                const sessionToUpdate = sessions.find(s => s.id === newSessionId)
+                if (sessionToUpdate) {
+                  sessionToUpdate.claudeSessionId = claudeId
+                  localStorage.setItem(STORAGE_KEY_RECENT_SESSIONS, JSON.stringify(sessions))
+                  setRecentSessions(sessions.filter(s => s.projectId === projectId))
+                  term.write(`\x1b[90m  Claude session ID captured for resume\x1b[0m\r\n`)
+                }
+              }
+            } catch (e) {
+              console.error("[Terminal] Failed to update session with Claude ID:", e)
             }
           } else if (message.type === "exit") {
             term.write(`\r\n\x1b[1;33m● Session ended (code: ${message.code})\x1b[0m\r\n`)
@@ -780,7 +836,7 @@ export function ClaudeCodeTerminal({
       setStatus("error")
       term.write(`\x1b[1;31m● Error: ${message}\x1b[0m\r\n`)
     }
-  }, [projectId, workingDirectory, bypassPermissions, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt, continueSession, neverLoseSession, resumeSessionId, parseTerminalOutputForMiniMe])
+  }, [projectId, workingDirectory, bypassPermissions, bypassPermissionsLocal, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt, continueSession, neverLoseSession, resumeSessionId, recentSessions, parseTerminalOutputForMiniMe])
 
   // Initialize xterm.js
   useEffect(() => {
@@ -1042,9 +1098,14 @@ export function ClaudeCodeTerminal({
                 {recentSessions.map((session) => (
                   <SelectItem key={session.id} value={session.id}>
                     <div className="flex flex-col">
-                      <span className="text-xs">{session.id.slice(0, 20)}...</span>
+                      <span className="text-xs">
+                        {session.claudeSessionId
+                          ? `Claude: ${session.claudeSessionId.slice(0, 15)}...`
+                          : `${session.id.slice(0, 20)}...`}
+                      </span>
                       <span className="text-[10px] text-[#6e7681]">
                         {new Date(session.startedAt).toLocaleString()}
+                        {!session.claudeSessionId && " (no resume ID)"}
                       </span>
                     </div>
                   </SelectItem>
@@ -1086,6 +1147,39 @@ export function ClaudeCodeTerminal({
               Auto Kickoff
             </label>
           </div>
+
+          {/* Bypass Permissions Toggle (Dangerous) */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className={cn("h-3.5 w-3.5", bypassPermissionsLocal ? "text-red-400" : "text-[#6e7681]")} />
+                  <Switch
+                    checked={bypassPermissionsLocal}
+                    onCheckedChange={setBypassPermissionsLocal}
+                    className="data-[state=checked]:bg-red-600"
+                  />
+                  <label
+                    className={cn(
+                      "text-xs cursor-pointer",
+                      bypassPermissionsLocal ? "text-red-400" : "text-[#8b949e]"
+                    )}
+                    onClick={() => setBypassPermissionsLocal(!bypassPermissionsLocal)}
+                  >
+                    Bypass Permissions
+                  </label>
+                  {bypassPermissionsLocal && (
+                    <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[10px] font-medium">
+                      DANGEROUS
+                    </span>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <p className="text-red-300">Skips all permission prompts. Claude can execute any command without asking. Use only for trusted projects.</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
           {/* Mini-Me Mode Toggle */}
           <TooltipProvider>

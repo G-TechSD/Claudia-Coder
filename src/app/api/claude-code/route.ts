@@ -438,13 +438,15 @@ export async function POST(request: NextRequest) {
       // Try to extract Claude's internal session ID from the output
       // Claude typically outputs something like "Session: abc123..." or similar
       if (!sessionIdExtracted && !session.claudeSessionId) {
-        // Look for patterns like "session_id: xyz" or "Session ID: xyz"
-        const sessionMatch = data.match(/(?:session[_\s]?id|Session ID)[:\s]+([a-zA-Z0-9_-]+)/i)
+        // Look for patterns like "session_id: xyz" or "Session ID: xyz" or just "Session xyz" at start
+        const sessionMatch = data.match(/(?:session[_\s]?id|Session ID|Session)[:\s]+([a-zA-Z0-9_-]+)/i)
         if (sessionMatch) {
           session.claudeSessionId = sessionMatch[1]
           sessionIdExtracted = true
           updateStoredSession(session)
           console.log(`[claude-code][${id}] Extracted Claude session ID: ${session.claudeSessionId}`)
+          // Emit the claudeSessionId to connected clients so they can store it
+          emitter.emit("message", { type: "claude_session_id", claudeSessionId: session.claudeSessionId })
         }
       }
 

@@ -23,11 +23,34 @@ Respond in this exact JSON format:
     "description": "brief description if clear",
     "techStack": ["technologies mentioned"],
     "priority": "low|medium|high based on urgency signals",
-    "targetUsers": "who the users are if mentioned"
+    "targetUsers": "who the users are if mentioned",
+    "monetization": true|false,
+    "monetizationIntent": "how they plan to monetize if mentioned",
+    "needsUI": true|false,
+    "uiType": "website|web_app|desktop|mobile|terminal|api_only|null",
+    "uiAudience": "end_users|internal|developers|mixed",
+    "suggestedFrameworks": ["framework1", "framework2"]
   }
 }
 
-Only include fields in extractedData that were actually discussed. Respond with ONLY the JSON, no markdown or explanation.`
+UI Detection Guidelines:
+- Set "needsUI" to true if project needs any visual interface users interact with
+- "uiType" should be one of:
+  * "website" - Marketing/content site, blog, portfolio
+  * "web_app" - Interactive application (dashboard, SaaS, tool)
+  * "desktop" - Native desktop application (Windows, Mac, Linux)
+  * "mobile" - Phone/tablet app (iOS, Android, cross-platform)
+  * "terminal" - CLI tool or TUI (Terminal UI)
+  * "api_only" - Backend service, API, headless service
+  * null if unclear
+- "uiAudience" indicates who will use the interface:
+  * "end_users" - General public or customers
+  * "internal" - Company/team internal use
+  * "developers" - Other developers integrating with it
+  * "mixed" - Multiple audience types
+- "suggestedFrameworks" should list 2-3 appropriate UI frameworks based on the uiType
+
+Only include fields in extractedData that were actually discussed or can be reasonably inferred. Respond with ONLY the JSON, no markdown or explanation.`
 
     // Try local LLM first
     const localResponse = await generateWithLocalLLM(

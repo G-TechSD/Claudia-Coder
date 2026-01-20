@@ -14,6 +14,7 @@ import { VoiceInput } from "@/components/voice/voice-input"
 import { createProject, updateProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
 import { savePackets, saveBuildPlan, type BuildPlan, type WorkPacket, type PacketSummary } from "@/lib/ai/build-plan"
 import { BuildPlanReview } from "@/components/project/build-plan-review"
+import { UIFrameworkSelector, UIType, FrameworkOption, getFrameworksForType, detectUITypeFromDescription } from "@/components/project/ui-framework-selector"
 import { createGitLabRepo, setGitLabToken, validateGitLabToken, listGitLabProjects } from "@/lib/gitlab/api"
 import { getUserGitLabToken } from "@/lib/data/user-gitlab"
 import { useSettings } from "@/hooks/useSettings"
@@ -62,7 +63,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
-type Mode = "choose" | "quick" | "interview" | "linear" | "setup" | "complete" | "build_review"
+type Mode = "choose" | "quick" | "interview" | "linear" | "setup" | "complete" | "build_review" | "ui_selection"
 
 interface GeneratedPlan {
   name: string
@@ -235,6 +236,12 @@ function NewProjectContent() {
   const [buildPlanSource, setBuildPlanSource] = useState<{ server?: string; model?: string } | null>(null)
   const [isGeneratingBuildPlan, setIsGeneratingBuildPlan] = useState(false)
   const [buildPlanError, setBuildPlanError] = useState("")
+
+  // UI Framework selection state
+  const [detectedUIType, setDetectedUIType] = useState<UIType | null>(null)
+  const [detectedUIAudience, setDetectedUIAudience] = useState<string | null>(null)
+  const [suggestedFrameworks, setSuggestedFrameworks] = useState<string[]>([])
+  const [selectedFramework, setSelectedFramework] = useState<FrameworkOption | null>(null)
 
   // Repo linking state (for Linear import flow)
   const [showRepoLinkDialog, setShowRepoLinkDialog] = useState(false)
@@ -832,7 +839,7 @@ function NewProjectContent() {
     }
   }
 
-  // Auto-save a project from "Feeling Lucky" quick creation
+  // Auto-save a project from "Quick Start" quick creation
   const autoSaveQuickProject = async (plan: GeneratedPlan) => {
     if (!user?.id) {
       setSubmitError("You must be logged in to create a project")
@@ -843,6 +850,9 @@ function NewProjectContent() {
     setSubmitError("")
 
     try {
+      // Always set a basePath - use explicit path or generate a default
+      const effectiveBasePath = projectFolderPath.trim() || localRepoPath.trim() || `~/claudia-projects/${toRepoName(plan.name)}`
+
       // Pass userId to ensure project is saved to user-scoped storage
       const project = createProject({
         name: plan.name,
@@ -852,8 +862,25 @@ function NewProjectContent() {
         repos: [],
         packetIds: [],
         tags: plan.techStack || [],
-        basePath: projectFolderPath.trim() || localRepoPath.trim() || undefined
+        basePath: effectiveBasePath
       }, user.id)
+
+      // Ensure the working directory exists and is initialized as a git repo
+      try {
+        await fetch("/api/projects/ensure-working-directory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: project.id,
+            projectName: project.name,
+            projectDescription: project.description,
+            basePath: effectiveBasePath
+          })
+        })
+      } catch (ensureError) {
+        console.warn("Failed to ensure working directory:", ensureError)
+        // Non-fatal - continue with project creation
+      }
 
       // Link voice recording if project was created from voice
       if (sourceVoiceRecording) {
@@ -953,6 +980,21 @@ function NewProjectContent() {
     setPriority(extractedPriority)
     const techStack = (extractedData.techStack as string[]) || []
 
+    // Check for UI detection from interview
+    const needsUI = Boolean(extractedData.needsUI)
+    const uiType = (extractedData.uiType as UIType | null) || detectUITypeFromDescription(description)
+    const uiAudience = extractedData.uiAudience as string | null
+    const frameworks = (extractedData.suggestedFrameworks as string[]) || []
+
+    // If UI was detected, show UI framework selection before build plan
+    if (needsUI && uiType && uiType !== "api_only") {
+      setDetectedUIType(uiType)
+      setDetectedUIAudience(uiAudience)
+      setSuggestedFrameworks(frameworks)
+      setMode("ui_selection")
+      return // Don't generate build plan yet - wait for framework selection
+    }
+
     // If auto-generate is enabled, generate build plan and show review
     if (autoGenerateBuildPlan) {
       await generateBuildPlanForProject(name, description, hasMonetizationIntent)
@@ -962,12 +1004,67 @@ function NewProjectContent() {
     }
   }
 
+  // Handle UI framework selection
+  const handleUIFrameworkSelect = async (framework: FrameworkOption) => {
+    setSelectedFramework(framework)
+
+    // Add framework to tech stack and regenerate build plan with UI context
+    const techStack = (interviewSession?.extractedData?.techStack as string[]) || []
+    if (!techStack.includes(framework.id)) {
+      techStack.push(framework.id)
+    }
+
+    // Generate build plan with UI context
+    if (autoGenerateBuildPlan) {
+      await generateBuildPlanForProject(
+        projectName,
+        projectDescription,
+        monetizationIntent,
+        undefined,
+        {
+          needsUI: true,
+          uiType: detectedUIType,
+          selectedFramework: framework.id,
+          uiAudience: detectedUIAudience
+        }
+      )
+    } else {
+      setMode("setup")
+    }
+  }
+
+  // Handle skipping UI framework selection
+  const handleUIFrameworkSkip = async () => {
+    // Generate build plan without specific framework selection (AI will decide)
+    if (autoGenerateBuildPlan) {
+      await generateBuildPlanForProject(
+        projectName,
+        projectDescription,
+        monetizationIntent,
+        undefined,
+        {
+          needsUI: true,
+          uiType: detectedUIType,
+          uiAudience: detectedUIAudience
+        }
+      )
+    } else {
+      setMode("setup")
+    }
+  }
+
   // Generate build plan for a project
   const generateBuildPlanForProject = async (
     name: string,
     description: string,
     includeBusinessDev: boolean = false,
-    preferredModelString?: string
+    preferredModelString?: string,
+    uiContext?: {
+      needsUI: boolean
+      uiType: UIType | null
+      selectedFramework?: string
+      uiAudience?: string | null
+    }
   ) => {
     setIsGeneratingBuildPlan(true)
     setBuildPlanError("")
@@ -977,6 +1074,22 @@ function NewProjectContent() {
       let enhancedDescription = description
       if (includeBusinessDev) {
         enhancedDescription += "\n\nBusiness Requirements: This app will be monetized. Include business development tasks such as revenue model research, payment integration planning, analytics setup, and legal documentation (terms of service, privacy policy)."
+      }
+
+      // Add UI context if provided
+      if (uiContext?.needsUI && uiContext?.uiType) {
+        enhancedDescription += `\n\n=== UI PROJECT CONTEXT ===\nUI Type: ${uiContext.uiType}`
+        if (uiContext.uiAudience) {
+          enhancedDescription += `\nTarget Audience: ${uiContext.uiAudience}`
+        }
+        if (uiContext.selectedFramework) {
+          enhancedDescription += `\nSelected Framework: ${uiContext.selectedFramework}`
+        }
+        enhancedDescription += `\n\nIMPORTANT: Since this is a ${uiContext.uiType} project:
+1. Start with UI scaffolding - First packet should set up the UI framework and basic structure
+2. Include design system packet - Colors, typography, components, spacing
+3. Prioritize user-visible features - Users should see progress early
+4. Order packets so users can see and interact with the UI early in development`
       }
 
       // Parse the model string to extract server and model
@@ -1382,6 +1495,10 @@ function NewProjectContent() {
           <p className="text-muted-foreground">
             Describe what you want to build, then choose your path
           </p>
+          <p className="text-sm text-muted-foreground/80 max-w-lg mx-auto mt-3">
+            Claudia generates complete, production-ready code — not just scaffolding.
+            From your description to working software with tests, documentation, and quality gates.
+          </p>
         </div>
 
         {/* Beta usage banner */}
@@ -1482,7 +1599,7 @@ function NewProjectContent() {
                 ) : (
                   <Zap className="mr-2 h-5 w-5" />
                 )}
-                Feeling Lucky
+                Quick Start
               </Button>
               <Button
                 size="lg"
@@ -1496,7 +1613,7 @@ function NewProjectContent() {
             </div>
 
             <p className="text-xs text-center text-muted-foreground">
-              <strong>Feeling Lucky</strong> generates a plan instantly • <strong>Full Interview</strong> asks 10-20 questions for detail
+              <strong>Quick Start</strong> generates a plan instantly • <strong>Full Interview</strong> asks 10-20 questions for detail
             </p>
 
             {/* Auto-generate Build Plan Toggle */}
@@ -2168,6 +2285,62 @@ function NewProjectContent() {
           onComplete={handleInterviewComplete}
           onCancel={handleInterviewCancel}
         />
+      </div>
+    )
+  }
+
+  // Mode: UI Framework Selection
+  if (mode === "ui_selection" && detectedUIType) {
+    // Show generating overlay if building plan
+    if (isGeneratingBuildPlan) {
+      return (
+        <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-6">
+          <Card className="max-w-md w-full">
+            <CardContent className="pt-6 text-center">
+              <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Loader2 className="h-8 w-8 text-primary animate-spin" />
+              </div>
+              <h2 className="text-xl font-semibold mb-2">Generating Build Plan</h2>
+              <p className="text-muted-foreground mb-4">
+                Creating a UI-focused development plan with {selectedFramework?.name || "your chosen framework"}...
+              </p>
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <Sparkles className="h-4 w-4" />
+                <span>This may take 30-60 seconds</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+
+    return (
+      <div className="container mx-auto py-8 px-4 max-w-4xl">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2 mb-2">
+              <Button variant="ghost" size="sm" onClick={() => setMode("interview")}>
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+            </div>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              UI Framework Selection
+            </CardTitle>
+            <CardDescription>
+              We detected your project needs a user interface. Choose a framework to get started.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <UIFrameworkSelector
+              uiType={detectedUIType}
+              suggestedFrameworks={suggestedFrameworks}
+              onSelect={handleUIFrameworkSelect}
+              onSkip={handleUIFrameworkSkip}
+            />
+          </CardContent>
+        </Card>
       </div>
     )
   }

@@ -35,6 +35,18 @@ export const PROJECT_CREATION_SYSTEM_PROMPT = `You are Claudia, a friendly AI as
 - Timeline and milestones
 - Success criteria
 - **Monetization intent** (IMPORTANT: Always ask "Do you plan to monetize this app?" at some point)
+- **User Interface needs** (IMPORTANT: Early in the conversation, determine UI requirements)
+
+**UI Detection - Ask Early:**
+It's critical to understand what kind of user interface this project needs. Ask about:
+- Whether users will interact through a visual interface
+- What type of interface: website, web app, mobile app, desktop app, or terminal/CLI
+- Who the primary audience is: end users, internal team, or developers
+
+Example UI questions:
+- "Will users interact with this through a visual interface, or is it more of a background service?"
+- "Are you thinking of this as a website, a web app with interactivity, a mobile app, or something else?"
+- "Who's the primary audience - customers, your team, or other developers?"
 
 **Monetization Question:**
 Make sure to naturally ask about monetization plans. This is important for generating business development tasks. Ask something like:
@@ -153,6 +165,7 @@ function getSmartFollowUpQuestion(description: string): string {
   const hasTimeline = /\b(deadline|timeline|weeks?|months?|urgent|asap|mvp|launch|by\s+(january|february|march|april|may|june|july|august|september|october|november|december|\d{4}))\b/i.test(description)
   const hasPurpose = /\b(problem|solve|help|need|because|goal|objective|purpose)\b/i.test(description)
   const hasMonetization = /\b(monetiz|revenue|paid|subscription|premium|free|freemium|ads?|business\s+model)\b/i.test(description)
+  const hasUIType = /\b(website|web\s*app|mobile|desktop|cli|terminal|tui|interface|ui|ux|frontend|dashboard|portal)\b/i.test(description)
 
   // Questions for missing info (in order of priority)
   const questions: { check: boolean; questions: string[] }[] = [
@@ -186,6 +199,14 @@ function getSmartFollowUpQuestion(description: string): string {
         "What's your timeline looking like for this?",
         "Any key milestones or deadlines?",
         "When would you like to see this live?"
+      ]
+    },
+    {
+      check: !hasUIType,
+      questions: [
+        "What kind of interface will users interact with - web, mobile, desktop, or command line?",
+        "Are you thinking of this as a website, a web app, a mobile app, or something else?",
+        "Will this have a visual interface, or is it more of a backend service?"
       ]
     },
     {
@@ -235,7 +256,11 @@ export const PROJECT_CREATION_FOLLOW_UPS = [
   "Any hard constraints or deadlines?",
   "What similar products have you looked at?",
   "Is this replacing something existing?",
-  "Who else will be working on this?"
+  "Who else will be working on this?",
+  // UI-related follow-ups
+  "Will this project have a user interface? What type - web, mobile, desktop, or terminal?",
+  "Who will be using this interface - customers, internal team, or developers?",
+  "Any preferences for UI frameworks or design systems?"
 ]
 
 // ============ Contextual Interview Prompts ============
@@ -374,7 +399,12 @@ export const EXTRACTION_PROMPT = `Based on the interview conversation, extract t
     "timeline": "timeline if mentioned",
     "priority": "low|medium|high|critical",
     "monetization": true|false, // Did they indicate plans to monetize?
-    "monetizationIntent": "brief description of how they plan to monetize, if mentioned"
+    "monetizationIntent": "brief description of how they plan to monetize, if mentioned",
+    // UI detection fields:
+    "needsUI": true|false, // Does this project need a user interface?
+    "uiType": "website|web_app|desktop|mobile|terminal|api_only|null",
+    "uiAudience": "end_users|internal|developers|mixed",
+    "suggestedFrameworks": ["array of 2-3 appropriate frameworks based on uiType"]
   }
 }
 
@@ -386,7 +416,19 @@ export const EXTRACTION_PROMPT = `Based on the interview conversation, extract t
 - Sell data (ethically)
 - Any other revenue model
 
-Only include fields that were actually discussed. Be concise.`
+**UI DETECTION:**
+- Set "needsUI" to true if project requires any visual interface users interact with
+- "uiType" indicates the type of interface:
+  * "website" - Marketing/content site, blog, portfolio
+  * "web_app" - Interactive application (dashboard, SaaS, tool)
+  * "desktop" - Native desktop application
+  * "mobile" - Phone/tablet app
+  * "terminal" - CLI tool or TUI
+  * "api_only" - Backend service, no UI
+- "uiAudience" indicates who uses the interface: end_users, internal, developers, or mixed
+- "suggestedFrameworks" should recommend 2-3 frameworks appropriate for the uiType
+
+Only include fields that were actually discussed or can be reasonably inferred. Be concise.`
 
 // ============ Helper Functions ============
 
