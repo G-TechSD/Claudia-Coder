@@ -12,7 +12,9 @@ import {
   Zap,
   CheckCircle2,
   Brain,
-  ArrowRight
+  ArrowRight,
+  Pause,
+  Play
 } from "lucide-react"
 
 interface WorkPacket {
@@ -33,8 +35,11 @@ interface StartBuildHeroProps {
   hasBuildPlan: boolean
   buildPlanApproved: boolean
   isExecuting?: boolean
-  hasLinkedRepo?: boolean
+  isPaused?: boolean
+  hasWorkingDirectory?: boolean
   onStartBuild: () => void
+  onPause?: () => void
+  onResume?: () => void
   className?: string
 }
 
@@ -53,8 +58,11 @@ export function StartBuildHero({
   hasBuildPlan,
   buildPlanApproved,
   isExecuting = false,
-  hasLinkedRepo = false,
+  isPaused = false,
+  hasWorkingDirectory = false,
   onStartBuild,
+  onPause,
+  onResume,
   className
 }: StartBuildHeroProps) {
   // projectId and projectName are available for future use (logging, analytics, etc.)
@@ -104,8 +112,16 @@ export function StartBuildHero({
           {/* Left side: Icon and text */}
           <div className="flex-1 text-center lg:text-left">
             <div className="flex items-center justify-center lg:justify-start gap-3 mb-3">
-              <div className="p-3 rounded-2xl bg-green-500/20 border border-green-500/30">
-                <Rocket className="h-8 w-8 text-green-400" />
+              {/* Football being kicked - ASCII art style icon */}
+              <div className="p-3 rounded-2xl bg-green-500/20 border border-green-500/30 relative">
+                <div className="text-3xl" title="Kick off!">🏈</div>
+                {/* Motion lines */}
+                <div className="absolute -right-1 top-1/2 -translate-y-1/2 text-green-400 text-xs font-bold opacity-70">
+                  ╲
+                </div>
+                <div className="absolute -right-2 top-1/2 translate-y-1 text-green-400 text-xs font-bold opacity-50">
+                  ╲
+                </div>
               </div>
               <Badge variant="outline" className="text-green-400 border-green-500/30 bg-green-500/10">
                 <CheckCircle2 className="h-3 w-3 mr-1" />
@@ -114,14 +130,14 @@ export function StartBuildHero({
             </div>
 
             <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-2">
-              Ready to Build
+              <span className="text-green-400">Kick Off</span> — Ready to Build
             </h2>
             <p className="text-muted-foreground text-lg mb-4">
               Your build plan is approved and{" "}
               <span className="text-green-400 font-semibold">
                 {readyPackets.length} packet{readyPackets.length !== 1 ? 's' : ''}
               </span>{" "}
-              {readyPackets.length !== 1 ? 'are' : 'is'} queued for execution.
+              {readyPackets.length !== 1 ? 'are' : 'is'} queued for processing.
             </p>
 
             {/* Stats row */}
@@ -167,35 +183,62 @@ export function StartBuildHero({
             )}
           </div>
 
-          {/* Right side: Big button */}
+          {/* Right side: Big button + Pause button */}
           <div className="flex flex-col items-center gap-3">
-            <Button
-              size="lg"
-              onClick={onStartBuild}
-              disabled={!hasLinkedRepo || readyPackets.length === 0}
-              className={cn(
-                "h-16 px-8 text-lg font-semibold",
-                "bg-gradient-to-r from-green-600 to-emerald-600",
-                "hover:from-green-500 hover:to-emerald-500",
-                "shadow-lg shadow-green-500/25",
-                "border border-green-400/30",
-                "transition-all duration-300",
-                "hover:scale-105 hover:shadow-xl hover:shadow-green-500/30"
-              )}
-            >
-              <Zap className="h-6 w-6 mr-2" />
-              Start Build
-              <ArrowRight className="h-5 w-5 ml-2" />
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                size="lg"
+                onClick={onStartBuild}
+                disabled={!hasWorkingDirectory || readyPackets.length === 0}
+                className={cn(
+                  "h-16 px-8 text-lg font-semibold",
+                  "bg-gradient-to-r from-green-600 to-emerald-600",
+                  "hover:from-green-500 hover:to-emerald-500",
+                  "shadow-lg shadow-green-500/25",
+                  "border border-green-400/30",
+                  "transition-all duration-300",
+                  "hover:scale-105 hover:shadow-xl hover:shadow-green-500/30"
+                )}
+              >
+                <span className="text-xl mr-2">🏈</span>
+                Kick Off
+                <ArrowRight className="h-5 w-5 ml-2" />
+              </Button>
 
-            {!hasLinkedRepo && (
+              {/* Pause/Resume Button */}
+              {(onPause || onResume) && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={isPaused ? onResume : onPause}
+                  disabled={!hasWorkingDirectory || readyPackets.length === 0}
+                  className={cn(
+                    "h-16 px-6",
+                    "border-2",
+                    isPaused
+                      ? "border-green-500/50 bg-green-500/10 hover:bg-green-500/20 text-green-400"
+                      : "border-gray-500/50 bg-gray-500/10 hover:bg-gray-500/20 text-gray-400",
+                    "transition-all duration-300"
+                  )}
+                  title={isPaused ? "Resume processing" : "Pause processing"}
+                >
+                  {isPaused ? (
+                    <Play className="h-6 w-6" />
+                  ) : (
+                    <Pause className="h-6 w-6" />
+                  )}
+                </Button>
+              )}
+            </div>
+
+            {!hasWorkingDirectory && (
               <p className="text-xs text-amber-400">
-                Link a repository first to enable execution
+                Initialize project folder to enable processing
               </p>
             )}
 
             <p className="text-xs text-muted-foreground text-center max-w-[200px]">
-              Claudia Coder will execute all queued packets using your selected AI provider
+              Claudia Coder will process all queued packets using your selected AI provider
             </p>
           </div>
         </div>
@@ -203,7 +246,7 @@ export function StartBuildHero({
         {/* Packet preview list */}
         {readyPackets.length > 0 && readyPackets.length <= 5 && (
           <div className="mt-6 pt-6 border-t border-green-500/20">
-            <p className="text-sm text-muted-foreground mb-3">Packets to execute:</p>
+            <p className="text-sm text-muted-foreground mb-3">Packets to process:</p>
             <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
               {readyPackets.slice(0, 6).map((packet, index) => (
                 <div
@@ -249,7 +292,7 @@ export function StartBuildCompact({
   hasBuildPlan,
   buildPlanApproved,
   isExecuting = false,
-  hasLinkedRepo = false,
+  hasWorkingDirectory = false,
   onStartBuild
 }: Omit<StartBuildHeroProps, 'projectId' | 'projectName' | 'className'>) {
   const readyPackets = packets.filter(p =>
@@ -277,7 +320,7 @@ export function StartBuildCompact({
         <Button
           size="sm"
           onClick={onStartBuild}
-          disabled={!hasLinkedRepo}
+          disabled={!hasWorkingDirectory}
           className="bg-green-600 hover:bg-green-500"
         >
           <Zap className="h-4 w-4 mr-1" />

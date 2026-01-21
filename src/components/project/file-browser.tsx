@@ -28,6 +28,7 @@ import {
   FolderTree,
   HardDrive,
   Settings,
+  FolderPlus,
   type LucideIcon,
 } from "lucide-react"
 
@@ -43,6 +44,7 @@ export interface FileNode {
 
 interface FileBrowserProps {
   projectId: string
+  projectName?: string
   basePath?: string
   className?: string
 }
@@ -161,22 +163,86 @@ function FileTreeItem({
   onPreview,
   expandedFolders,
   toggleFolder,
+  projectId,
+  basePath,
 }: {
   node: FileNode
   level?: number
   onPreview: (node: FileNode) => void
   expandedFolders: Set<string>
   toggleFolder: (path: string) => void
+  projectId: string
+  basePath?: string
 }) {
+  const [downloadingFile, setDownloadingFile] = useState(false)
   const isExpanded = expandedFolders.has(node.path)
   const isDirectory = node.type === "directory"
   const canPreview = !isDirectory && isTextPreviewable(node.extension)
+
+  const handleDownloadFile = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (isDirectory) return
+
+    try {
+      setDownloadingFile(true)
+
+      const url = new URL(`/api/projects/${projectId}/files`, window.location.origin)
+      url.searchParams.set("path", node.path)
+      url.searchParams.set("download", "true")
+      if (basePath) {
+        url.searchParams.set("basePath", basePath)
+      }
+
+      const response = await fetch(url.toString())
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "Failed to download file")
+      }
+
+      // Check if it's a blob response (binary) or JSON (text content)
+      const contentType = response.headers.get("Content-Type")
+      let blob: Blob
+      let filename = node.name
+
+      if (contentType?.includes("application/json")) {
+        // Text file response
+        const data = await response.json()
+        blob = new Blob([data.content], { type: "text/plain" })
+      } else {
+        // Binary file response
+        blob = await response.blob()
+        // Try to get filename from Content-Disposition
+        const contentDisposition = response.headers.get("Content-Disposition")
+        if (contentDisposition) {
+          const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+          if (match) {
+            filename = match[1].replace(/['"]/g, "")
+          }
+        }
+      }
+
+      // Download the file
+      const downloadUrl = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = downloadUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(downloadUrl)
+    } catch (err) {
+      console.error("Download error:", err)
+    } finally {
+      setDownloadingFile(false)
+    }
+  }
 
   return (
     <div>
       <div
         className={cn(
-          "flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer transition-colors",
+          "flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer transition-colors group",
           "hover:bg-muted/50",
           canPreview && "hover:bg-primary/10"
         )}
@@ -216,6 +282,26 @@ function FileTreeItem({
             {formatSize(node.size)}
           </span>
         )}
+
+        {/* Individual file download button */}
+        {!isDirectory && (
+          <button
+            onClick={handleDownloadFile}
+            disabled={downloadingFile}
+            className={cn(
+              "p-1 rounded hover:bg-muted/80 transition-opacity",
+              "opacity-0 group-hover:opacity-100",
+              downloadingFile && "opacity-100"
+            )}
+            title={`Download ${node.name}`}
+          >
+            {downloadingFile ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            ) : (
+              <Download className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+            )}
+          </button>
+        )}
       </div>
 
       {isDirectory && isExpanded && node.children && (
@@ -228,6 +314,8 @@ function FileTreeItem({
               onPreview={onPreview}
               expandedFolders={expandedFolders}
               toggleFolder={toggleFolder}
+              projectId={projectId}
+              basePath={basePath}
             />
           ))}
         </div>
@@ -336,7 +424,7 @@ function FilePreviewModal({
   )
 }
 
-export function FileBrowser({ projectId, basePath, className }: FileBrowserProps) {
+export function FileBrowser({ projectId, projectName, basePath, className }: FileBrowserProps) {
   const [files, setFiles] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -346,6 +434,7 @@ export function FileBrowser({ projectId, basePath, className }: FileBrowserProps
   const [previewFile, setPreviewFile] = useState<FileNode | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [stats, setStats] = useState<{ totalFiles: number; totalSize: number } | null>(null)
+  const [creatingFolder, setCreatingFolder] = useState(false)
 
   const loadFiles = useCallback(async () => {
     try {
@@ -466,6 +555,41 @@ export function FileBrowser({ projectId, basePath, className }: FileBrowserProps
     }
   }
 
+  const createFolder = async () => {
+    if (!attemptedPath) return
+
+    try {
+      setCreatingFolder(true)
+      setError(null)
+
+      // Derive a fallback project name from the folder path
+      const folderName = attemptedPath.split("/").pop() || "project"
+      const effectiveProjectName = projectName || folderName
+
+      const response = await fetch("/api/projects/ensure-working-directory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          projectName: effectiveProjectName,
+          basePath: attemptedPath,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to create folder")
+      }
+
+      // Reload the files after creating the folder
+      await loadFiles()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create folder")
+    } finally {
+      setCreatingFolder(false)
+    }
+  }
+
   if (loading) {
     return (
       <Card className={className}>
@@ -514,8 +638,20 @@ export function FileBrowser({ projectId, basePath, className }: FileBrowserProps
                   <code className="text-sm bg-muted px-3 py-1.5 rounded font-mono mb-4 text-orange-600 dark:text-orange-400">
                     {attemptedPath}
                   </code>
-                  <p className="text-muted-foreground text-sm max-w-md">
-                    Create this folder manually, or configure a different path below.
+                  <Button
+                    onClick={createFolder}
+                    disabled={creatingFolder}
+                    className="mt-2"
+                  >
+                    {creatingFolder ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <FolderPlus className="h-4 w-4 mr-2" />
+                    )}
+                    {creatingFolder ? "Creating Folder..." : "Create Folder"}
+                  </Button>
+                  <p className="text-muted-foreground text-sm max-w-md mt-4">
+                    This will create the folder and initialize it as a git repository.
                   </p>
                 </>
               ) : (
@@ -527,8 +663,7 @@ export function FileBrowser({ projectId, basePath, className }: FileBrowserProps
 
             <div className="flex flex-col items-center gap-4">
               <p className="text-sm text-muted-foreground max-w-sm text-center">
-                The project folder will be automatically created when you initialize the project.
-                Use the &quot;Initialize Folder&quot; option in the Build Plan tab to set up your project files.
+                Or use the &quot;Initialize Folder&quot; option in the Build Plan tab to set up your project files with additional configuration.
               </p>
             </div>
           </CardContent>
@@ -645,6 +780,8 @@ export function FileBrowser({ projectId, basePath, className }: FileBrowserProps
                   onPreview={setPreviewFile}
                   expandedFolders={expandedFolders}
                   toggleFolder={toggleFolder}
+                  projectId={projectId}
+                  basePath={basePath}
                 />
               ))}
             </div>

@@ -9,7 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { generateWithLocalLLM } from "@/lib/llm/local-llm"
+import { generate, parseLLMJson } from "@/lib/llm"
 import * as fs from "fs"
 import * as path from "path"
 
@@ -79,7 +79,7 @@ function saveComments(comments: Record<string, ProjectComment[]>): void {
   }
 }
 
-// Generate packet from comment using LLM
+// Generate packet from comment using LLM (with cloud fallback)
 async function packetizeComment(
   comment: string,
   type: CommentType,
@@ -135,9 +135,13 @@ Convert this comment into a structured work packet. The type should map to:
 Respond with ONLY the JSON object, no other text.`
 
   try {
-    const response = await generateWithLocalLLM(systemPrompt, userPrompt, {
+    // Use unified LLM service with cloud fallback enabled
+    const response = await generate({
+      systemPrompt,
+      userPrompt,
       temperature: 0.3,
-      max_tokens: 1000
+      max_tokens: 1000,
+      allowPaidFallback: true // Enable cloud fallback when local LLM unavailable
     })
 
     if (response.error || !response.content) {
@@ -145,17 +149,13 @@ Respond with ONLY the JSON object, no other text.`
       return null
     }
 
-    // Parse the JSON response
-    const content = response.content.trim()
-    // Handle potential markdown code blocks
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) ||
-                      content.match(/^\{[\s\S]*\}$/)
+    // Parse the JSON response using the unified parser
+    const packet = parseLLMJson<ProposedPacket>(response.content)
 
-    const jsonStr = jsonMatch
-      ? (jsonMatch[1] || jsonMatch[0]).trim()
-      : content
-
-    const packet = JSON.parse(jsonStr) as ProposedPacket
+    if (!packet) {
+      console.error("[comments] Failed to parse packet JSON from LLM response")
+      return null
+    }
 
     // Validate the packet structure
     if (!packet.title || !packet.description || !packet.tasks) {
@@ -170,6 +170,7 @@ Respond with ONLY the JSON object, no other text.`
       completed: false
     }))
 
+    console.log(`[comments] Packetization successful via ${response.source}${response.server ? ` (${response.server})` : ""}`)
     return packet
   } catch (error) {
     console.error("[comments] Packetization error:", error)

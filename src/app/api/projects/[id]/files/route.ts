@@ -64,14 +64,23 @@ interface RouteParams {
 }
 
 /**
+ * Expand ~ to the user's home directory
+ */
+function expandPath(p: string): string {
+  if (!p) return p
+  return p.replace(/^~/, os.homedir())
+}
+
+/**
  * Get the effective project path
  */
 async function getProjectPath(projectId: string, basePath?: string): Promise<string | null> {
-  // If basePath is explicitly provided, use it
+  // If basePath is explicitly provided, use it (expand ~ first)
   if (basePath) {
+    const expandedPath = expandPath(basePath)
     try {
-      await fs.access(basePath)
-      return basePath
+      await fs.access(expandedPath)
+      return expandedPath
     } catch {
       return null
     }
@@ -246,6 +255,7 @@ export async function GET(
 
     const basePath = searchParams.get("basePath")
     const filePath = searchParams.get("path")
+    const downloadMode = searchParams.get("download") === "true"
 
     // Get project directory
     const projectPath = await getProjectPath(projectId, basePath || undefined)
@@ -292,8 +302,8 @@ export async function GET(
           )
         }
 
-        // Check file size
-        if (stats.size > MAX_FILE_SIZE) {
+        // Check file size (only for non-download mode)
+        if (!downloadMode && stats.size > MAX_FILE_SIZE) {
           return NextResponse.json(
             {
               error: "File too large",
@@ -303,13 +313,62 @@ export async function GET(
           )
         }
 
-        // Read file content
+        const fileName = path.basename(filePath)
+
+        // Download mode - return file as binary with proper headers
+        if (downloadMode) {
+          const fileBuffer = await fs.readFile(filePath)
+
+          // Determine content type based on extension
+          const ext = path.extname(filePath).toLowerCase()
+          const mimeTypes: Record<string, string> = {
+            ".txt": "text/plain",
+            ".html": "text/html",
+            ".htm": "text/html",
+            ".css": "text/css",
+            ".js": "application/javascript",
+            ".mjs": "application/javascript",
+            ".json": "application/json",
+            ".xml": "application/xml",
+            ".pdf": "application/pdf",
+            ".zip": "application/zip",
+            ".tar": "application/x-tar",
+            ".gz": "application/gzip",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".svg": "image/svg+xml",
+            ".webp": "image/webp",
+            ".ico": "image/x-icon",
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+            ".mp4": "video/mp4",
+            ".webm": "video/webm",
+            ".ts": "text/typescript",
+            ".tsx": "text/typescript-jsx",
+            ".md": "text/markdown",
+            ".yaml": "text/yaml",
+            ".yml": "text/yaml",
+          }
+          const contentType = mimeTypes[ext] || "application/octet-stream"
+
+          return new NextResponse(fileBuffer, {
+            headers: {
+              "Content-Type": contentType,
+              "Content-Disposition": `attachment; filename="${fileName}"`,
+              "Content-Length": stats.size.toString(),
+            },
+          })
+        }
+
+        // Read file content as text
         const content = await fs.readFile(filePath, "utf-8")
 
         return NextResponse.json({
           success: true,
           path: filePath,
-          name: path.basename(filePath),
+          name: fileName,
           size: stats.size,
           content,
         })

@@ -109,28 +109,31 @@ export async function generate(request: LLMRequest): Promise<LLMResponse> {
     }
   }
 
-  // Local failed - try Anthropic only if explicitly allowed
+  // Local failed - try Anthropic directly if explicitly allowed
   if (request.allowPaidFallback && process.env.ANTHROPIC_API_KEY) {
     try {
-      const response = await fetch("/api/llm/anthropic-direct", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemPrompt: request.systemPrompt,
-          userPrompt: request.userPrompt,
-          temperature: request.temperature,
-          max_tokens: request.max_tokens
-        })
+      // Import Anthropic SDK directly for server-side fallback
+      const Anthropic = (await import("@anthropic-ai/sdk")).default
+      const anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY
       })
 
-      if (response.ok) {
-        const data = await response.json()
-        return {
-          content: data.content,
-          source: "anthropic",
-          model: data.model,
-          warning: "Using paid Anthropic API - local LLM was unavailable"
-        }
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: request.max_tokens || 1024,
+        system: request.systemPrompt,
+        messages: [{ role: "user", content: request.userPrompt }]
+      })
+
+      const content = response.content[0].type === "text"
+        ? response.content[0].text
+        : ""
+
+      return {
+        content,
+        source: "anthropic",
+        model: "claude-sonnet-4-20250514",
+        warning: "Using paid Anthropic API - local LLM was unavailable"
       }
     } catch (error) {
       console.error("Anthropic fallback failed:", error)
