@@ -104,6 +104,8 @@ interface BuildPlanEditorProps {
   onProviderChange: (provider: string) => void
   onKickoffGenerated?: (kickoffPath: string) => void
   onPriorArtResearch?: () => void  // Callback to trigger prior art research
+  onPacketsGenerated?: (packets: WorkPacket[]) => void  // Callback when packets are created from build plan
+  onPlanApproved?: () => void  // Callback when plan is approved
   kickoffTrigger?: number  // Incremented to signal kickoff content is ready in sessionStorage
   className?: string
 }
@@ -249,6 +251,8 @@ export function BuildPlanEditor({
   onProviderChange,
   onKickoffGenerated,
   onPriorArtResearch,
+  onPacketsGenerated,
+  onPlanApproved,
   kickoffTrigger = 0,
   className
 }: BuildPlanEditorProps) {
@@ -891,6 +895,7 @@ export function BuildPlanEditor({
     if (!storedPlan) return
     approveBuildPlan(storedPlan.id)
     setStoredPlan({ ...storedPlan, status: "approved", approvedAt: new Date().toISOString() })
+    onPlanApproved?.()
   }
 
   // Accept build plan and generate packets
@@ -942,6 +947,10 @@ export function BuildPlanEditor({
 
       // Save packets to storage
       savePackets(projectId, workPackets)
+
+      // Notify parent that plan was approved and packets were generated
+      onPlanApproved?.()
+      onPacketsGenerated?.(workPackets)
 
       // Generate KICKOFF.md if working directory is available
       if (workingDirectory) {

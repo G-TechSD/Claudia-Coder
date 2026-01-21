@@ -2573,6 +2573,31 @@ export default function ProjectDetailPage() {
                   onKickoffGenerated={(kickoffPath) => {
                     console.log(`[project-page] KICKOFF.md generated at: ${kickoffPath}`)
                   }}
+                  onPlanApproved={() => {
+                    console.log(`[project-page] Build plan approved`)
+                    setBuildPlanApproved(true)
+                    // Refresh the build plan state
+                    const buildPlan = getBuildPlanForProject(project.id)
+                    if (buildPlan) {
+                      setCurrentBuildPlan(buildPlan)
+                    }
+                  }}
+                  onPacketsGenerated={(generatedPackets) => {
+                    console.log(`[project-page] ${generatedPackets.length} packets generated from build plan`)
+                    // Convert WorkPacket[] to our local packet format and update state
+                    const formattedPackets = generatedPackets.map(p => ({
+                      id: p.id,
+                      title: p.title,
+                      description: p.description,
+                      type: p.type,
+                      priority: p.priority,
+                      status: p.status,
+                      tasks: p.tasks || [],
+                      acceptanceCriteria: p.acceptanceCriteria || [],
+                      runs: [] as PacketRun[]
+                    }))
+                    setPackets(formattedPackets)
+                  }}
                 />
               </CardContent>
             </Card>
