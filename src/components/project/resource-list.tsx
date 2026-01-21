@@ -30,8 +30,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Sparkles,
-  Rocket
+  Rocket,
+  CheckSquare,
+  Square
 } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import {
   ProjectResource,
@@ -109,6 +112,10 @@ export function ResourceList({
   const [proposedPackets, setProposedPackets] = useState<ProposedPacket[]>([])
   const [showPacketApproval, setShowPacketApproval] = useState(false)
   const [packetizeError, setPacketizeError] = useState<string | null>(null)
+
+  // Multi-select state for combining uploads into kickoff
+  const [selectedResources, setSelectedResources] = useState<Set<string>>(new Set())
+  const [isCreatingCombinedKickoff, setIsCreatingCombinedKickoff] = useState(false)
 
   const {
     isTranscribing,
@@ -258,26 +265,39 @@ export function ResourceList({
    * Reads file content and navigates to build plan with content pre-filled
    */
   async function handleUseAsKickoff(resource: ProjectResource) {
+    console.log("[resource-list] handleUseAsKickoff called for:", resource.name)
     setProcessingMarkdownResourceId(resource.id)
     setMarkdownAction("kickoff")
     setPacketizeError(null)
 
     try {
       const content = await readMarkdownContent(resource)
+      console.log("[resource-list] Read markdown content:", content ? `${content.length} chars` : "null")
       if (!content) {
         setPacketizeError("Failed to read markdown file content")
         return
       }
 
       // Store the markdown content in sessionStorage for the build plan page to pick up
-      sessionStorage.setItem("claudia_kickoff_content", JSON.stringify({
+      const kickoffData = {
         content,
         sourceName: resource.name,
         sourceResourceId: resource.id,
         projectId
-      }))
+      }
+      sessionStorage.setItem("claudia_kickoff_content", JSON.stringify(kickoffData))
+      console.log("[resource-list] Saved to sessionStorage:", {
+        sourceName: kickoffData.sourceName,
+        projectId: kickoffData.projectId,
+        contentLength: kickoffData.content.length
+      })
+
+      // Verify it was saved
+      const verify = sessionStorage.getItem("claudia_kickoff_content")
+      console.log("[resource-list] Verification - sessionStorage contains:", verify ? "data" : "nothing")
 
       // Navigate to the project's build plan tab with the content flag
+      console.log("[resource-list] Navigating to build plan with source=kickoff")
       router.push(`/projects/${projectId}?tab=plan&source=kickoff`)
     } catch (err) {
       console.error("Failed to use markdown as kickoff:", err)
@@ -285,6 +305,104 @@ export function ResourceList({
     } finally {
       setProcessingMarkdownResourceId(null)
       setMarkdownAction(null)
+    }
+  }
+
+  /**
+   * Toggle selection of a resource
+   */
+  function toggleResourceSelection(resourceId: string) {
+    setSelectedResources(prev => {
+      const next = new Set(prev)
+      if (next.has(resourceId)) {
+        next.delete(resourceId)
+      } else {
+        next.add(resourceId)
+      }
+      return next
+    })
+  }
+
+  /**
+   * Select all text-based resources (markdown, json, csv)
+   */
+  function selectAllTextResources() {
+    const textResources = resources.filter(r =>
+      r.type === "markdown" || r.type === "json" || r.type === "csv"
+    )
+    setSelectedResources(new Set(textResources.map(r => r.id)))
+  }
+
+  /**
+   * Clear all selections
+   */
+  function clearSelection() {
+    setSelectedResources(new Set())
+  }
+
+  /**
+   * Create a combined kickoff from all selected resources
+   */
+  async function handleCreateCombinedKickoff() {
+    if (selectedResources.size === 0) return
+
+    setIsCreatingCombinedKickoff(true)
+    setPacketizeError(null)
+
+    try {
+      // Get selected resources in order
+      const selected = resources.filter(r => selectedResources.has(r.id))
+      console.log(`[resource-list] Creating combined kickoff from ${selected.length} files`)
+
+      // Read content from all selected resources
+      const contentParts: { name: string; content: string }[] = []
+      for (const resource of selected) {
+        const content = await readMarkdownContent(resource)
+        if (content) {
+          contentParts.push({ name: resource.name, content })
+        } else {
+          console.warn(`[resource-list] Could not read content from: ${resource.name}`)
+        }
+      }
+
+      if (contentParts.length === 0) {
+        setPacketizeError("Failed to read content from any selected files")
+        return
+      }
+
+      // Combine content with headers for each file
+      const combinedContent = contentParts
+        .map(part => `## From: ${part.name}\n\n${part.content}`)
+        .join("\n\n---\n\n")
+
+      const sourceNames = contentParts.map(p => p.name).join(", ")
+
+      // Store the combined content in sessionStorage
+      const kickoffData = {
+        content: combinedContent,
+        sourceName: `Combined: ${contentParts.length} files (${sourceNames.length > 50 ? sourceNames.substring(0, 50) + "..." : sourceNames})`,
+        sourceResourceId: selected.map(r => r.id).join(","),
+        projectId
+      }
+      sessionStorage.setItem("claudia_kickoff_content", JSON.stringify(kickoffData))
+      console.log("[resource-list] Saved combined kickoff to sessionStorage:", {
+        sourceName: kickoffData.sourceName,
+        projectId: kickoffData.projectId,
+        contentLength: kickoffData.content.length,
+        fileCount: contentParts.length
+      })
+
+      // Clear selection
+      setSelectedResources(new Set())
+
+      // Navigate to the project's build plan tab with the content flag
+      console.log("[resource-list] Navigating to build plan with source=kickoff")
+      router.push(`/projects/${projectId}?tab=plan&source=kickoff`)
+    } catch (err) {
+      console.error("Failed to create combined kickoff:", err)
+      setPacketizeError(err instanceof Error ? err.message : "Failed to create combined kickoff")
+    } finally {
+      setIsCreatingCombinedKickoff(false)
     }
   }
 
@@ -472,6 +590,50 @@ export function ResourceList({
         })}
       </div>
 
+      {/* Selection toolbar */}
+      {filteredResources.length > 0 && (
+        <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={selectAllTextResources}
+              className="h-7 text-xs"
+            >
+              <CheckSquare className="h-3 w-3 mr-1" />
+              Select All Text
+            </Button>
+            {selectedResources.size > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearSelection}
+                className="h-7 text-xs"
+              >
+                <X className="h-3 w-3 mr-1" />
+                Clear ({selectedResources.size})
+              </Button>
+            )}
+          </div>
+          {selectedResources.size > 0 && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleCreateCombinedKickoff}
+              disabled={isCreatingCombinedKickoff}
+              className="h-7 text-xs bg-green-600 hover:bg-green-700"
+            >
+              {isCreatingCombinedKickoff ? (
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              ) : (
+                <Rocket className="h-3 w-3 mr-1" />
+              )}
+              Create Kickoff from {selectedResources.size} File{selectedResources.size !== 1 ? "s" : ""}
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Resource grid */}
       {filteredResources.length === 0 ? (
         <Card>
@@ -494,10 +656,27 @@ export function ResourceList({
             const hasTranscription = resource.transcription?.text
             const isProcessingMarkdown = processingMarkdownResourceId === resource.id
 
+            const isTextBased = resource.type === "markdown" || resource.type === "json" || resource.type === "csv"
+            const isSelected = selectedResources.has(resource.id)
+
             return (
-              <Card key={resource.id} className="group hover:border-primary/50 transition-colors">
+              <Card
+                key={resource.id}
+                className={cn(
+                  "group hover:border-primary/50 transition-colors",
+                  isSelected && "border-primary bg-primary/5"
+                )}
+              >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
+                    {/* Selection checkbox for text-based files */}
+                    {isTextBased && (
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleResourceSelection(resource.id)}
+                        className="mt-1"
+                      />
+                    )}
                     {/* Icon */}
                     <div className={cn(
                       "p-2 rounded-lg",
