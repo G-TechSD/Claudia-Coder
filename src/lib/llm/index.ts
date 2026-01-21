@@ -21,7 +21,7 @@ export interface LLMRequest {
 
 export interface LLMResponse {
   content: string
-  source: "local" | "anthropic" | "fallback"
+  source: "local" | "anthropic" | "openai" | "google" | "fallback"
   server?: string
   model?: string
   error?: string
@@ -109,34 +109,101 @@ export async function generate(request: LLMRequest): Promise<LLMResponse> {
     }
   }
 
-  // Local failed - try Anthropic directly if explicitly allowed
-  if (request.allowPaidFallback && process.env.ANTHROPIC_API_KEY) {
-    try {
-      // Import Anthropic SDK directly for server-side fallback
-      const Anthropic = (await import("@anthropic-ai/sdk")).default
-      const anthropic = new Anthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY
-      })
+  // Local failed - try cloud providers if explicitly allowed
+  if (request.allowPaidFallback) {
+    // Try configured cloud providers in order of preference
+    // Priority: Anthropic > OpenAI > Google (based on typical coding task quality)
+    const cloudProviders = [
+      { name: "anthropic", envKey: "ANTHROPIC_API_KEY" },
+      { name: "openai", envKey: "OPENAI_API_KEY" },
+      { name: "google", envKey: "GOOGLE_AI_API_KEY" }
+    ]
 
-      const response = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: request.max_tokens || 1024,
-        system: request.systemPrompt,
-        messages: [{ role: "user", content: request.userPrompt }]
-      })
+    for (const provider of cloudProviders) {
+      const apiKey = process.env[provider.envKey]
+      if (!apiKey) continue
 
-      const content = response.content[0].type === "text"
-        ? response.content[0].text
-        : ""
+      try {
+        if (provider.name === "anthropic") {
+          const Anthropic = (await import("@anthropic-ai/sdk")).default
+          const anthropic = new Anthropic({ apiKey })
 
-      return {
-        content,
-        source: "anthropic",
-        model: "claude-sonnet-4-20250514",
-        warning: "Using paid Anthropic API - local LLM was unavailable"
+          const response = await anthropic.messages.create({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: request.max_tokens || 1024,
+            system: request.systemPrompt,
+            messages: [{ role: "user", content: request.userPrompt }]
+          })
+
+          const content = response.content[0].type === "text"
+            ? response.content[0].text
+            : ""
+
+          return {
+            content,
+            source: "anthropic",
+            model: "claude-sonnet-4-20250514",
+            warning: "Using paid Anthropic API - local LLM was unavailable"
+          }
+        }
+
+        if (provider.name === "openai") {
+          const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              model: "gpt-4o",
+              max_tokens: request.max_tokens || 1024,
+              messages: [
+                { role: "system", content: request.systemPrompt },
+                { role: "user", content: request.userPrompt }
+              ]
+            })
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            const content = data.choices?.[0]?.message?.content || ""
+            return {
+              content,
+              source: "openai",
+              model: "gpt-4o",
+              warning: "Using paid OpenAI API - local LLM was unavailable"
+            }
+          }
+        }
+
+        if (provider.name === "google") {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ role: "user", parts: [{ text: `${request.systemPrompt}\n\n${request.userPrompt}` }] }],
+                generationConfig: { maxOutputTokens: request.max_tokens || 1024 }
+              })
+            }
+          )
+
+          if (response.ok) {
+            const data = await response.json()
+            const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
+            return {
+              content,
+              source: "google",
+              model: "gemini-2.0-flash",
+              warning: "Using paid Google AI API - local LLM was unavailable"
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`${provider.name} fallback failed:`, error)
+        // Continue to next provider
       }
-    } catch (error) {
-      console.error("Anthropic fallback failed:", error)
     }
   }
 

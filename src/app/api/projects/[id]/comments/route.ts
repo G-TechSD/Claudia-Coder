@@ -79,12 +79,18 @@ function saveComments(comments: Record<string, ProjectComment[]>): void {
   }
 }
 
+interface PacketizeResult {
+  packet: ProposedPacket
+  source: string
+  server?: string
+}
+
 // Generate packet from comment using LLM (with cloud fallback)
 async function packetizeComment(
   comment: string,
   type: CommentType,
   projectName: string
-): Promise<ProposedPacket | null> {
+): Promise<PacketizeResult> {
   const typeDescriptions: Record<CommentType, string> = {
     "feature-request": "a new feature to be added",
     "bug-fix": "a bug that needs to be fixed",
@@ -146,21 +152,25 @@ Respond with ONLY the JSON object, no other text.`
 
     if (response.error || !response.content) {
       console.error("[comments] LLM packetization failed:", response.error)
-      return null
+      console.error("[comments] LLM source:", response.source, "server:", response.server)
+      throw new Error(`LLM error: ${response.error || "No content returned"}`)
     }
+
+    console.log(`[comments] LLM response received from ${response.source}${response.server ? ` (${response.server})` : ""}, content length: ${response.content.length}`)
 
     // Parse the JSON response using the unified parser
     const packet = parseLLMJson<ProposedPacket>(response.content)
 
     if (!packet) {
       console.error("[comments] Failed to parse packet JSON from LLM response")
-      return null
+      console.error("[comments] Raw response (first 500 chars):", response.content.substring(0, 500))
+      throw new Error("Failed to parse LLM response as JSON")
     }
 
     // Validate the packet structure
     if (!packet.title || !packet.description || !packet.tasks) {
-      console.error("[comments] Invalid packet structure from LLM")
-      return null
+      console.error("[comments] Invalid packet structure from LLM:", JSON.stringify(packet, null, 2))
+      throw new Error(`Invalid packet structure: missing ${!packet.title ? "title" : !packet.description ? "description" : "tasks"}`)
     }
 
     // Ensure tasks have IDs
@@ -171,10 +181,11 @@ Respond with ONLY the JSON object, no other text.`
     }))
 
     console.log(`[comments] Packetization successful via ${response.source}${response.server ? ` (${response.server})` : ""}`)
-    return packet
+    return { packet, source: response.source, server: response.server }
   } catch (error) {
     console.error("[comments] Packetization error:", error)
-    return null
+    // Re-throw with context so the caller gets the specific error
+    throw error
   }
 }
 
@@ -265,19 +276,23 @@ export async function POST(
         }, { status: 400 })
       }
 
-      const proposedPacket = await packetizeComment(content, type, projectName)
+      try {
+        const result = await packetizeComment(content, type, projectName)
 
-      if (!proposedPacket) {
+        return NextResponse.json({
+          success: true,
+          proposedPacket: result.packet,
+          source: result.source,
+          server: result.server
+        })
+      } catch (packetError) {
+        const errorMessage = packetError instanceof Error ? packetError.message : "Unknown error"
+        console.error("[comments] Packetization failed:", errorMessage)
         return NextResponse.json({
           success: false,
-          error: "Failed to packetize comment. LLM may be unavailable."
+          error: `Packetization failed: ${errorMessage}`
         }, { status: 503 })
       }
-
-      return NextResponse.json({
-        success: true,
-        proposedPacket
-      })
     }
 
     // Handle new comment
