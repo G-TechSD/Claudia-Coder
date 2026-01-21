@@ -41,10 +41,12 @@ import {
   Package,
   Rocket,
   Search,
-  Code,
   Upload,
-  Mic
+  Mic,
+  Terminal,
+  Settings
 } from "lucide-react"
+import Link from "next/link"
 import { cn } from "@/lib/utils"
 import type { BuildPlan, ExistingPacketInfo } from "@/lib/ai/build-plan"
 import type { StoredBuildPlan, ProjectStatus } from "@/lib/data/types"
@@ -58,13 +60,37 @@ import {
 import { savePackets, getPacketsForProject, type WorkPacket } from "@/lib/ai/build-plan"
 import { getProjectDefaultModel, type EnabledInstance } from "@/components/project/model-assignment"
 import { VisionPacketEditor, isVisionPacket } from "@/components/project/vision-packet-editor"
+import { getEffectiveDefaultModel } from "@/lib/settings/global-settings"
+
+// Provider info from /api/providers
+interface FetchedProvider {
+  name: string
+  displayName: string
+  type: "local" | "cloud" | "cli"
+  status: "online" | "offline" | "checking" | "not-configured"
+  baseUrl?: string
+  model?: string
+  models?: string[]
+  usesCli?: boolean
+  requiresApiKey?: boolean
+}
+
+// Dynamic model option for regeneration dropdown
+interface RegenerationModelOption {
+  value: string
+  label: string
+  type: "auto" | "cli" | "cloud" | "local"
+  icon: "sparkles" | "terminal" | "cloud" | "server"
+  provider: string
+  model: string | null
+}
 
 interface ProviderOption {
   name: string
   displayName: string
   status: "online" | "offline" | "checking" | "not-configured"
   model?: string
-  type: "local" | "cloud"
+  type: "local" | "cloud" | "cli"
 }
 
 interface BuildPlanEditorProps {
@@ -103,26 +129,113 @@ interface PacketFeedback {
   comment: string
 }
 
-// Model options for regeneration - matching .env.local providers
-// Each option can specify both a server (provider) and a specific model
-const REGENERATION_MODEL_OPTIONS = [
-  // Auto - let system decide
-  { value: "auto", label: "Auto (let system decide)", type: "auto", icon: "sparkles", server: null, model: null },
-  // Claudia Coder (special paid option) - FUTURE: Not yet available as a service
-  // { value: "paid_claudecode", label: "Claudia Coder (Paid)", type: "paid", icon: "terminal", server: "paid_claudecode", model: null },
-  // Paid cloud models
-  { value: "chatgpt", label: "ChatGPT (OpenAI)", type: "paid", icon: "cloud", server: "chatgpt", model: null },
-  { value: "gemini", label: "Gemini (Google)", type: "paid", icon: "cloud", server: "gemini", model: null },
-  { value: "anthropic", label: "Anthropic Claude", type: "paid", icon: "cloud", server: "anthropic", model: null },
-  // Specific local models - Primary LLM server
-  { value: "PrimaryLLM:gpt-oss-20b", label: "gpt-oss-20b (Primary LLM - larger, better structure)", type: "local-model", icon: "brain", server: "PrimaryLLM", model: "gpt-oss-20b" },
-  { value: "PrimaryLLM:phind-codellama-34b-v2", label: "phind-codellama-34b-v2 (Primary LLM - code focused)", type: "local-model", icon: "code", server: "PrimaryLLM", model: "phind-codellama-34b-v2" },
-  // Specific local models - Vision LLM server
-  { value: "VisionLLM:ministral-3-3b", label: "ministral-3-3b (Vision LLM - smaller, faster)", type: "local-model", icon: "zap", server: "VisionLLM", model: "ministral-3-3b" },
-  // Generic server selection (uses whatever model is loaded)
-  { value: "PrimaryLLM", label: "Primary LLM (use loaded model)", type: "local", icon: "server", server: "PrimaryLLM", model: null },
-  { value: "VisionLLM", label: "Vision LLM (use loaded model)", type: "local", icon: "server", server: "VisionLLM", model: null },
-] as const
+// Helper function to build model options from fetched providers
+function buildRegenerationModelOptions(fetchedProviders: FetchedProvider[]): RegenerationModelOption[] {
+  const options: RegenerationModelOption[] = []
+
+  // Group providers by type
+  const cliProviders = fetchedProviders.filter(p => p.type === "cli" && p.status === "online")
+  const cloudProviders = fetchedProviders.filter(p => p.type === "cloud" && p.status === "online")
+  const localProviders = fetchedProviders.filter(p => p.type === "local" && p.status === "online")
+
+  // Add CLI providers (Claude Code) with their specific models
+  for (const provider of cliProviders) {
+    if (provider.models && provider.models.length > 0) {
+      for (const model of provider.models) {
+        // Create friendly labels for Claude Code models
+        let label = model
+        if (model.includes("opus")) {
+          label = "Claude Opus 4 (most capable)"
+        } else if (model.includes("sonnet")) {
+          label = "Claude Sonnet 4 (balanced)"
+        } else if (model.includes("haiku")) {
+          label = "Claude 3.5 Haiku (fast)"
+        }
+        options.push({
+          value: `${provider.name}:${model}`,
+          label: `${label}`,
+          type: "cli",
+          icon: "terminal",
+          provider: provider.name,
+          model
+        })
+      }
+    }
+  }
+
+  // Add cloud providers with their specific models
+  for (const provider of cloudProviders) {
+    if (provider.models && provider.models.length > 0) {
+      // Add top models for each provider (limit to avoid huge list)
+      const topModels = provider.models.slice(0, 5)
+      for (const model of topModels) {
+        options.push({
+          value: `${provider.name}:${model}`,
+          label: `${model} (${provider.displayName})`,
+          type: "cloud",
+          icon: "cloud",
+          provider: provider.name,
+          model
+        })
+      }
+    } else {
+      // Fallback: provider without specific models
+      options.push({
+        value: provider.name,
+        label: provider.displayName,
+        type: "cloud",
+        icon: "cloud",
+        provider: provider.name,
+        model: null
+      })
+    }
+  }
+
+  // Add local providers with their available models
+  for (const provider of localProviders) {
+    if (provider.models && provider.models.length > 0) {
+      // Add individual models
+      for (const model of provider.models) {
+        options.push({
+          value: `${provider.name}:${model}`,
+          label: `${model} (${provider.displayName})`,
+          type: "local",
+          icon: "server",
+          provider: provider.name,
+          model
+        })
+      }
+    }
+    // Also add option to use whatever model is loaded
+    if (provider.model) {
+      options.push({
+        value: provider.name,
+        label: `${provider.displayName} (currently: ${provider.model})`,
+        type: "local",
+        icon: "server",
+        provider: provider.name,
+        model: null
+      })
+    }
+  }
+
+  return options
+}
+
+// Get the icon component for a model option
+function getModelIcon(iconType: string) {
+  switch (iconType) {
+    case "terminal":
+      return <Terminal className="h-3 w-3 text-purple-500" />
+    case "cloud":
+      return <Cloud className="h-3 w-3 text-blue-500" />
+    case "server":
+      return <Server className="h-3 w-3 text-green-500" />
+    case "sparkles":
+    default:
+      return <Sparkles className="h-3 w-3 text-yellow-500" />
+  }
+}
 
 export function BuildPlanEditor({
   projectId,
@@ -156,12 +269,17 @@ export function BuildPlanEditor({
   const [sectionComments, setSectionComments] = useState<Record<string, string>>({})
   const [expandedPackets, setExpandedPackets] = useState<Set<string>>(new Set())
 
-  // Regeneration model selection - default to "auto" (let system decide)
-  const [regenerationModel, setRegenerationModel] = useState<string>("auto")
+  // Regeneration model selection - starts empty, will be set from defaults
+  const [regenerationModel, setRegenerationModel] = useState<string>("")
   const [isGeneratingPackets, setIsGeneratingPackets] = useState(false)
   const [packetGenerationStatus, setPacketGenerationStatus] = useState("")
   const [userDefaultModel, setUserDefaultModel] = useState<EnabledInstance | null>(null)
   const [autoResearchPriorArt, setAutoResearchPriorArt] = useState(true)  // Auto-research prior art on acceptance
+
+  // Dynamic provider options fetched from API
+  const [fetchedProviders, setFetchedProviders] = useState<FetchedProvider[]>([])
+  const [regenerationModelOptions, setRegenerationModelOptions] = useState<RegenerationModelOption[]>([])
+  const [isLoadingProviders, setIsLoadingProviders] = useState(true)
 
   // Build plan generation sources - which data to include when generating
   const [buildPlanSources, setBuildPlanSources] = useState({
@@ -169,6 +287,35 @@ export function BuildPlanEditor({
     userUploads: true,
     interviewData: true
   })
+
+  // Kickoff content from markdown file (set via sessionStorage when using "Use as Kickoff")
+  const [kickoffContent, setKickoffContent] = useState<{
+    content: string
+    sourceName: string
+    sourceResourceId: string
+  } | null>(null)
+
+  // Check for kickoff content in sessionStorage on mount
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem("claudia_kickoff_content")
+      if (stored) {
+        const data = JSON.parse(stored)
+        // Only use if it matches this project
+        if (data.projectId === projectId) {
+          setKickoffContent({
+            content: data.content,
+            sourceName: data.sourceName,
+            sourceResourceId: data.sourceResourceId
+          })
+          // Clear it so it doesn't persist
+          sessionStorage.removeItem("claudia_kickoff_content")
+        }
+      }
+    } catch (err) {
+      console.error("Failed to read kickoff content from sessionStorage:", err)
+    }
+  }, [projectId])
 
   // Auto-save timer
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -179,37 +326,83 @@ export function BuildPlanEditor({
     projectStatus === "completed" ||
     projectStatus === "archived"
 
-  // Load user's default model from model assignment on mount
-  // If user has a default model set, use it; otherwise keep "auto"
+  // Fetch available providers and build model options on mount
   useEffect(() => {
-    const defaultModel = getProjectDefaultModel(projectId)
-    setUserDefaultModel(defaultModel)
+    const fetchProviders = async () => {
+      setIsLoadingProviders(true)
+      try {
+        const response = await fetch("/api/providers")
+        if (response.ok) {
+          const data = await response.json()
+          const providers: FetchedProvider[] = data.providers || []
+          setFetchedProviders(providers)
 
-    if (defaultModel) {
-      // Map the user's default model to a regeneration model value
-      // Check if it matches a known provider pattern
-      const provider = defaultModel.provider?.toLowerCase() || ""
-      const serverName = defaultModel.serverName?.toLowerCase() || ""
+          // Build model options from fetched providers
+          const options = buildRegenerationModelOptions(providers)
+          setRegenerationModelOptions(options)
 
-      if (provider === "anthropic" || serverName.includes("anthropic")) {
-        setRegenerationModel("anthropic")
-      } else if (provider === "openai" || serverName.includes("openai") || serverName.includes("chatgpt")) {
-        setRegenerationModel("chatgpt")
-      } else if (provider === "google" || serverName.includes("google") || serverName.includes("gemini")) {
-        setRegenerationModel("gemini")
-      } else if (serverName.includes("primary-llm") || serverName.includes("primaryllm")) {
-        setRegenerationModel("PrimaryLLM")
-      } else if (serverName.includes("vision-llm") || serverName.includes("visionllm")) {
-        setRegenerationModel("VisionLLM")
-      } else if (defaultModel.type === "local" && defaultModel.baseUrl) {
-        // For other local servers, try to use the server name or default to auto
-        setRegenerationModel(defaultModel.serverName || "auto")
-      } else {
-        // Default fallback - use auto (let system decide)
-        setRegenerationModel("auto")
+          // Set default model selection based on project default or global default
+          const projectDefaultModel = getProjectDefaultModel(projectId)
+          setUserDefaultModel(projectDefaultModel)
+
+          let defaultSelection = ""
+
+          if (projectDefaultModel) {
+            // Try to find a matching option for the project's default model
+            const provider = projectDefaultModel.provider?.toLowerCase() || ""
+            const modelId = projectDefaultModel.modelId || ""
+            const serverName = projectDefaultModel.serverName || ""
+
+            // Try to match by provider:model format
+            const matchingOption = options.find(opt => {
+              if (opt.model && modelId) {
+                return opt.model.includes(modelId) || modelId.includes(opt.model)
+              }
+              if (opt.provider.toLowerCase() === provider || opt.provider === serverName) {
+                return true
+              }
+              return false
+            })
+
+            if (matchingOption) {
+              defaultSelection = matchingOption.value
+            }
+          }
+
+          // If no project default found, try global default
+          if (!defaultSelection) {
+            const globalDefault = getEffectiveDefaultModel()
+            if (globalDefault) {
+              const matchingOption = options.find(opt => {
+                if (opt.model && globalDefault.modelId) {
+                  return opt.model.includes(globalDefault.modelId) || globalDefault.modelId.includes(opt.model)
+                }
+                if (opt.provider.toLowerCase() === globalDefault.provider?.toLowerCase()) {
+                  return true
+                }
+                return false
+              })
+              if (matchingOption) {
+                defaultSelection = matchingOption.value
+              }
+            }
+          }
+
+          // If still no default and we have options, use the first one
+          if (!defaultSelection && options.length > 0) {
+            defaultSelection = options[0].value
+          }
+
+          setRegenerationModel(defaultSelection)
+        }
+      } catch (error) {
+        console.error("[build-plan-editor] Failed to fetch providers:", error)
+      } finally {
+        setIsLoadingProviders(false)
       }
     }
-    // If no user default, keep the initial "auto" value - don't override it
+
+    fetchProviders()
   }, [projectId])
 
   // Load existing plan on mount
@@ -478,13 +671,18 @@ export function BuildPlanEditor({
       const provider = providers.find(p => p.name === selectedProvider)
       setGenerationStatus(`Generating with ${provider?.displayName || selectedProvider}...`)
 
+      // Use kickoff content if available, otherwise use project description
+      const effectiveDescription = kickoffContent
+        ? `${projectDescription}\n\n---\n\n## Detailed Specification (from ${kickoffContent.sourceName})\n\n${kickoffContent.content}`
+        : projectDescription
+
       const response = await fetch("/api/build-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId,
           projectName,
-          projectDescription,
+          projectDescription: effectiveDescription,
           preferredProvider: selectedProvider,
           preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
           existingPackets: buildPlanSources.existingPackets ? existingPackets : [],  // Only pass if enabled
@@ -495,6 +693,11 @@ export function BuildPlanEditor({
           }
         })
       })
+
+      // Clear kickoff content after generation
+      if (kickoffContent) {
+        setKickoffContent(null)
+      }
 
       setGenerationStatus("Processing response...")
 
@@ -827,19 +1030,29 @@ export function BuildPlanEditor({
 
       console.log(`[build-plan-editor] Regenerating with ${existingPackets.length} total existing packets for project ${projectId}`)
 
-      // Find the selected model option to get server and model info
-      const modelOption = REGENERATION_MODEL_OPTIONS.find(m => m.value === regenerationModel)
+      // Find the selected model option to get provider and model info
+      const modelOption = regenerationModelOptions.find(m => m.value === regenerationModel)
       setGenerationStatus(`Regenerating with ${modelOption?.label || regenerationModel}...`)
 
-      // Determine the provider and model to use
-      // For "auto", let the system decide (pass null for both)
-      // For specific models like "PrimaryLLM:gpt-oss-20b", extract server and model
-      const preferredServer = modelOption?.server || null
-      const preferredModelId = modelOption?.model || null
-      const isPaidModel = modelOption?.type === "paid" || regenerationModel.startsWith("paid_") ||
-        ["chatgpt", "gemini", "anthropic"].includes(regenerationModel)
+      // Parse provider and model from selection value (format: "provider:model" or just "provider")
+      let preferredProvider: string | null = null
+      let preferredModelId: string | null = null
 
-      console.log(`[build-plan-editor] Selected: ${regenerationModel}, Server: ${preferredServer}, Model: ${preferredModelId}`)
+      if (modelOption) {
+        preferredProvider = modelOption.provider
+        preferredModelId = modelOption.model
+      } else if (regenerationModel.includes(":")) {
+        // Fallback: parse from value directly
+        const [provider, model] = regenerationModel.split(":")
+        preferredProvider = provider
+        preferredModelId = model
+      } else {
+        preferredProvider = regenerationModel
+      }
+
+      const isCloudOrCli = modelOption?.type === "cloud" || modelOption?.type === "cli"
+
+      console.log(`[build-plan-editor] Selected: ${regenerationModel}, Provider: ${preferredProvider}, Model: ${preferredModelId}`)
 
       const response = await fetch("/api/build-plan", {
         method: "POST",
@@ -848,13 +1061,13 @@ export function BuildPlanEditor({
           projectId,
           projectName,
           projectDescription,
-          preferredProvider: preferredServer,  // The server/provider to use
+          preferredProvider,  // The provider to use
           preferredModel: preferredModelId,     // The specific model ID to use
           existingPackets: buildPlanSources.existingPackets ? existingPackets : [],  // Only pass if enabled
           sources: buildPlanSources,  // Pass source flags for API to handle user uploads and interview data
-          allowPaidFallback: isPaidModel,
+          allowPaidFallback: isCloudOrCli,
           constraints: {
-            requireLocalFirst: regenerationModel === "auto",
+            requireLocalFirst: modelOption?.type === "local",
             requireHumanApproval: ["planning", "deployment"]
           }
         })
@@ -1130,6 +1343,22 @@ export function BuildPlanEditor({
                       </div>
                     </SelectItem>
                   ))}
+                  {providers.filter(p => p.type === "cli").length > 0 && (
+                    <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">CLI</div>
+                  )}
+                  {providers.filter(p => p.type === "cli").map(provider => (
+                    <SelectItem
+                      key={provider.name}
+                      value={provider.name}
+                      disabled={provider.status !== "online"}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Zap className="h-3 w-3 text-purple-500" />
+                        <span className="h-2 w-2 rounded-full bg-green-500" />
+                        <span>{provider.displayName}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
                   {providers.filter(p => p.type === "cloud").length > 0 && (
                     <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud</div>
                   )}
@@ -1186,6 +1415,29 @@ export function BuildPlanEditor({
                 <span>Interview Data</span>
               </label>
             </div>
+
+            {/* Kickoff content indicator */}
+            {kickoffContent && (
+              <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-blue-500" />
+                  <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                    Using kickoff from: {kickoffContent.sourceName}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-6 px-2 text-xs"
+                    onClick={() => setKickoffContent(null)}
+                  >
+                    Clear
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  This detailed specification will be included in the build plan generation.
+                </p>
+              </div>
+            )}
 
             {/* Loading status */}
             {isGenerating && generationStatus && (
@@ -1286,56 +1538,71 @@ export function BuildPlanEditor({
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
                   {/* Left side: Model Selector + Regenerate */}
                   <div className="flex items-center gap-2">
-                    <Select value={regenerationModel} onValueChange={setRegenerationModel}>
+                    <Select value={regenerationModel} onValueChange={setRegenerationModel} disabled={isLoadingProviders}>
                       <SelectTrigger className="w-[280px]">
-                        <SelectValue placeholder="Select model..." />
+                        <SelectValue placeholder={isLoadingProviders ? "Loading providers..." : "Select model..."} />
                       </SelectTrigger>
-                      <SelectContent className="bg-popover border border-border z-50">
-                        {/* Auto option */}
-                        {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "auto").map(model => (
-                          <SelectItem key={model.value} value={model.value}>
-                            <div className="flex items-center gap-2">
-                              <Sparkles className="h-3 w-3 text-yellow-500" />
-                              <span>{model.label}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                        {/* Paid Models */}
-                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Paid Models</div>
-                        {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "paid").map(model => (
-                          <SelectItem key={model.value} value={model.value}>
-                            <div className="flex items-center gap-2">
-                              <Cloud className="h-3 w-3 text-blue-500" />
-                              <span>{model.label}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                        {/* Specific Local Models */}
-                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Specific Local Models</div>
-                        {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local-model").map(model => (
-                          <SelectItem key={model.value} value={model.value}>
-                            <div className="flex items-center gap-2">
-                              {model.icon === "brain" ? (
-                                <Brain className="h-3 w-3 text-purple-400" />
-                              ) : model.icon === "code" ? (
-                                <Code className="h-3 w-3 text-cyan-500" />
-                              ) : (
-                                <Zap className="h-3 w-3 text-yellow-500" />
-                              )}
-                              <span>{model.label}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                        {/* Generic Local Servers */}
-                        <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Servers</div>
-                        {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local").map(model => (
-                          <SelectItem key={model.value} value={model.value}>
-                            <div className="flex items-center gap-2">
-                              <Server className="h-3 w-3 text-green-500" />
-                              <span>{model.label}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
+                      <SelectContent className="bg-popover border border-border z-50 max-h-[400px] overflow-y-auto">
+                        {regenerationModelOptions.length === 0 && !isLoadingProviders && (
+                          <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                            <p>No providers configured</p>
+                            <Link href="/settings" className="text-primary hover:underline flex items-center justify-center gap-1 mt-2">
+                              <Settings className="h-3 w-3" />
+                              Configure providers
+                            </Link>
+                          </div>
+                        )}
+                        {/* Local Models - First priority (free) */}
+                        {regenerationModelOptions.filter(m => m.type === "local").length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-xs text-muted-foreground font-medium border-b">Local Models (Free)</div>
+                            {regenerationModelOptions.filter(m => m.type === "local").map(model => (
+                              <SelectItem key={model.value} value={model.value}>
+                                <div className="flex items-center gap-2">
+                                  {getModelIcon(model.icon)}
+                                  <span>{model.label}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                        {/* Claude Code (CLI) Models */}
+                        {regenerationModelOptions.filter(m => m.type === "cli").length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Claude Code</div>
+                            {regenerationModelOptions.filter(m => m.type === "cli").map(model => (
+                              <SelectItem key={model.value} value={model.value}>
+                                <div className="flex items-center gap-2">
+                                  {getModelIcon(model.icon)}
+                                  <span>{model.label}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                        {/* Cloud Models */}
+                        {regenerationModelOptions.filter(m => m.type === "cloud").length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud Models</div>
+                            {regenerationModelOptions.filter(m => m.type === "cloud").map(model => (
+                              <SelectItem key={model.value} value={model.value}>
+                                <div className="flex items-center gap-2">
+                                  {getModelIcon(model.icon)}
+                                  <span>{model.label}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                        {/* Configure more link at bottom */}
+                        {regenerationModelOptions.length > 0 && (
+                          <div className="px-2 py-2 border-t mt-1">
+                            <Link href="/settings" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                              <Settings className="h-3 w-3" />
+                              Configure more providers...
+                            </Link>
+                          </div>
+                        )}
                       </SelectContent>
                     </Select>
                     <Button
@@ -1809,56 +2076,71 @@ export function BuildPlanEditor({
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
                     {/* Left side: Model Selector + Regenerate */}
                     <div className="flex items-center gap-2">
-                      <Select value={regenerationModel} onValueChange={setRegenerationModel}>
+                      <Select value={regenerationModel} onValueChange={setRegenerationModel} disabled={isLoadingProviders}>
                         <SelectTrigger className="w-[280px]">
-                          <SelectValue placeholder="Select model..." />
+                          <SelectValue placeholder={isLoadingProviders ? "Loading providers..." : "Select model..."} />
                         </SelectTrigger>
-                        <SelectContent className="bg-popover border border-border z-50">
-                          {/* Auto option */}
-                          {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "auto").map(model => (
-                            <SelectItem key={model.value} value={model.value}>
-                              <div className="flex items-center gap-2">
-                                <Sparkles className="h-3 w-3 text-yellow-500" />
-                                <span>{model.label}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                          {/* Paid Models */}
-                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Paid Models</div>
-                          {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "paid").map(model => (
-                            <SelectItem key={model.value} value={model.value}>
-                              <div className="flex items-center gap-2">
-                                <Cloud className="h-3 w-3 text-blue-500" />
-                                <span>{model.label}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                          {/* Specific Local Models */}
-                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Specific Local Models</div>
-                          {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local-model").map(model => (
-                            <SelectItem key={model.value} value={model.value}>
-                              <div className="flex items-center gap-2">
-                                {model.icon === "brain" ? (
-                                  <Brain className="h-3 w-3 text-purple-400" />
-                                ) : model.icon === "code" ? (
-                                  <Code className="h-3 w-3 text-cyan-500" />
-                                ) : (
-                                  <Zap className="h-3 w-3 text-yellow-500" />
-                                )}
-                                <span>{model.label}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                          {/* Generic Local Servers */}
-                          <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Local Servers</div>
-                          {REGENERATION_MODEL_OPTIONS.filter(m => m.type === "local").map(model => (
-                            <SelectItem key={model.value} value={model.value}>
-                              <div className="flex items-center gap-2">
-                                <Server className="h-3 w-3 text-green-500" />
-                                <span>{model.label}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
+                        <SelectContent className="bg-popover border border-border z-50 max-h-[400px] overflow-y-auto">
+                          {regenerationModelOptions.length === 0 && !isLoadingProviders && (
+                            <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                              <p>No providers configured</p>
+                              <Link href="/settings" className="text-primary hover:underline flex items-center justify-center gap-1 mt-2">
+                                <Settings className="h-3 w-3" />
+                                Configure providers
+                              </Link>
+                            </div>
+                          )}
+                          {/* Local Models - First priority (free) */}
+                          {regenerationModelOptions.filter(m => m.type === "local").length > 0 && (
+                            <>
+                              <div className="px-2 py-1 text-xs text-muted-foreground font-medium border-b">Local Models (Free)</div>
+                              {regenerationModelOptions.filter(m => m.type === "local").map(model => (
+                                <SelectItem key={model.value} value={model.value}>
+                                  <div className="flex items-center gap-2">
+                                    {getModelIcon(model.icon)}
+                                    <span>{model.label}</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
+                          {/* Claude Code (CLI) Models */}
+                          {regenerationModelOptions.filter(m => m.type === "cli").length > 0 && (
+                            <>
+                              <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Claude Code</div>
+                              {regenerationModelOptions.filter(m => m.type === "cli").map(model => (
+                                <SelectItem key={model.value} value={model.value}>
+                                  <div className="flex items-center gap-2">
+                                    {getModelIcon(model.icon)}
+                                    <span>{model.label}</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
+                          {/* Cloud Models */}
+                          {regenerationModelOptions.filter(m => m.type === "cloud").length > 0 && (
+                            <>
+                              <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud Models</div>
+                              {regenerationModelOptions.filter(m => m.type === "cloud").map(model => (
+                                <SelectItem key={model.value} value={model.value}>
+                                  <div className="flex items-center gap-2">
+                                    {getModelIcon(model.icon)}
+                                    <span>{model.label}</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
+                          {/* Configure more link at bottom */}
+                          {regenerationModelOptions.length > 0 && (
+                            <div className="px-2 py-2 border-t mt-1">
+                              <Link href="/settings" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                                <Settings className="h-3 w-3" />
+                                Configure more providers...
+                              </Link>
+                            </div>
+                          )}
                         </SelectContent>
                       </Select>
                       <Button

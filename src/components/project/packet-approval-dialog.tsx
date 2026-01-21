@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import {
   Dialog,
   DialogContent,
@@ -125,6 +125,13 @@ export function PacketApprovalDialog({
     }
     setSelections(initial)
   }, [proposedPackets])
+
+  // Re-initialize selections when proposedPackets changes
+  useEffect(() => {
+    if (proposedPackets.length > 0) {
+      initializeSelections()
+    }
+  }, [proposedPackets, initializeSelections])
 
   // Toggle packet selection
   const togglePacket = useCallback((packetId: string) => {
