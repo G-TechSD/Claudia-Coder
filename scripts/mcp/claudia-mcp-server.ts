@@ -135,6 +135,53 @@ const TOOLS = [
     }
   },
   {
+    name: "create_packet",
+    description: "Create a new work packet for a project. Use to add new tasks discovered during development.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: {
+          type: "string",
+          description: "The project ID"
+        },
+        title: {
+          type: "string",
+          description: "Title of the work packet"
+        },
+        description: {
+          type: "string",
+          description: "Description of what needs to be done"
+        },
+        type: {
+          type: "string",
+          enum: ["feature", "bugfix", "refactor", "test", "docs", "config", "research"],
+          description: "Type of work (default: feature)"
+        },
+        priority: {
+          type: "string",
+          enum: ["low", "medium", "high", "critical"],
+          description: "Priority level (default: medium)"
+        },
+        tasks: {
+          type: "array",
+          items: { type: "string" },
+          description: "List of task descriptions"
+        },
+        acceptanceCriteria: {
+          type: "array",
+          items: { type: "string" },
+          description: "Acceptance criteria for the packet"
+        },
+        dependencies: {
+          type: "array",
+          items: { type: "string" },
+          description: "IDs of packets this depends on"
+        }
+      },
+      required: ["projectId", "title"]
+    }
+  },
+  {
     name: "update_packet_status",
     description: "Update the status of a work packet. Use after completing or failing a task.",
     inputSchema: {
@@ -376,14 +423,61 @@ async function getProject(projectId: string) {
 }
 
 async function listPackets(projectId: string, status?: string) {
-  const result = await fetchClaudia(`/packets?projectId=${projectId}${status ? `&status=${status}` : ""}`)
+  // Use the new file-based packets API
+  const result = await fetchClaudia(`/projects/${projectId}/packets`)
+  if (result.packets && status && status !== "all") {
+    return {
+      ...result,
+      packets: result.packets.filter((p: { status: string }) => p.status === status)
+    }
+  }
+  return result
+}
+
+async function createPacket(
+  projectId: string,
+  title: string,
+  description?: string,
+  type: string = "feature",
+  priority: string = "medium",
+  tasks?: string[],
+  acceptanceCriteria?: string[],
+  dependencies?: string[]
+) {
+  // Use the new Claude Code packets API
+  const result = await fetchClaudia("/claude-code/packets", {
+    method: "POST",
+    headers: {
+      "x-claudia-project": projectId,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      projectId,
+      title,
+      description,
+      type,
+      priority,
+      tasks: tasks || [],
+      acceptanceCriteria: acceptanceCriteria || [],
+      dependencies: dependencies || []
+    })
+  })
   return result
 }
 
 async function updatePacketStatus(projectId: string, packetId: string, status: string, output?: string, filesChanged?: string[]) {
-  const result = await fetchClaudia("/packets", {
-    method: "PUT",
-    body: JSON.stringify({ projectId, packetId, status, output, filesChanged })
+  // Use the new Claude Code packets API with proper headers
+  const result = await fetchClaudia(`/claude-code/packets/${packetId}`, {
+    method: "PATCH",
+    headers: {
+      "x-claudia-project": projectId,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      status,
+      outputSummary: output,
+      filesChanged
+    })
   })
   return result
 }
@@ -550,6 +644,18 @@ async function main() {
           break
         case "list_packets":
           result = await listPackets(args?.projectId as string, args?.status as string)
+          break
+        case "create_packet":
+          result = await createPacket(
+            args?.projectId as string,
+            args?.title as string,
+            args?.description as string,
+            args?.type as string,
+            args?.priority as string,
+            args?.tasks as string[],
+            args?.acceptanceCriteria as string[],
+            args?.dependencies as string[]
+          )
           break
         case "update_packet_status":
           result = await updatePacketStatus(
