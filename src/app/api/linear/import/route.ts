@@ -328,6 +328,16 @@ export async function POST(request: NextRequest) {
     // Combine all issues from all projects
     const allIssues = importResults.flatMap(result => result.issues)
 
+    // Log import results for debugging
+    console.log(`[Linear Import] Import results:`)
+    for (const result of importResults) {
+      console.log(`  - Project: ${result.project.name} (${result.project.id})`)
+      console.log(`    Description: ${result.project.description?.substring(0, 100) || 'No description'}`)
+      console.log(`    Issues: ${result.issues.length}`)
+      console.log(`    Teams: ${result.teams.map(t => t.name).join(', ')}`)
+    }
+    console.log(`[Linear Import] Total issues to import: ${allIssues.length}`)
+
     // Build project names and descriptions for detection
     const projectNames = importResults.map(r => r.project.name).join(", ")
     const projectDescriptions = importResults.map(r => r.project.description || "").join("\n")

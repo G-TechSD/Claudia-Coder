@@ -13,6 +13,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectSe
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useAvailableModels, AvailableModel } from "@/hooks/useAvailableModels"
+import { updatePacket } from "@/lib/ai/build-plan"
 
 type ExecutionMode = "local" | "turbo" | "auto" | "n8n"
 
@@ -26,7 +27,8 @@ interface N8NStatus {
   validatorFeedback: string | null
 }
 
-interface WorkPacket {
+// Exported for use by parent components
+export interface WorkPacket {
   id: string
   title: string
   description: string
@@ -35,6 +37,22 @@ interface WorkPacket {
   status: string
   tasks: Array<{ id: string; description: string; completed: boolean }>
   acceptanceCriteria: string[]
+  // Phase/Milestone info (optional, for milestone-grouped execution)
+  phaseId?: string
+  phaseName?: string
+  phaseOrder?: number
+  // Skip flag - packet won't be processed but remains in plan
+  skip?: boolean
+  skipReason?: string
+}
+
+// Phase/Milestone definition for milestone-grouped execution
+// Exported for use by parent components
+export interface BuildPhase {
+  id: string
+  name: string
+  description: string
+  order: number
 }
 
 interface Project {
@@ -88,6 +106,22 @@ interface ExecutionPanelProps {
   onSessionChange?: (sessionId: string | null) => void
   /** Callback to reset all packets back to queued status */
   onResetPackets?: () => void
+  /** Build plan phases for milestone-grouped execution */
+  phases?: BuildPhase[]
+  /** Enable milestone-grouped execution mode */
+  milestoneMode?: boolean
+  /** Callback when packets are updated after milestone re-evaluation */
+  onPacketsUpdated?: (updatedPackets: WorkPacket[]) => void
+}
+
+// Milestone execution statistics - exported for parent components
+export interface MilestoneStats {
+  phaseId: string
+  phaseName: string
+  totalPackets: number
+  completedPackets: number
+  failedPackets: number
+  skippedPackets: number
 }
 
 // Imperative handle exposed via ref
@@ -117,7 +151,7 @@ interface PacketCounts {
  * - Error handling with recovery options
  */
 export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanelProps>(
-  function ExecutionPanel({ project, packets, className, restoredSession, onSessionChange, onResetPackets }, ref) {
+  function ExecutionPanel({ project, packets, className, restoredSession, onSessionChange, onResetPackets, phases, milestoneMode = false, onPacketsUpdated }, ref) {
   const { user, isBetaTester, betaLimits, refreshBetaLimits } = useAuth()
 
   // Determine initial status based on packet states
@@ -138,23 +172,42 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
   const [error, setError] = React.useState<string | null>(null)
   const [refinementCount, setRefinementCount] = React.useState(0)
   const [isRefining, setIsRefining] = React.useState(false)
-  // Default execution mode: "turbo" (Claude Code) for best experience
-  // Users can override in project settings or via the dropdown
+  // Execution mode selection - respects project defaults, falls back to local (free)
+  // Users can override via the dropdown
   const [executionMode, setExecutionMode] = React.useState<ExecutionMode>(() => {
     // Check project-level default first
     if (project.defaultProviderId) {
-      if (project.defaultProviderId === "anthropic" || project.defaultProviderId === "claude-code") {
+      const providerId = project.defaultProviderId.toLowerCase()
+
+      // Claude Code / Anthropic → turbo
+      if (providerId === "anthropic" || providerId === "claude-code" || providerId === "claude") {
         return "turbo"
       }
-      if (project.defaultProviderId === "n8n") {
+
+      // N8N workflow → n8n
+      if (providerId === "n8n") {
         return "n8n"
       }
-      if (project.defaultProviderId === "lmstudio" || project.defaultProviderId === "ollama" || project.defaultProviderId === "custom") {
+
+      // Local models - match various patterns:
+      // lmstudio, ollama, custom, local-llm-server, local-llm-server-2, etc.
+      if (
+        providerId === "lmstudio" ||
+        providerId === "ollama" ||
+        providerId === "custom" ||
+        providerId.startsWith("local") ||
+        providerId.includes("llm-server")
+      ) {
         return "local"
       }
+
+      // Unknown provider - log it and default to local
+      console.warn(`[ExecutionPanel] Unknown provider "${project.defaultProviderId}", defaulting to local`)
     }
-    // Default to "turbo" mode (Claude Code) for best development experience
-    return "turbo"
+
+    // Default to "local" mode (free, no API costs) when no provider is set
+    // This respects users who want to use local models by default
+    return "local"
   })
   const [lastUsedMode, setLastUsedMode] = React.useState<string | null>(null)
   const [betaLimitReached, setBetaLimitReached] = React.useState(false)
@@ -186,6 +239,42 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
   })
   // Skip quality gates option (not recommended)
   const [skipQualityGates, setSkipQualityGates] = React.useState(false)
+  // Stop on failure option - blocks packet progression when quality gates fail
+  const [stopOnFailure, setStopOnFailure] = React.useState(true) // Default to true for safer builds
+  // Resume index - the packet index to resume from (skips failed packet)
+  const [resumeFromIndex, setResumeFromIndex] = React.useState<number | null>(null)
+
+  // Milestone execution state
+  const [currentMilestone, setCurrentMilestone] = React.useState<string | null>(null)
+  const [milestoneStats, setMilestoneStats] = React.useState<MilestoneStats[]>([])
+  const [isReevaluating, setIsReevaluating] = React.useState(false)
+
+  // Helper: Group packets by phase for milestone execution
+  const groupPacketsByPhase = React.useCallback((packetsToGroup: WorkPacket[], phaseDefs: BuildPhase[]) => {
+    const phaseMap = new Map<string, WorkPacket[]>()
+
+    // Initialize all phases (even empty ones)
+    phaseDefs.sort((a, b) => a.order - b.order).forEach(phase => {
+      phaseMap.set(phase.id, [])
+    })
+
+    // Group packets by phaseId
+    packetsToGroup.forEach(packet => {
+      const phaseId = packet.phaseId || "unassigned"
+      if (!phaseMap.has(phaseId)) {
+        phaseMap.set(phaseId, [])
+      }
+      phaseMap.get(phaseId)!.push(packet)
+    })
+
+    return phaseMap
+  }, [])
+
+  // Helper: Get phase name by ID
+  const getPhaseName = React.useCallback((phaseId: string) => {
+    const phase = phases?.find(p => p.id === phaseId)
+    return phase?.name || phaseId
+  }, [phases])
 
   // Available models hook for provider/model selection
   const { models: availableModels, loading: modelsLoading } = useAvailableModels()
@@ -398,19 +487,39 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
       return
     }
 
+    // Check if we're resuming from a failed state
+    const isResuming = (status === "failed" || status === "stopped") && resumeFromIndex !== null && resumeFromIndex < readyPackets.length
+    const startIndex = isResuming ? resumeFromIndex : 0
+    const packetsToProcess = readyPackets.slice(startIndex)
+
+    if (packetsToProcess.length === 0) {
+      setError("No more packets to process")
+      return
+    }
+
     setBetaLimitReached(false)
     setStatus("running")
-    setProgress(0)
+    if (!isResuming) {
+      setProgress(0)
+    }
     setError(null)
+    // Clear resume index when starting
+    setResumeFromIndex(null)
     // DON'T clear events - persist activity audit trail across executions
     // Add a separator for new execution run
     if (events.length > 0) {
+      const message = isResuming
+        ? `--- Resuming from packet ${startIndex + 1} ---`
+        : "--- New Processing Run ---"
+      const detail = isResuming
+        ? `Resuming with ${packetsToProcess.length} remaining packets (skipping failed packet)`
+        : `Starting processing of ${readyPackets.length} packets`
       setEvents(prev => [...prev, {
         id: `separator-${Date.now()}`,
         type: "start" as const,
         timestamp: new Date(),
-        message: "--- New Processing Run ---",
-        detail: `Starting processing of ${readyPackets.length} packets`
+        message,
+        detail
       }])
     }
     // Reset pause state when starting new execution
@@ -419,15 +528,24 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
     wasStoppedRef.current = false
     // Create new AbortController for this execution
     abortControllerRef.current = new AbortController()
-    // Reset packet counts
-    setPacketCounts({
-      successCount: 0,
-      failedCount: 0,
-      cancelledCount: 0,
-      remainingCount: readyPackets.length,
-      totalCount: readyPackets.length,
-      unverifiedCount: 0
-    })
+    // Reset or update packet counts
+    if (isResuming) {
+      // When resuming, keep existing counts and update remaining
+      setPacketCounts(prev => ({
+        ...prev,
+        remainingCount: packetsToProcess.length,
+        totalCount: readyPackets.length
+      }))
+    } else {
+      setPacketCounts({
+        successCount: 0,
+        failedCount: 0,
+        cancelledCount: 0,
+        remainingCount: readyPackets.length,
+        totalCount: readyPackets.length,
+        unverifiedCount: 0
+      })
+    }
 
     // Reset N8N status if using N8N mode
     if (executionMode === "n8n") {
@@ -501,10 +619,312 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
       const cancelledPackets: string[] = []
       const unverifiedPackets: string[] = []
 
-      // Process packets sequentially
-      for (let i = 0; i < readyPackets.length; i++) {
-        const packet = readyPackets[i]
-        const packetProgress = Math.round((i / readyPackets.length) * 100)
+      // Helper: Call milestone re-evaluation API (defined inside handleGo to access addEvent)
+      const callMilestoneReevaluation = async (
+        completedPhaseId: string,
+        completedPhaseName: string,
+        phaseCompletedPackets: Array<{ id: string; title: string; description: string; status: string }>,
+        remainingPacketsToUpdate: WorkPacket[]
+      ): Promise<WorkPacket[] | null> => {
+        try {
+          setIsReevaluating(true)
+          addEvent("thinking", `Re-evaluating remaining packets after milestone`,
+            `Analyzing ${remainingPacketsToUpdate.length} remaining packets based on work completed in "${completedPhaseName}"`)
+
+          const response = await fetch("/api/milestone-reevaluate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              projectId: project.id,
+              projectName: project.name,
+              completedPhaseId,
+              completedPhaseName,
+              completedPackets: phaseCompletedPackets,
+              remainingPackets: remainingPacketsToUpdate.map(p => ({
+                id: p.id,
+                title: p.title,
+                description: p.description,
+                phaseId: p.phaseId,
+                phaseName: p.phaseName,
+                priority: p.priority,
+                status: p.status,
+                skip: p.skip,
+                skipReason: p.skipReason
+              })),
+              phases: phases || []
+            })
+          })
+
+          if (!response.ok) {
+            console.error("[ExecutionPanel] Milestone re-evaluation failed:", response.statusText)
+            addEvent("warning", "Re-evaluation skipped", "Could not re-evaluate remaining packets, continuing with original plan")
+            return null
+          }
+
+          const result = await response.json()
+
+          if (result.updatedPackets && result.updatedPackets.length > 0) {
+            const stats = result.stats || {}
+            addEvent("progress", `Milestone re-evaluation complete`,
+              `${stats.priorityChanges || 0} priority changes, ${stats.packetsToSkip || 0} packets marked to skip, ${stats.newPacketsAdded || 0} new packets added`)
+
+            return result.updatedPackets
+          }
+
+          return null
+        } catch (err) {
+          console.error("[ExecutionPanel] Milestone re-evaluation error:", err)
+          addEvent("warning", "Re-evaluation skipped", "Error during re-evaluation, continuing with original plan")
+          return null
+        } finally {
+          setIsReevaluating(false)
+        }
+      }
+
+      // =====================================================
+      // MILESTONE-GROUPED EXECUTION MODE
+      // =====================================================
+      if (milestoneMode && phases && phases.length > 0) {
+        // Group packets by phase
+        const packetsByPhase = groupPacketsByPhase(readyPackets, phases)
+        const sortedPhases = [...phases].sort((a, b) => a.order - b.order)
+
+        let totalProcessed = 0
+        const totalPackets = readyPackets.length
+        let workingPackets = [...readyPackets] // Mutable copy that gets updated after each milestone
+        const allCompletedPacketInfo: Array<{ id: string; title: string; description: string; status: string }> = []
+
+        // Process each phase/milestone
+        for (const phase of sortedPhases) {
+          if (wasStoppedRef.current) break
+
+          // Get packets for this phase from working set
+          const phasePackets = workingPackets.filter(p =>
+            (p.phaseId === phase.id) &&
+            (p.status === "ready" || p.status === "pending" || p.status === "queued") &&
+            !p.skip
+          )
+
+          if (phasePackets.length === 0) {
+            // Skip empty phases
+            continue
+          }
+
+          setCurrentMilestone(phase.id)
+
+          // Milestone START event
+          addEvent("start", `🏁 MILESTONE: ${phase.name}`,
+            `Starting phase with ${phasePackets.length} packets. ${phase.description}`, {
+            progress: Math.round((totalProcessed / totalPackets) * 100)
+          })
+
+          const phaseCompletedPackets: string[] = []
+          const phaseFailedPackets: string[] = []
+
+          // Process all packets in this phase
+          for (let i = 0; i < phasePackets.length; i++) {
+            const packet = phasePackets[i]
+            const overallProgress = Math.round(((totalProcessed + i) / totalPackets) * 100)
+
+            addEvent("iteration", `Starting: ${packet.title}`, packet.description, {
+              iteration: totalProcessed + i + 1,
+              progress: overallProgress,
+              provider: currentProvider,
+              model: currentModel
+            })
+
+            setProgress(overallProgress)
+
+            if (activeSessionId) {
+              updateSession(
+                activeSessionId,
+                { progress: overallProgress, currentPacketIndex: totalProcessed + i },
+                { type: "progress", message: `[${phase.name}] Starting: ${packet.title}`, detail: packet.description }
+              )
+            }
+
+            if (wasStoppedRef.current) {
+              addEvent("warning", `Cancelled: ${packet.title}`, "Processing was stopped by user")
+              cancelledPackets.push(packet.title)
+              break
+            }
+
+            // Execute the packet (same as non-milestone mode)
+            let response: Response
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let result: any
+            try {
+              response = await fetch("/api/claude-execute", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                signal: abortControllerRef.current?.signal,
+                body: JSON.stringify({
+                  projectId: project.id,
+                  projectName: project.name,
+                  repoPath: project.workingDirectory || project.repos[0]?.localPath || `~/claudia-projects/${project.name.toLowerCase().replace(/\s+/g, '-')}`,
+                  packet: {
+                    id: packet.id,
+                    title: packet.title,
+                    description: packet.description,
+                    type: packet.type,
+                    priority: packet.priority,
+                    tasks: packet.tasks,
+                    acceptanceCriteria: packet.acceptanceCriteria
+                  },
+                  projectModelId: selectedModelId || project.defaultModelId,
+                  projectProviderId: selectedProviderId || project.defaultProviderId,
+                  options: {
+                    maxIterations: 5,
+                    runTests: true,
+                    createCommit: true,
+                    mode: executionMode,
+                    selectedModel: selectedModelId || undefined,
+                    selectedProvider: selectedProviderId || undefined,
+                    skipQualityGates: skipQualityGates,
+                    milestoneContext: {
+                      phaseId: phase.id,
+                      phaseName: phase.name,
+                      packetIndexInPhase: i + 1,
+                      totalPacketsInPhase: phasePackets.length
+                    }
+                  }
+                })
+              })
+              result = await response.json()
+            } catch (fetchError) {
+              if (fetchError instanceof Error && fetchError.name === "AbortError") {
+                addEvent("warning", `Cancelled: ${packet.title}`, "Processing was stopped by user")
+                cancelledPackets.push(packet.title)
+                break
+              }
+              throw fetchError
+            }
+
+            // Track results
+            if (result.mode) setLastUsedMode(result.mode)
+
+            if (!result.success) {
+              phaseFailedPackets.push(packet.title)
+              failedPackets.push(packet.title)
+              // IMPORTANT: Update packet status to blocked in localStorage
+              updatePacket(project.id, packet.id, { status: "blocked" })
+
+              const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : currentProvider
+              addEvent("error", `Failed: ${packet.title}`, result.error, {
+                provider: resultProvider,
+                model: result.model || currentModel
+              })
+              setPacketCounts(prev => ({
+                ...prev,
+                failedCount: prev.failedCount + 1,
+                remainingCount: Math.max(0, prev.remainingCount - 1)
+              }))
+
+              // In milestone mode, continue to next packet even on failure (don't stop the milestone)
+              // We power through all milestones
+              if (stopOnFailure) {
+                addEvent("warning", "Continuing despite failure", "Milestone mode: powering through all packets")
+              }
+            } else {
+              phaseCompletedPackets.push(packet.title)
+              completedPackets.push(packet.title)
+              allCompletedPacketInfo.push({
+                id: packet.id,
+                title: packet.title,
+                description: packet.description,
+                status: "completed"
+              })
+
+              // IMPORTANT: Update packet status to completed in localStorage
+              updatePacket(project.id, packet.id, { status: "completed" })
+
+              const isUnverified = result.unverified || skipQualityGates
+              if (isUnverified) unverifiedPackets.push(packet.title)
+
+              const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : currentProvider
+              addEvent("complete", isUnverified ? `Completed (UNVERIFIED): ${packet.title}` : `Completed: ${packet.title}`,
+                `Duration: ${Math.round(result.duration / 1000)}s`, {
+                provider: resultProvider,
+                model: result.model || currentModel
+              })
+              setPacketCounts(prev => ({
+                ...prev,
+                successCount: isUnverified ? prev.successCount : prev.successCount + 1,
+                unverifiedCount: isUnverified ? prev.unverifiedCount + 1 : prev.unverifiedCount,
+                remainingCount: Math.max(0, prev.remainingCount - 1)
+              }))
+            }
+
+            // Handle pause
+            if (isPausedRef.current) {
+              addEvent("warning", "Processing paused", `Stopped during milestone "${phase.name}"`)
+              setStatus("ready")
+              return
+            }
+          }
+
+          totalProcessed += phasePackets.length
+
+          // Milestone COMPLETE event
+          const milestoneProgress = Math.round((totalProcessed / totalPackets) * 100)
+          addEvent("commit", `✅ MILESTONE COMPLETE: ${phase.name}`,
+            `${phaseCompletedPackets.length} completed, ${phaseFailedPackets.length} failed out of ${phasePackets.length} packets`, {
+            progress: milestoneProgress
+          })
+
+          // Update milestone stats
+          setMilestoneStats(prev => [...prev, {
+            phaseId: phase.id,
+            phaseName: phase.name,
+            totalPackets: phasePackets.length,
+            completedPackets: phaseCompletedPackets.length,
+            failedPackets: phaseFailedPackets.length,
+            skippedPackets: 0
+          }])
+
+          // Get remaining phases
+          const remainingPhases = sortedPhases.slice(sortedPhases.indexOf(phase) + 1)
+          if (remainingPhases.length > 0 && !wasStoppedRef.current) {
+            // Get remaining packets from working set
+            const remainingPackets = workingPackets.filter(p =>
+              remainingPhases.some(rp => rp.id === p.phaseId) &&
+              (p.status === "ready" || p.status === "pending" || p.status === "queued")
+            )
+
+            if (remainingPackets.length > 0) {
+              // Call re-evaluation API
+              const updatedPackets = await callMilestoneReevaluation(
+                phase.id,
+                phase.name,
+                allCompletedPacketInfo,
+                remainingPackets
+              )
+
+              if (updatedPackets) {
+                // Update the working packets with re-evaluated data
+                workingPackets = workingPackets.map(wp => {
+                  const updated = updatedPackets.find((up: WorkPacket) => up.id === wp.id)
+                  return updated ? { ...wp, ...updated } : wp
+                })
+
+                // Notify parent of packet updates
+                onPacketsUpdated?.(workingPackets)
+              }
+            }
+          }
+        }
+
+        setCurrentMilestone(null)
+
+      } else {
+        // =====================================================
+        // STANDARD SEQUENTIAL EXECUTION MODE (original logic)
+        // =====================================================
+
+        // Process packets sequentially (starting from startIndex for resume support)
+        for (let i = startIndex; i < readyPackets.length; i++) {
+          const packet = readyPackets[i]
+          const packetProgress = Math.round((i / readyPackets.length) * 100)
 
         addEvent("iteration", `Starting: ${packet.title}`, packet.description, {
           iteration: i + 1,
@@ -640,6 +1060,9 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
 
         if (!result.success) {
           failedPackets.push(packet.title)
+          // IMPORTANT: Update packet status to blocked (not "failed" which isn't a valid status)
+          updatePacket(project.id, packet.id, { status: "blocked" })
+
           // Use mode from result if available, otherwise use current provider info
           const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode || currentProvider
           addEvent("error", `Failed: ${packet.title}`, result.error, {
@@ -660,7 +1083,34 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
               { type: "error", message: `Failed: ${packet.title}`, detail: result.error }
             )
           }
-          continue
+
+          // Stop on failure - block packet progression when quality gates fail
+          if (stopOnFailure) {
+            const failedProgress = Math.round(((i + 1) / readyPackets.length) * 100)
+            setProgress(failedProgress)
+            setStatus("failed")
+            // Store the next packet index so resume skips the failed one
+            setResumeFromIndex(i + 1)
+            const remainingCount = readyPackets.length - i - 1
+            setError(`Packet "${packet.title}" failed quality gates. ${remainingCount} packet${remainingCount !== 1 ? 's' : ''} remaining. Click Resume to continue.`)
+            addEvent("error", "Execution stopped - Quality gates failed",
+              `Packet progression blocked. ${i + 1}/${readyPackets.length} packets processed. ${failedPackets.length} failed. Click Resume to skip failed packet and continue.`, {
+              provider: resultProvider,
+              model: result.model || currentModel
+            })
+
+            if (activeSessionId) {
+              await updateSession(
+                activeSessionId,
+                { progress: failedProgress, status: "error", error: `Quality gates failed on: ${packet.title}` },
+                { type: "error", message: "Execution stopped - click Resume to continue" }
+              )
+              await completeSession(activeSessionId, "cancel", `Quality gates failed on: ${packet.title}`)
+            }
+            return // Stop execution completely
+          }
+
+          continue // Only continue to next packet if stopOnFailure is false
         }
 
         // Add events from the execution
@@ -697,6 +1147,10 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
         if (isUnverified) {
           unverifiedPackets.push(packet.title)
         }
+
+        // IMPORTANT: Update packet status in localStorage so it persists
+        updatePacket(project.id, packet.id, { status: "completed" })
+
         const completedProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode || currentProvider
         const completionMessage = isUnverified
           ? `Completed (UNVERIFIED): ${packet.title}`
@@ -737,6 +1191,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
           return
         }
       }
+      } // End of else block (standard sequential execution)
 
       setProgress(100)
 
@@ -1153,8 +1608,25 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
                 </div>
               </div>
 
-              {/* Skip Quality Gates Option */}
-              <div className="mb-4 flex justify-center">
+              {/* Execution Options */}
+              <div className="mb-4 flex flex-col sm:flex-row items-center justify-center gap-4">
+                {/* Stop on Failure Option - Default ON */}
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="stop-on-failure"
+                    checked={stopOnFailure}
+                    onCheckedChange={(checked) => setStopOnFailure(checked === true)}
+                    disabled={status === "running"}
+                  />
+                  <Label
+                    htmlFor="stop-on-failure"
+                    className="text-sm text-muted-foreground cursor-pointer"
+                  >
+                    Stop on failure (recommended)
+                  </Label>
+                </div>
+
+                {/* Skip Quality Gates Option */}
                 <div className="flex items-center space-x-2">
                   <Checkbox
                     id="skip-quality-gates"
@@ -1170,6 +1642,16 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
                   </Label>
                 </div>
               </div>
+
+              {/* Warning banners */}
+              {!stopOnFailure && (
+                <div className="mb-4 mx-auto max-w-md p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-300">
+                    Packets will continue even if quality gates fail. Failed packets will be logged but not block progress.
+                  </p>
+                </div>
+              )}
               {skipQualityGates && (
                 <div className="mb-4 mx-auto max-w-md p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0 mt-0.5" />

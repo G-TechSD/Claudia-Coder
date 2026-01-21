@@ -19,6 +19,7 @@ import { ProjectResource } from "@/lib/data/types"
 
 interface ResourceUploadProps {
   projectId: string
+  workingDirectory?: string  // If provided, files are also synced to .claudia/uploads/
   onUploadComplete?: (resources: ProjectResource[]) => void
   className?: string
 }
@@ -33,6 +34,7 @@ interface PendingFile {
 
 export function ResourceUpload({
   projectId,
+  workingDirectory,
   onUploadComplete,
   className
 }: ResourceUploadProps) {
@@ -101,8 +103,27 @@ export function ResourceUpload({
       ))
 
       try {
+        // Upload to IndexedDB (browser storage)
         const resource = await uploadResource(projectId, pending.file)
         uploadedResources.push(resource)
+
+        // Also sync to working directory if provided (makes it visible in Browse Files)
+        if (workingDirectory) {
+          try {
+            const formData = new FormData()
+            formData.append("workingDirectory", workingDirectory)
+            formData.append("file", pending.file)
+            formData.append("fileName", pending.file.name)
+
+            await fetch(`/api/projects/${projectId}/sync-upload`, {
+              method: "POST",
+              body: formData
+            })
+          } catch (syncError) {
+            console.warn("Failed to sync file to working directory:", syncError)
+            // Don't fail the upload just because sync failed
+          }
+        }
 
         setPendingFiles(prev => prev.map((p, idx) =>
           idx === i ? { ...p, status: "done" } : p

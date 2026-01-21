@@ -161,6 +161,13 @@ export async function listProjects(teamId?: string): Promise<LinearProject[]> {
 
   const filter = teamId ? { team: { id: { eq: teamId } } } : undefined
   const data = await linearQuery<{ projects: { nodes: LinearProject[] } }>(query, { filter })
+
+  // Log projects for debugging
+  console.log(`[Linear API] listProjects: Fetched ${data.projects.nodes.length} projects`)
+  for (const p of data.projects.nodes) {
+    console.log(`  - ${p.name} (${p.id}): state=${p.state}, desc=${p.description?.substring(0, 50) || 'none'}`)
+  }
+
   return data.projects.nodes
 }
 
@@ -263,12 +270,26 @@ export async function getProjectIssues(
           pageInfo: { hasNextPage: boolean; endCursor: string }
           nodes: LinearIssue[]
         }
-      }
+      } | null
     }>(query, { projectId, after: cursor })
 
-    allIssues.push(...data.project.issues.nodes)
-    hasMore = data.project.issues.pageInfo.hasNextPage
-    cursor = data.project.issues.pageInfo.endCursor
+    // Check if project or issues is null
+    if (!data.project) {
+      console.error(`[Linear API] Project ${projectId} not found or null response`)
+      break
+    }
+
+    if (!data.project.issues) {
+      console.error(`[Linear API] Project ${projectId} has no issues field`)
+      break
+    }
+
+    const nodes = data.project.issues.nodes || []
+    console.log(`[Linear API] Fetched ${nodes.length} issues for project ${projectId} (cursor: ${cursor || 'initial'})`)
+
+    allIssues.push(...nodes)
+    hasMore = data.project.issues.pageInfo?.hasNextPage || false
+    cursor = data.project.issues.pageInfo?.endCursor
   }
 
   // Fetch comments for all issues if requested

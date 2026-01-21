@@ -45,9 +45,12 @@ import {
   getDataSummary,
   clearAllData,
   clearProjectData,
+  clearUserData,
   exportAllData,
   importData
 } from "@/lib/data/reset"
+import { useAuth } from "@/components/auth/auth-provider"
+import { FeedbackModal } from "@/components/feedback-modal"
 import {
   Server,
   Cpu,
@@ -73,6 +76,8 @@ import {
   Key,
   Workflow,
   Code2,
+  MessageSquare,
+  BookOpen,
 } from "lucide-react"
 
 // Provider display names and colors
@@ -113,7 +118,7 @@ interface ServerStatus {
 }
 
 interface CloudProviderStatus {
-  provider: "anthropic" | "openai" | "google"
+  provider: "anthropic" | "openai" | "google" | "claude-code"
   enabled: boolean
   hasApiKey: boolean
   authMethod?: "apiKey" | "oauth"
@@ -123,6 +128,8 @@ interface CloudProviderStatus {
 function SettingsPageContent() {
   const searchParams = useSearchParams()
   const { settings, update } = useSettings()
+  const { user } = useAuth()
+  const userId = user?.id
 
   // Global settings state
   const [globalSettings, setGlobalSettings] = useState(() => getGlobalSettings())
@@ -160,7 +167,7 @@ function SettingsPageContent() {
   const [apiKeyTestResult, setApiKeyTestResult] = useState<{ status: "idle" | "success" | "error"; error?: string }>({ status: "idle" })
 
   // Data management state
-  const [dataSummary, setDataSummary] = useState(() => getDataSummary())
+  const [dataSummary, setDataSummary] = useState({ projects: 0, packets: 0, buildPlans: 0, interviews: 0, resources: 0, research: 0, businessIdeas: 0, patents: 0, hasSettings: false, hasGitLabToken: false, totalKeys: 0 })
   const [showDangerZone, setShowDangerZone] = useState(false)
   const [confirmClear, setConfirmClear] = useState("")
   const [clearingData, setClearingData] = useState(false)
@@ -168,6 +175,9 @@ function SettingsPageContent() {
   // Appearance state
   const [theme, setTheme] = useState<"dark" | "light" | "system">("dark")
   const [accentColor, setAccentColor] = useState("blue")
+
+  // Feedback modal state
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
 
   // Initialize from URL params
   useEffect(() => {
@@ -181,6 +191,11 @@ function SettingsPageContent() {
   useEffect(() => {
     loadSettings()
   }, [])
+
+  // Update data summary when userId changes
+  useEffect(() => {
+    setDataSummary(getDataSummary(userId))
+  }, [userId])
 
   // Load settings from localStorage
   const loadSettings = useCallback(() => {
@@ -395,7 +410,7 @@ function SettingsPageContent() {
   }
 
   // Remove cloud provider
-  const handleRemoveCloudProvider = (provider: "anthropic" | "openai" | "google") => {
+  const handleRemoveCloudProvider = (provider: "anthropic" | "openai" | "google" | "claude-code") => {
     const gs = getGlobalSettings()
     const index = gs.cloudProviders.findIndex(p => p.provider === provider)
     if (index >= 0) {
@@ -483,9 +498,9 @@ function SettingsPageContent() {
     try {
       const text = await file.text()
       const data = JSON.parse(text)
-      const imported = importData(data)
+      const imported = importData(data, userId)
       alert(`Successfully imported ${imported.length} items`)
-      setDataSummary(getDataSummary())
+      setDataSummary(getDataSummary(userId))
       loadSettings()
     } catch (error) {
       alert("Failed to import data: " + (error instanceof Error ? error.message : "Invalid file"))
@@ -498,12 +513,23 @@ function SettingsPageContent() {
   const handleClearAllData = () => {
     if (confirmClear !== "DELETE ALL") return
     setClearingData(true)
-    const result = clearAllData({ keepToken: true })
+
+    // Clear user-scoped data if we have a user ID
+    let totalCleared = 0
+    if (userId) {
+      const userResult = clearUserData(userId, { keepToken: true })
+      totalCleared += userResult.clearedKeys.length
+    }
+
+    // Also clear legacy data
+    const legacyResult = clearAllData({ keepToken: true })
+    totalCleared += legacyResult.clearedKeys.length
+
     setClearingData(false)
     setConfirmClear("")
     setShowDangerZone(false)
-    alert(`Cleared ${result.clearedKeys.length} items.`)
-    setDataSummary(getDataSummary())
+    alert(`Cleared ${totalCleared} items.`)
+    setDataSummary(getDataSummary(userId))
     loadSettings()
   }
 
@@ -1079,6 +1105,43 @@ function SettingsPageContent() {
             </div>
           </AccordionContent>
         </AccordionItem>
+
+        {/* Feedback & Support Section */}
+        <AccordionItem value="feedback" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-green-500/10">
+                <MessageSquare className="h-5 w-5 text-green-500" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-semibold">Feedback & Support</h3>
+                <p className="text-sm text-muted-foreground font-normal">
+                  Report bugs or request features
+                </p>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4 pt-2">
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Report bugs or request features directly from the app. Your feedback helps us improve Claudia.
+              </p>
+              <div className="flex gap-3">
+                <Button onClick={() => setFeedbackOpen(true)} className="gap-2">
+                  <MessageSquare className="h-4 w-4" />
+                  Send Feedback
+                </Button>
+                <Button variant="outline" asChild className="gap-2">
+                  <a href="https://docs.claudiacoder.com" target="_blank" rel="noopener noreferrer">
+                    <BookOpen className="h-4 w-4" />
+                    Documentation
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </Button>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
       </Accordion>
 
       {/* Add Local Server Dialog */}
@@ -1299,6 +1362,9 @@ function SettingsPageContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Feedback Modal */}
+      <FeedbackModal isOpen={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </div>
   )
 }

@@ -14,7 +14,7 @@ export interface LocalServerConfig {
 }
 
 export interface CloudProviderConfig {
-  provider: "anthropic" | "openai" | "google"
+  provider: "anthropic" | "openai" | "google" | "claude-code"
   enabled: boolean
   apiKey?: string
   enabledModels: string[]
@@ -32,6 +32,15 @@ export interface CloudProviderConfig {
     name?: string
     picture?: string
   }
+}
+
+/**
+ * Claude Code Max Provider Configuration
+ * Uses the Claude Code CLI with Max subscription - no API key needed
+ */
+export interface ClaudeCodeMaxConfig {
+  enabled: boolean
+  // No API key needed - uses Max subscription authentication via CLI
 }
 
 export interface DefaultModelConfig {
@@ -126,7 +135,8 @@ export function createDefaultSettings(): GlobalSettings {
     cloudProviders: [
       { provider: "anthropic", enabled: false, enabledModels: [] },
       { provider: "openai", enabled: false, enabledModels: [] },
-      { provider: "google", enabled: false, enabledModels: [] }
+      { provider: "google", enabled: false, enabledModels: [] },
+      { provider: "claude-code", enabled: false, enabledModels: [] }
     ],
     defaultModel,
     preferLocalModels: true,
@@ -206,4 +216,58 @@ export function getEnabledProviders(): {
     local: settings.localServers.filter(s => s.enabled),
     cloud: settings.cloudProviders.filter(p => p.enabled)
   }
+}
+
+/**
+ * Get the effective default model configuration
+ *
+ * Priority:
+ * 1. If explicit default is set, use it
+ * 2. If only one provider is configured, use it as default
+ * 3. Otherwise return null (no default)
+ *
+ * IMPORTANT: Does NOT default to Claude API - only uses it if explicitly selected
+ */
+export function getEffectiveDefaultModel(): DefaultModelConfig | null {
+  const settings = getGlobalSettings()
+
+  // If explicit default is set, use it
+  if (settings.defaultModel?.modelId) {
+    return settings.defaultModel
+  }
+
+  // If only one provider is configured, use it as default
+  const configuredLocalServers = settings.localServers.filter(s => s.baseUrl && s.enabled)
+  const configuredCloudProviders = settings.cloudProviders.filter(p => p.apiKey && p.enabled)
+
+  const totalConfigured = configuredLocalServers.length + configuredCloudProviders.length
+
+  if (totalConfigured === 1) {
+    // Only one provider configured - use it as default
+    if (configuredLocalServers.length === 1) {
+      const server = configuredLocalServers[0]
+      return {
+        provider: server.type, // "lmstudio" | "ollama" | "custom"
+        serverId: server.id,
+        modelId: server.defaultModel || "auto",
+        displayName: server.defaultModel
+          ? `${server.defaultModel} (${server.name})`
+          : `Auto (${server.name})`
+      }
+    }
+
+    if (configuredCloudProviders.length === 1) {
+      const provider = configuredCloudProviders[0]
+      // Use first enabled model, or "auto" if none specified
+      const modelId = provider.enabledModels[0] || "auto"
+      return {
+        provider: provider.provider, // "anthropic" | "openai" | "google"
+        modelId,
+        displayName: `${modelId} (${provider.provider})`
+      }
+    }
+  }
+
+  // Multiple providers or no providers configured - no automatic default
+  return null
 }

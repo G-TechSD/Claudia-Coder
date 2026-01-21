@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -238,8 +238,41 @@ export default function ProjectDetailPage() {
   const [bypassPermissions, setBypassPermissions] = useState(false)
 
   // Navigation state - now for sidebar sections
+  const searchParams = useSearchParams()
   const [activeSection, setActiveSection] = useState("overview")
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [kickoffTrigger, setKickoffTrigger] = useState(0) // Incremented to trigger BuildPlanEditor remount
+
+  // Read URL query params to set initial tab and handle kickoff source
+  useEffect(() => {
+    const tab = searchParams.get("tab")
+    const source = searchParams.get("source")
+
+    // Map tab query param to section
+    const tabToSection: Record<string, string> = {
+      "plan": "build-plan",
+      "build-plan": "build-plan",
+      "packets": "packets",
+      "overview": "overview",
+      "models": "models",
+      "repos": "repos",
+      "files": "files",
+      "docs": "docs",
+      "uploads": "uploads",
+      "claude-code": "claude-code"
+    }
+
+    if (tab && tabToSection[tab]) {
+      setActiveSection(tabToSection[tab])
+    }
+
+    // If coming from kickoff source, increment trigger to remount BuildPlanEditor
+    if (source === "kickoff") {
+      setKickoffTrigger(prev => prev + 1)
+      // Clear the query params from URL without full navigation
+      router.replace(`/projects/${projectId}`, { scroll: false })
+    }
+  }, [searchParams, projectId, router])
 
   // Run history for this project
   const { history: runHistory, isLoading: runHistoryLoading, refetch: refetchRunHistory } = useRunHistory(projectId)
@@ -2414,6 +2447,7 @@ export default function ProjectDetailPage() {
             {/* File Uploads Section */}
             <ResourceUpload
               projectId={project.id}
+              workingDirectory={getEffectiveWorkingDirectory(project)}
               onUploadComplete={() => refreshResourceCount()}
             />
 
@@ -2520,6 +2554,7 @@ export default function ProjectDetailPage() {
               </CardHeader>
               <CardContent>
                 <BuildPlanEditor
+                  key={`build-plan-editor-${kickoffTrigger}`}
                   projectId={project.id}
                   projectName={project.name}
                   projectDescription={project.description}

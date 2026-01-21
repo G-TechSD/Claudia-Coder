@@ -92,3 +92,8 @@ legal/
 
 # TypeScript build cache
 tsconfig.tsbuildinfo
+
+# Claudia projects directory (should be outside the repo in ~/claudia-projects)
+# This excludes any accidental literal ~ directory created in the project
+~/
+~/*

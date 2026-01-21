@@ -8,7 +8,7 @@ export interface AvailableModel {
   id: string
   name: string
   provider: string
-  type: "local" | "cloud"
+  type: "local" | "cloud" | "cli"
   contextWindow?: number
   maxOutput?: number
   description?: string
@@ -93,7 +93,8 @@ export function useAvailableModels(): UseAvailableModelsResult {
   }, [models])
 
   const getCloudModels = useCallback(() => {
-    return models.filter(m => m.type === "cloud")
+    // Include both cloud and CLI providers (all remote/non-local models)
+    return models.filter(m => m.type === "cloud" || m.type === "cli")
   }, [models])
 
   const getRecommendedForProvider = useCallback((provider: string): AvailableModel | undefined => {

@@ -401,7 +401,7 @@ export function BuildPlanReview({
                 Work Packets ({totalPackets})
               </CardTitle>
               <CardDescription>
-                Discrete work items to be executed
+                Discrete work items to be processed
               </CardDescription>
             </div>
           </div>

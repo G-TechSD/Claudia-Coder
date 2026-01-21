@@ -124,8 +124,14 @@ export interface Project {
   // Optional Linear sync
   linearSync?: LinearSyncConfig
 
-  // Interview data (from creation)
+  // Interview data (from creation) - LEGACY: migrate to interviewIds
   creationInterview?: InterviewSession
+
+  // Multiple interviews support
+  interviewIds?: string[]  // IDs of all interviews for this project
+
+  // MCP server configuration
+  mcpSettings?: ProjectMCPSettings
 
   // Metadata
   tags: string[]
@@ -149,11 +155,82 @@ export interface Project {
 
   // Business Development
   businessDev?: BusinessDev
+
+  // Model Selection - project-specific default model
+  // If set, overrides the global default model for this project
+  defaultModelId?: string
+  defaultProviderId?: string
+
+  // Source type - how the project was created
+  // "fresh" = new project from scratch
+  // "imported" = imported from existing repo
+  // "auto-mod" = modifying an existing repo
+  sourceType?: "fresh" | "imported" | "auto-mod"
+
+  // Source repository info (for imported/auto-mod projects)
+  sourceRepo?: {
+    url: string                // Original repo URL
+    branch: string             // Branch that was cloned
+    clonedAt: string           // ISO date when cloned
+    originalCommit: string     // Commit hash at time of clone
+    provider: "github" | "gitlab" | "bitbucket" | "local"
+  }
+
+  // Codebase analysis (for imported/auto-mod projects)
+  codebaseAnalysisId?: string  // Reference to stored analysis
+  hasCodebaseContext?: boolean // Whether CODEBASE.md has been generated
+}
+
+// ============ Codebase Analysis Storage ============
+
+export interface StoredCodebaseAnalysis {
+  id: string
+  projectId: string
+  analyzedAt: string
+  projectType: string
+  techStack: {
+    runtime: string
+    framework?: string
+    language: string
+    packageManager?: string
+    database?: string[]
+    ui?: string
+    styling?: string
+    testing?: string[]
+    deployment?: string
+  }
+  totalFiles: number
+  totalLines: number
+  totalSize: number
+  keyFileCount: number
+  apiEndpointCount: number
+  dependencyCount: number
+  languages: { [lang: string]: { files: number; lines: number } }
+}
+
+// ============ MCP Settings (Project-scoped) ============
+
+export interface ProjectMCPSettings {
+  enabledServers: string[]           // IDs of enabled MCP servers
+  autoDetectFromTechStack: boolean   // Auto-suggest based on tags
+  customServers?: MCPServerConfig[]  // Project-specific servers
+}
+
+// Local re-export of MCPServerConfig to avoid circular imports
+export interface MCPServerConfig {
+  id: string
+  name: string
+  description?: string
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+  enabled: boolean
+  autoStart?: boolean
 }
 
 // ============ Interviews ============
 
-export type InterviewType = "project_creation" | "contextual"
+export type InterviewType = "project_creation" | "feature_discussion" | "refinement" | "feedback" | "contextual"
 export type InterviewStatus = "in_progress" | "completed" | "cancelled"
 export type InterviewTargetType = "commit" | "activity" | "packet" | "project" | "approval" | "quality_gate"
 
@@ -175,6 +252,11 @@ export interface InterviewSession {
   id: string
   type: InterviewType
   status: InterviewStatus
+
+  // Project association (for multi-interview support)
+  projectId?: string
+  version?: number        // Ordering/versioning within project
+  isActive?: boolean      // Can be continued
 
   // Target context (for contextual interviews)
   targetType?: InterviewTargetType
@@ -544,6 +626,62 @@ export interface WorkPacketWithHistory {
   acceptanceCriteria: string[]
   runs: PacketRun[]
   currentRunId?: string
+}
+
+// ============ Run History (Execution Audit Trail) ============
+
+export type RunHistoryStatus = "running" | "complete" | "error" | "cancelled"
+
+export interface RunHistoryEntry {
+  id: string                    // Same as ExecutionSession.id
+  projectId: string
+  projectName?: string
+  userId: string
+  startedAt: string
+  completedAt?: string
+  status: RunHistoryStatus
+
+  // Summary (for list view)
+  packetCount: number
+  successCount: number
+  failedCount: number
+  duration?: number             // In milliseconds
+
+  // Details (loaded on demand)
+  events?: RunHistoryEvent[]
+  packetIds?: string[]
+  packetTitles?: string[]
+  qualityGates?: QualityGateResults
+  mode?: string
+  providerId?: string
+  modelId?: string
+  output?: string
+}
+
+export interface RunHistoryEvent {
+  id: string
+  type: "info" | "success" | "error" | "warning" | "progress"
+  message: string
+  timestamp: string
+  detail?: string
+}
+
+export interface QualityGateResults {
+  passed: boolean
+  tests: {
+    success: boolean
+    output: string
+    errorCount?: number
+  }
+  typeCheck: {
+    success: boolean
+    output: string
+    errorCount?: number
+  }
+  build: {
+    success: boolean
+    output: string
+  }
 }
 
 // ============ Business Development ============

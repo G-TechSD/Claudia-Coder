@@ -23,7 +23,8 @@ import {
   Package,
   Lightbulb,
   ArrowRight,
-  X
+  X,
+  RotateCcw
 } from "lucide-react"
 
 interface WorkPacket {
@@ -54,6 +55,7 @@ interface WhatsNextSectionProps {
   hasBuildPlan: boolean
   workingDirectory?: string
   onPacketCreated?: (packetId: string) => void
+  onResetPackets?: () => void
 }
 
 // Icon and color mapping for recommendation types
@@ -207,7 +209,8 @@ export function WhatsNextSection({
   packets,
   hasBuildPlan,
   workingDirectory,
-  onPacketCreated
+  onPacketCreated,
+  onResetPackets
 }: WhatsNextSectionProps) {
   const [inputValue, setInputValue] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -349,29 +352,44 @@ export function WhatsNextSection({
       allComplete ? "border-green-500/30 bg-green-500/5" : "border-primary/30 bg-primary/5"
     )}>
       <CardHeader>
-        <div className="flex items-center gap-3">
-          {allComplete ? (
-            <div className="p-2 rounded-lg bg-green-500/20">
-              <CheckCircle2 className="h-6 w-6 text-green-400" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {allComplete ? (
+              <div className="p-2 rounded-lg bg-green-500/20">
+                <CheckCircle2 className="h-6 w-6 text-green-400" />
+              </div>
+            ) : (
+              <div className="p-2 rounded-lg bg-primary/20">
+                <Lightbulb className="h-6 w-6 text-primary" />
+              </div>
+            )}
+            <div>
+              <CardTitle className="text-lg">
+                {allComplete ? "All packets complete!" : "What's Next?"}
+              </CardTitle>
+              <CardDescription>
+                {allComplete
+                  ? "Great work! Ready to add more tasks to the queue?"
+                  : queueEmpty
+                    ? "Your queue is empty. What would you like to work on?"
+                    : "Add new work to your queue or try a recommended next step"
+                }
+              </CardDescription>
             </div>
-          ) : (
-            <div className="p-2 rounded-lg bg-primary/20">
-              <Lightbulb className="h-6 w-6 text-primary" />
-            </div>
-          )}
-          <div>
-            <CardTitle className="text-lg">
-              {allComplete ? "All packets complete!" : "What's Next?"}
-            </CardTitle>
-            <CardDescription>
-              {allComplete
-                ? "Great work! Ready to add more tasks to the queue?"
-                : queueEmpty
-                  ? "Your queue is empty. What would you like to work on?"
-                  : "Add new work to your queue or try a recommended next step"
-              }
-            </CardDescription>
           </div>
+
+          {/* Reset button - shows when all packets are complete */}
+          {allComplete && onResetPackets && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onResetPackets}
+              className="gap-2 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset All Packets
+            </Button>
+          )}
         </div>
       </CardHeader>
 

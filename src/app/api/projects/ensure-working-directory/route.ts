@@ -13,11 +13,22 @@
 import { NextRequest, NextResponse } from "next/server"
 import { mkdir, writeFile } from "fs/promises"
 import { existsSync } from "fs"
+import { exec } from "child_process"
+import { promisify } from "util"
 import path from "path"
 import os from "os"
 
+const execAsync = promisify(exec)
+
 // Base directory for all Claudia project working directories
 const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
+
+/**
+ * Expand ~ to home directory in paths
+ */
+function expandPath(p: string): string {
+  return p.replace(/^~/, os.homedir())
+}
 
 /**
  * Generate a slug from a project name for use in directory paths
@@ -67,11 +78,11 @@ export async function POST(request: NextRequest) {
     // 3. Repo's localPath (if set and valid)
     // 4. Generate new one
     if (existingWorkingDirectory) {
-      workingDirectory = existingWorkingDirectory
+      workingDirectory = expandPath(existingWorkingDirectory)
     } else if (basePath) {
-      workingDirectory = basePath
+      workingDirectory = expandPath(basePath)
     } else if (repoLocalPath) {
-      workingDirectory = repoLocalPath
+      workingDirectory = expandPath(repoLocalPath)
     } else {
       workingDirectory = generateWorkingDirectoryPath(projectName, projectId)
     }
@@ -93,8 +104,28 @@ export async function POST(request: NextRequest) {
       await mkdir(workingDirectory, { recursive: true })
       console.log(`[ensure-working-directory] Created working directory: ${workingDirectory}`)
       created = true
+
+      // Initialize as git repository
+      try {
+        await execAsync(`git init`, { cwd: workingDirectory })
+        console.log(`[ensure-working-directory] Initialized git repository in: ${workingDirectory}`)
+      } catch (gitError) {
+        console.warn(`[ensure-working-directory] Failed to initialize git repository: ${gitError instanceof Error ? gitError.message : "Unknown error"}`)
+        // Non-fatal error - continue
+      }
     } else {
       console.log(`[ensure-working-directory] Working directory already exists: ${workingDirectory}`)
+
+      // Check if it's already a git repo, initialize if not
+      const gitDir = path.join(workingDirectory, ".git")
+      if (!existsSync(gitDir)) {
+        try {
+          await execAsync(`git init`, { cwd: workingDirectory })
+          console.log(`[ensure-working-directory] Initialized git repository in existing directory: ${workingDirectory}`)
+        } catch (gitError) {
+          console.warn(`[ensure-working-directory] Failed to initialize git repository: ${gitError instanceof Error ? gitError.message : "Unknown error"}`)
+        }
+      }
     }
 
     // Create .claudia/ folder structure

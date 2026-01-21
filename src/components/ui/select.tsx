@@ -99,6 +99,7 @@ interface SelectContentProps extends React.HTMLAttributes<HTMLDivElement> {
 const SelectContent = React.forwardRef<HTMLDivElement, SelectContentProps>(
   ({ className, children, ...props }, ref) => {
     const { open, setOpen } = useSelectContext()
+    const contentRef = React.useRef<HTMLDivElement>(null)
 
     React.useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
@@ -114,21 +115,40 @@ const SelectContent = React.forwardRef<HTMLDivElement, SelectContentProps>(
       }
     }, [open, setOpen])
 
+    // Handle scroll wheel events
+    React.useEffect(() => {
+      const content = contentRef.current
+      if (!content || !open) return
+
+      const handleWheel = (e: WheelEvent) => {
+        // Allow scrolling within the dropdown
+        e.stopPropagation()
+      }
+
+      content.addEventListener("wheel", handleWheel, { passive: true })
+      return () => content.removeEventListener("wheel", handleWheel)
+    }, [open])
+
     if (!open) return null
 
     return (
       <div
-        ref={ref}
+        ref={(node) => {
+          // Handle both refs
+          if (typeof ref === "function") ref(node)
+          else if (ref) ref.current = node
+          ;(contentRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+        }}
         role="listbox"
         className={cn(
-          "absolute z-50 top-full left-0 mt-1 w-full min-w-[8rem] overflow-hidden rounded-md border border-border shadow-lg animate-in fade-in-0 zoom-in-95",
+          "absolute z-50 top-full left-0 mt-1 w-full min-w-[8rem] rounded-md border border-border shadow-lg animate-in fade-in-0 zoom-in-95",
           "bg-[hsl(var(--bg-overlay))] text-[hsl(var(--text-primary))]",
           className
         )}
         style={{ backgroundColor: 'hsl(var(--bg-overlay))' }}
         {...props}
       >
-        <div className="p-1">{children}</div>
+        <div className="p-1 overflow-y-auto max-h-[inherit]" style={{ maxHeight: 'inherit' }}>{children}</div>
       </div>
     )
   }

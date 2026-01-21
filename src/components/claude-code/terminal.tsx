@@ -164,7 +164,9 @@ export function ClaudeCodeTerminal({
   const sessionIdRef = useRef<string | null>(null)
 
   // Session management states
-  const [continueSession, setContinueSession] = useState(true) // Default ON for better UX
+  // Default OFF - will be set to true only if there are existing sessions for this project
+  // This ensures first run is fresh, subsequent runs continue
+  const [continueSession, setContinueSession] = useState(false)
   const [resumeSessionId, setResumeSessionId] = useState<string>("")
   const [neverLoseSession, setNeverLoseSession] = useState(false)
   const [autoKickoff, setAutoKickoff] = useState(false)
@@ -239,9 +241,21 @@ export function ClaudeCodeTerminal({
           // Filter to only sessions for this project
           const projectSessions = parsed.filter(s => s.projectId === projectId)
           setRecentSessions(projectSessions)
+
+          // IMPORTANT: Only enable continueSession if there are existing sessions
+          // First run should be fresh (no --continue), subsequent runs should continue
+          if (projectSessions.length > 0) {
+            setContinueSession(true) // Has previous sessions - enable continue
+          } else {
+            setContinueSession(false) // First time - start fresh
+          }
+        } else {
+          // No sessions saved at all - first time, start fresh
+          setContinueSession(false)
         }
       } catch (e) {
         console.error("[Terminal] Failed to load recent sessions:", e)
+        setContinueSession(false) // On error, default to fresh start
       }
 
       // Load background sessions

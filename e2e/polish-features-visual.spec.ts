@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 /**
  * Polish Features Visual Tests
- * Tests keyboard shortcuts, wizard validation, feeling lucky, packet execution, and 404 page
+ * Tests keyboard shortcuts, wizard validation, quick start, packet execution, and 404 page
  * Target: http://localhost:3002
  * Output: /home/bill/projects/claudia-admin/test-screenshots/
  */
@@ -193,34 +193,33 @@ test.describe('Polish Features Visual Tests', () => {
     });
   });
 
-  test.describe('3. Feeling Lucky Feature', () => {
+  test.describe('3. Quick Start Feature', () => {
 
-    test('Feeling Lucky with description shows loading messages', async ({ page }) => {
+    test('Quick Start with description shows loading messages', async ({ page }) => {
       // Go to new project page or home
       await page.goto('/');
       await waitForAppReady(page);
 
-      // Look for Feeling Lucky button
-      const feelingLuckyBtn = page.locator([
-        'button:has-text("Feeling Lucky")',
-        'button:has-text("Lucky")',
-        '[data-testid="feeling-lucky"]',
-        'button:has-text("I\'m Feeling Lucky")',
+      // Look for Quick Start button
+      const quickStartBtn = page.locator([
+        'button:has-text("Quick Start")',
+        'button:has-text("Quick")',
+        '[data-testid="quick-start"]',
       ].join(', ')).first();
 
-      if (await feelingLuckyBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log('Found Feeling Lucky button');
-        await feelingLuckyBtn.click();
+      if (await quickStartBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log('Found Quick Start button');
+        await quickStartBtn.click();
         await page.waitForTimeout(500);
       } else {
-        console.log('Feeling Lucky button not visible on main page, checking /projects/new');
+        console.log('Quick Start button not visible on main page, checking /projects/new');
         await page.goto('/projects/new');
         await waitForAppReady(page);
 
         // Try again
-        const luckyBtn2 = page.locator('button:has-text("Feeling Lucky"), button:has-text("Lucky")').first();
-        if (await luckyBtn2.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await luckyBtn2.click();
+        const quickBtn2 = page.locator('button:has-text("Quick Start"), button:has-text("Quick")').first();
+        if (await quickBtn2.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await quickBtn2.click();
           await page.waitForTimeout(500);
         }
       }

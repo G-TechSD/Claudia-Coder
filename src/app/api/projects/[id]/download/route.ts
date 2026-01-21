@@ -54,14 +54,23 @@ interface RouteParams {
 }
 
 /**
+ * Expand ~ to the user's home directory
+ */
+function expandPath(p: string): string {
+  if (!p) return p
+  return p.replace(/^~/, os.homedir())
+}
+
+/**
  * Get the effective project path
  */
 async function getProjectPath(projectId: string, basePath?: string): Promise<string | null> {
-  // If basePath is explicitly provided, use it
+  // If basePath is explicitly provided, use it (expand ~ first)
   if (basePath) {
+    const expandedPath = expandPath(basePath)
     try {
-      await fs.access(basePath)
-      return basePath
+      await fs.access(expandedPath)
+      return expandedPath
     } catch {
       return null
     }

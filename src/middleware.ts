@@ -251,10 +251,8 @@ function getBetaRestrictionMessage(pathname: string): string {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Redirect root to Easy Mode for demo
-  if (pathname === "/") {
-    return NextResponse.redirect(new URL("/projects/new", request.url))
-  }
+  // Dashboard is at root - no redirect needed
+  // The dashboard page at src/app/page.tsx shows metrics and activity
 
   // TEMPORARY: Bypass all authentication for beta testing
   // TODO: Remove this before production release

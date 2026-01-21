@@ -46,7 +46,18 @@ const LEGACY_STORAGE_KEY = "claudia_projects"
 const LEGACY_INTERVIEWS_KEY = "claudia_interviews"
 
 // Base directory for all Claudia project working directories
-const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
+// In browser context, os.homedir() returns "/" which is not useful
+// Use environment variable or a server-appropriate default
+function getClaudiaProjectsBase(): string {
+  // Server-side: prefer env var, then os.homedir()
+  if (typeof window === "undefined") {
+    return process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
+  }
+  // Client-side: can't determine home directory, use placeholder that server will expand
+  return "~/claudia-projects"
+}
+
+const CLAUDIA_PROJECTS_BASE = getClaudiaProjectsBase()
 
 // ============ Working Directory Helpers ============
 
@@ -1036,7 +1047,7 @@ export function getInterviewsForTarget(
 }
 
 /**
- * Attach an interview to a project
+ * Attach an interview to a project (legacy - uses creationInterview field)
  * @param projectId - The project ID
  * @param interview - The interview session
  * @param userId - The user ID (for access control)
@@ -1050,58 +1061,240 @@ export function attachInterviewToProject(
   return updateProject(projectId, { creationInterview: interview }, userId)
 }
 
-// ============ Sample Data ============
+// ============ Multi-Interview Support ============
 
 /**
- * Seed sample projects for a user
- * @param userId - The user ID to create sample projects for
+ * Get all interviews for a project
+ * Returns interviews from both legacy creationInterview and new interviewIds array
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
  */
-export function seedSampleProjects(userId?: string): void {
-  const existing = userId ? getStoredProjectsForUser(userId) : getStoredProjects()
-  if (existing.length > 0) return // Don't overwrite existing data
+export function getInterviewsForProject(projectId: string, userId?: string): InterviewSession[] {
+  const project = getProject(projectId, userId)
+  if (!project) return []
 
-  const sampleProjects: Omit<Project, "id" | "createdAt" | "updatedAt">[] = [
-    {
-      name: "GoldenEye",
-      description: "Multi-provider AI chain system for intelligent routing and model selection",
-      status: "active",
-      priority: "high",
-      repos: [
-        { provider: "gitlab", id: 2, name: "GoldenEye", path: "goldeneye", url: "https://gitlab.example.com/sample/goldeneye" }
-      ],
-      packetIds: [],
-      tags: ["ai", "infrastructure"],
-      linearSync: {
-        mode: "two_way",
-        projectId: "GTE",
-        teamId: "claudia",
-        syncIssues: true,
-        syncComments: true,
-        syncStatus: true,
-        lastSyncAt: new Date().toISOString()
+  const interviews: InterviewSession[] = []
+
+  // Get interviews from the new interviewIds array
+  if (project.interviewIds?.length) {
+    for (const interviewId of project.interviewIds) {
+      const interview = getInterview(interviewId, userId)
+      if (interview) {
+        interviews.push(interview)
       }
-    },
-    {
-      name: "Claudia Coder",
-      description: "Admin dashboard for the Claudia Coder",
-      status: "active",
-      priority: "high",
-      repos: [],
-      packetIds: [],
-      tags: ["frontend", "dashboard"]
-    },
-    {
-      name: "n8n Workflows",
-      description: "Automation workflows for the development pipeline",
-      status: "active",
-      priority: "medium",
-      repos: [],
-      packetIds: [],
-      tags: ["automation", "workflows"]
     }
-  ]
+  }
 
-  for (const project of sampleProjects) {
-    createProject(project, userId)
+  // Include legacy creationInterview if it exists and isn't already in the list
+  if (project.creationInterview) {
+    const alreadyIncluded = interviews.some(i => i.id === project.creationInterview!.id)
+    if (!alreadyIncluded) {
+      interviews.push(project.creationInterview)
+    }
+  }
+
+  // Sort by version or createdAt
+  return interviews.sort((a, b) => {
+    if (a.version !== undefined && b.version !== undefined) {
+      return a.version - b.version
+    }
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  })
+}
+
+/**
+ * Add an interview to a project
+ * @param projectId - The project ID
+ * @param interview - The interview session to add
+ * @param userId - The user ID (for access control)
+ */
+export function addInterviewToProject(
+  projectId: string,
+  interview: InterviewSession,
+  userId?: string
+): Project | null {
+  const project = getProject(projectId, userId)
+  if (!project) return null
+
+  // Get existing interviews to determine version number
+  const existingInterviews = getInterviewsForProject(projectId, userId)
+  const maxVersion = Math.max(0, ...existingInterviews.map(i => i.version || 0))
+
+  // Set interview properties
+  const interviewWithMeta: InterviewSession = {
+    ...interview,
+    projectId,
+    version: maxVersion + 1,
+    isActive: interview.status === "in_progress"
+  }
+
+  // Save the interview to storage
+  saveInterview(interviewWithMeta, userId)
+
+  // Add interview ID to project's interviewIds array
+  const interviewIds = [...(project.interviewIds || []), interview.id]
+
+  return updateProject(projectId, { interviewIds }, userId)
+}
+
+/**
+ * Delete an interview from a project
+ * @param interviewId - The interview ID to delete
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
+ */
+export function deleteInterviewFromProject(
+  interviewId: string,
+  projectId: string,
+  userId?: string
+): Project | null {
+  const project = getProject(projectId, userId)
+  if (!project) return null
+
+  // Remove from interviewIds array
+  const interviewIds = (project.interviewIds || []).filter(id => id !== interviewId)
+
+  // Also remove from interview storage
+  if (userId) {
+    const interviews = getStoredInterviewsForUser(userId)
+    const filtered = interviews.filter(i => i.id !== interviewId)
+    saveInterviewsForUser(userId, filtered)
+  } else {
+    const interviews = getStoredInterviews()
+    const filtered = interviews.filter(i => i.id !== interviewId)
+    saveInterviews(filtered)
+  }
+
+  // If this was the creationInterview, also clear that
+  const updates: Partial<Project> = { interviewIds }
+  if (project.creationInterview?.id === interviewId) {
+    updates.creationInterview = undefined
+  }
+
+  return updateProject(projectId, updates, userId)
+}
+
+/**
+ * Update an existing interview
+ * @param interview - The updated interview session
+ * @param userId - The user ID (for access control)
+ */
+export function updateInterview(interview: InterviewSession, userId?: string): void {
+  saveInterview(interview, userId)
+
+  // If linked to a project and was the creationInterview, update that too
+  if (interview.projectId) {
+    const project = getProject(interview.projectId, userId)
+    if (project?.creationInterview?.id === interview.id) {
+      updateProject(interview.projectId, { creationInterview: interview }, userId)
+    }
   }
 }
+
+/**
+ * Combined insights from all interviews for a project
+ */
+export interface CombinedInterviewInsights {
+  goals: string[]
+  features: string[]
+  techStack: string[]
+  requirements: string[]
+  constraints: string[]
+  keyPoints: string[]
+  suggestedActions: string[]
+  allSummaries: string[]
+}
+
+/**
+ * Get combined insights from all interviews for a project
+ * Merges extractedData from all interviews, deduplicating entries
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
+ */
+export function getCombinedInterviewInsights(projectId: string, userId?: string): CombinedInterviewInsights {
+  const interviews = getInterviewsForProject(projectId, userId)
+
+  const combined: CombinedInterviewInsights = {
+    goals: [],
+    features: [],
+    techStack: [],
+    requirements: [],
+    constraints: [],
+    keyPoints: [],
+    suggestedActions: [],
+    allSummaries: []
+  }
+
+  for (const interview of interviews) {
+    // Add summary
+    if (interview.summary) {
+      combined.allSummaries.push(interview.summary)
+    }
+
+    // Add key points
+    if (interview.keyPoints) {
+      combined.keyPoints.push(...interview.keyPoints)
+    }
+
+    // Add suggested actions
+    if (interview.suggestedActions) {
+      combined.suggestedActions.push(...interview.suggestedActions)
+    }
+
+    // Merge extractedData
+    const data = interview.extractedData
+    if (data) {
+      if (Array.isArray(data.goals)) combined.goals.push(...data.goals)
+      if (Array.isArray(data.features)) combined.features.push(...data.features)
+      if (Array.isArray(data.techStack)) combined.techStack.push(...data.techStack)
+      if (Array.isArray(data.requirements)) combined.requirements.push(...data.requirements)
+      if (Array.isArray(data.constraints)) combined.constraints.push(...data.constraints)
+    }
+  }
+
+  // Deduplicate all arrays
+  return {
+    goals: [...new Set(combined.goals)],
+    features: [...new Set(combined.features)],
+    techStack: [...new Set(combined.techStack)],
+    requirements: [...new Set(combined.requirements)],
+    constraints: [...new Set(combined.constraints)],
+    keyPoints: [...new Set(combined.keyPoints)],
+    suggestedActions: [...new Set(combined.suggestedActions)],
+    allSummaries: combined.allSummaries // Keep all summaries, don't dedupe
+  }
+}
+
+/**
+ * Migrate a project's creationInterview to the new interviewIds system
+ * @param projectId - The project ID
+ * @param userId - The user ID (for access control)
+ */
+export function migrateCreationInterview(projectId: string, userId?: string): Project | null {
+  const project = getProject(projectId, userId)
+  if (!project) return null
+
+  // Skip if already migrated or no creation interview
+  if (project.interviewIds?.length || !project.creationInterview) {
+    return project
+  }
+
+  const interview = project.creationInterview
+
+  // Set project association on the interview
+  const migratedInterview: InterviewSession = {
+    ...interview,
+    projectId,
+    version: 1,
+    isActive: interview.status === "in_progress"
+  }
+
+  // Save to interview storage
+  saveInterview(migratedInterview, userId)
+
+  // Update project with interviewIds (keep creationInterview for backwards compat)
+  return updateProject(projectId, {
+    interviewIds: [interview.id]
+  }, userId)
+}
+

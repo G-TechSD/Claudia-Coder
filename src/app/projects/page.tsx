@@ -37,7 +37,6 @@ import {
   getProjectStats,
   filterProjects,
   trashProject,
-  seedSampleProjects,
   toggleProjectStar,
   getTrashedProjects
 } from "@/lib/data/projects"
@@ -118,7 +117,6 @@ export default function ProjectsPage() {
   // Load projects
   useEffect(() => {
     if (userId) {
-      seedSampleProjects(userId) // Seed sample data on first load
       loadProjects()
     }
   }, [userId])

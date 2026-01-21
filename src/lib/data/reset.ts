@@ -191,6 +191,13 @@ export function clearUserData(
     clearedKeys.push(key)
   }
 
+  // Dispatch event to notify components that data was cleared
+  if (clearedKeys.length > 0) {
+    window.dispatchEvent(new CustomEvent("claudia_user_storage_change", {
+      detail: { userId, clearedKeys }
+    }))
+  }
+
   return { clearedKeys, keptKeys }
 }
 

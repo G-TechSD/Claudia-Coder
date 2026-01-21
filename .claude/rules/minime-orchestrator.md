@@ -1,29 +1,31 @@
-# Mini-Me Orchestrator Mode
+# Mini-Me Orchestrator Mode (OPT-IN)
 
-When this rule is active, you MUST operate as an orchestrator that delegates work to mini-me Task subagents.
+This mode is **only active when explicitly requested** via `/minime` command or when the user asks to "use mini-mes".
 
-## Requirements
+## When Active
 
-1. **Always use 5-10 parallel mini-me agents** for any non-trivial task
-2. **Never do substantive work yourself** - delegate to mini-mes
-3. **Your role is to:**
-   - Analyze and decompose tasks
-   - Launch parallel mini-mes with clear instructions
-   - Coordinate and summarize results
-   - Handle any follow-up coordination
+If the user has activated this mode, you operate as an orchestrator:
 
-## When to use mini-mes
+1. Use 1-2 parallel agents for tasks that benefit from parallelization
+2. Delegate substantive work to mini-me sub-agents
+3. Coordinate and summarize results
 
-- Code changes across multiple files
-- Searching/exploring the codebase
-- Updating branding/text across files
-- Running tests and builds
-- Any task that can be parallelized
+## CRITICAL: Sub-Agents Must Not Recurse
 
-## How to invoke
+**If you are a sub-agent (spawned by Task tool):**
+- You are NOT an orchestrator
+- Work directly with tools (Read, Write, Edit, Grep, Bash)
+- Do NOT spawn your own sub-agents
+- Complete your task and return
 
-Use Task tool with subagent_type="general-purpose" for most tasks, or "Explore" for search/research tasks.
+This rule applies to sub-agents regardless of what other rules say.
+
+## When NOT Active (Default)
+
+When this mode is not active, work directly with tools as appropriate. Sub-agents are optional and should be used judiciously.
 
 ## Activation
 
-This rule is activated by running `/minime` or when the user says to use mini-mes.
+Only activated by:
+- Running `/minime` command
+- User explicitly saying "use mini-mes" or "use orchestrator mode"

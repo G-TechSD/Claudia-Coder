@@ -98,6 +98,7 @@ async function ensureStorageDir(): Promise<void> {
  */
 async function readSessionsFile(): Promise<ExecutionSessionsStore> {
   try {
+    await ensureStorageDir()
     const data = await fs.readFile(SESSIONS_FILE, "utf-8")
     const parsed = JSON.parse(data)
 
@@ -114,8 +115,14 @@ async function readSessionsFile(): Promise<ExecutionSessionsStore> {
       // File doesn't exist yet
       return { sessions: [], lastUpdated: new Date().toISOString() }
     }
+    // For JSON parse errors or other issues, return empty store instead of throwing
+    if (error instanceof SyntaxError) {
+      console.error("[execution-sessions] JSON parse error, returning empty store:", error.message)
+      return { sessions: [], lastUpdated: new Date().toISOString() }
+    }
     console.error("[execution-sessions] Failed to read sessions file:", error)
-    throw error
+    // Return empty store instead of throwing to prevent API 500 errors
+    return { sessions: [], lastUpdated: new Date().toISOString() }
   }
 }
 
@@ -227,7 +234,7 @@ export async function createExecutionSession(
       {
         id: generateEventId(),
         type: "info",
-        message: `Execution started for ${packetIds.length} packet(s)`,
+        message: `Processing started for ${packetIds.length} packet(s)`,
         timestamp: now
       }
     ],
@@ -529,4 +536,224 @@ export async function cleanupStaleSessions(maxAge: number = 60 * 60 * 1000): Pro
   }
 
   return staleCount
+}
+
+// ============ Run History Functions ============
+
+import type { RunHistoryEntry } from "./types"
+
+/**
+ * Get run history list with optional filters
+ *
+ * @param options - Filter options
+ * @returns Array of run history entries (summary form)
+ */
+export async function getRunHistoryList(options?: {
+  projectId?: string
+  userId?: string
+  limit?: number
+  offset?: number
+}): Promise<RunHistoryEntry[]> {
+  const store = await readSessionsFile()
+  const { projectId, userId, limit = 50, offset = 0 } = options || {}
+
+  let sessions = store.sessions
+
+  // Filter by projectId if provided
+  if (projectId) {
+    sessions = sessions.filter(s => s.projectId === projectId)
+  }
+
+  // Filter by userId if provided
+  if (userId) {
+    sessions = sessions.filter(s => s.userId === userId)
+  }
+
+  // Sort by startedAt descending (newest first)
+  sessions = sessions.sort((a, b) =>
+    new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+  )
+
+  // Apply pagination
+  sessions = sessions.slice(offset, offset + limit)
+
+  // Convert to RunHistoryEntry format (summary only)
+  return sessions.map(session => sessionToRunHistoryEntry(session))
+}
+
+/**
+ * Get full run history entry with all details
+ *
+ * @param sessionId - The session/run ID
+ * @returns Full run history entry or null
+ */
+export async function getRunHistoryEntry(sessionId: string): Promise<RunHistoryEntry | null> {
+  const store = await readSessionsFile()
+  const session = store.sessions.find(s => s.id === sessionId)
+
+  if (!session) {
+    return null
+  }
+
+  return sessionToRunHistoryEntry(session, true)
+}
+
+/**
+ * Export run as markdown
+ *
+ * @param sessionId - The session/run ID
+ * @returns Markdown string or null
+ */
+export async function exportRunAsMarkdown(sessionId: string): Promise<string | null> {
+  const entry = await getRunHistoryEntry(sessionId)
+
+  if (!entry) {
+    return null
+  }
+
+  const duration = entry.duration
+    ? `${Math.round(entry.duration / 1000)}s`
+    : "N/A"
+
+  const statusEmoji = {
+    running: "🔄",
+    complete: "✅",
+    error: "❌",
+    cancelled: "⚠️"
+  }[entry.status]
+
+  let markdown = `# Run Report: ${entry.projectName || entry.projectId}
+
+**Run ID:** ${entry.id}
+**Status:** ${statusEmoji} ${entry.status}
+**Started:** ${new Date(entry.startedAt).toLocaleString()}
+${entry.completedAt ? `**Completed:** ${new Date(entry.completedAt).toLocaleString()}` : ""}
+**Duration:** ${duration}
+**Mode:** ${entry.mode || "N/A"}
+
+## Summary
+
+- **Packets:** ${entry.packetCount}
+- **Successful:** ${entry.successCount}
+- **Failed:** ${entry.failedCount}
+
+`
+
+  if (entry.packetTitles && entry.packetTitles.length > 0) {
+    markdown += `## Packets Processed
+
+${entry.packetTitles.map((title, i) => `${i + 1}. ${title}`).join("\n")}
+
+`
+  }
+
+  if (entry.events && entry.events.length > 0) {
+    markdown += `## Activity Log
+
+| Time | Type | Message |
+|------|------|---------|
+${entry.events.map(e => `| ${new Date(e.timestamp).toLocaleTimeString()} | ${e.type} | ${e.message} |`).join("\n")}
+
+`
+  }
+
+  if (entry.qualityGates) {
+    const qg = entry.qualityGates
+    markdown += `## Quality Gates
+
+- **Overall:** ${qg.passed ? "✅ Passed" : "❌ Failed"}
+- **Tests:** ${qg.tests.success ? "✅" : "❌"} ${qg.tests.errorCount ? `(${qg.tests.errorCount} errors)` : ""}
+- **TypeScript:** ${qg.typeCheck.success ? "✅" : "❌"} ${qg.typeCheck.errorCount ? `(${qg.typeCheck.errorCount} errors)` : ""}
+- **Build:** ${qg.build.success ? "✅" : "❌"}
+
+`
+  }
+
+  if (entry.output) {
+    markdown += `## Output
+
+\`\`\`
+${entry.output}
+\`\`\`
+`
+  }
+
+  markdown += `
+---
+*Generated by Claudia Coder*
+`
+
+  return markdown
+}
+
+/**
+ * Export run as JSON
+ *
+ * @param sessionId - The session/run ID
+ * @returns JSON object or null
+ */
+export async function exportRunAsJSON(sessionId: string): Promise<RunHistoryEntry | null> {
+  return getRunHistoryEntry(sessionId)
+}
+
+/**
+ * Get all runs for a specific project (for AI context)
+ *
+ * @param projectId - The project ID
+ * @param limit - Maximum number of runs to return
+ * @returns Array of run history entries
+ */
+export async function getRecentRunsForProject(
+  projectId: string,
+  limit: number = 10
+): Promise<RunHistoryEntry[]> {
+  return getRunHistoryList({ projectId, limit })
+}
+
+// Helper: Convert ExecutionSession to RunHistoryEntry
+function sessionToRunHistoryEntry(
+  session: ExecutionSession,
+  includeDetails: boolean = false
+): RunHistoryEntry {
+  // Calculate success/failed counts from events
+  let successCount = 0
+  let failedCount = 0
+
+  for (const event of session.events) {
+    if (event.type === "success" && event.message.toLowerCase().includes("completed")) {
+      successCount++
+    } else if (event.type === "error" && event.message.toLowerCase().includes("failed")) {
+      failedCount++
+    }
+  }
+
+  // Calculate duration
+  const duration = session.completedAt
+    ? new Date(session.completedAt).getTime() - new Date(session.startedAt).getTime()
+    : undefined
+
+  const entry: RunHistoryEntry = {
+    id: session.id,
+    projectId: session.projectId,
+    projectName: session.projectName,
+    userId: session.userId,
+    startedAt: session.startedAt,
+    completedAt: session.completedAt,
+    status: session.status,
+    packetCount: session.packetIds.length,
+    successCount,
+    failedCount,
+    duration,
+    mode: session.mode,
+  }
+
+  if (includeDetails) {
+    entry.events = session.events
+    entry.packetIds = session.packetIds
+    entry.packetTitles = session.packetTitles
+    entry.qualityGates = session.qualityGates
+    entry.output = session.output
+  }
+
+  return entry
 }

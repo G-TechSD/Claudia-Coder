@@ -280,18 +280,79 @@ export function generateBuildPlanPrompt(
     .join("\n")
 
   // Format existing packets for inclusion in the prompt
+  // For large packet counts, use summarization to stay within token limits
   let existingPacketsSection = ""
   if (existingPackets && existingPackets.length > 0) {
-    const packetList = existingPackets
-      .map((p, i) => {
-        const status = p.status ? ` [${p.status}]` : ""
-        const source = p.source ? ` (from: ${p.source})` : ""
-        const desc = p.description ? `\n     ${p.description}` : ""
-        return `  ${i + 1}. "${p.title}"${status}${source} (id: ${p.id})${desc}`
-      })
-      .join("\n")
+    const isLargePacketCount = existingPackets.length >= 20
 
-    existingPacketsSection = `
+    if (isLargePacketCount) {
+      // LARGE PACKET COUNT: Summarize by status/category instead of listing all
+      // Group packets by status
+      const byStatus: Record<string, ExistingPacketInfo[]> = {}
+      existingPackets.forEach(p => {
+        const status = p.status || 'backlog'
+        if (!byStatus[status]) byStatus[status] = []
+        byStatus[status].push(p)
+      })
+
+      const statusSummary = Object.entries(byStatus)
+        .map(([status, packets]) => `  - ${status}: ${packets.length} packets`)
+        .join("\n")
+
+      // Show a representative sample: first 5 and last 3
+      const samplePackets = [
+        ...existingPackets.slice(0, 5),
+        ...(existingPackets.length > 8 ? existingPackets.slice(-3) : [])
+      ]
+      const sampleList = samplePackets
+        .map((p, i) => {
+          const status = p.status ? ` [${p.status}]` : ""
+          return `  ${i + 1}. "${p.title}"${status} (id: ${p.id})`
+        })
+        .join("\n")
+
+      existingPacketsSection = `
+
+EXISTING PACKETS - CRITICAL INSTRUCTIONS (${existingPackets.length} PACKETS):
+This project has ${existingPackets.length} existing work packets imported. This is a LARGE project.
+
+PACKET BREAKDOWN BY STATUS:
+${statusSummary}
+
+IMPORTANT - Your build plan MUST:
+1. ACKNOWLEDGE all ${existingPackets.length} existing packets exist (don't try to list them all in your output)
+2. DO NOT DUPLICATE any existing work - the packets below are just a SAMPLE
+3. FOCUS your new packets on:
+   - Integration/orchestration between existing features
+   - Testing and quality assurance
+   - Documentation and deployment
+   - Any obvious GAPS not covered by existing packets
+
+SAMPLE PACKETS (representative subset of ${existingPackets.length} total):
+${sampleList}
+${existingPackets.length > 8 ? `  ... and ${existingPackets.length - 8} more packets` : ""}
+
+4. In your JSON output, include:
+   "packetSummary": {
+     "existingCount": ${existingPackets.length},
+     "newCount": <number of NEW packets you're proposing>,
+     "summary": "Acknowledged ${existingPackets.length} existing packets, proposed X new integration/support packets"
+   }
+
+KEEP YOUR NEW PACKETS MINIMAL - the existing ${existingPackets.length} packets already cover the core work.
+`
+    } else {
+      // SMALL PACKET COUNT: List all packets as before
+      const packetList = existingPackets
+        .map((p, i) => {
+          const status = p.status ? ` [${p.status}]` : ""
+          const source = p.source ? ` (from: ${p.source})` : ""
+          const desc = p.description ? `\n     ${p.description}` : ""
+          return `  ${i + 1}. "${p.title}"${status}${source} (id: ${p.id})${desc}`
+        })
+        .join("\n")
+
+      existingPacketsSection = `
 
 EXISTING PACKETS - CRITICAL INSTRUCTIONS:
 There are ${existingPackets.length} existing work packets for this project. You MUST:
@@ -318,6 +379,7 @@ There are ${existingPackets.length} existing work packets for this project. You 
 Existing packets to include (${existingPackets.length} total):
 ${packetList}
 `
+    }
   }
 
   // Build nuance context section from extracted comments
@@ -763,6 +825,88 @@ export function parseBuildPlanResponse(
     console.error("Failed to parse build plan:", error)
     return null
   }
+}
+
+/**
+ * Merge LLM-generated packets with existing packets to ensure NONE are lost
+ *
+ * CRITICAL: This function ensures that existing packets are NEVER deleted.
+ * The LLM can:
+ * - Add new packets
+ * - Update metadata of existing packets (priority, dependencies, etc.)
+ * - NOT delete packets
+ *
+ * @param llmPackets - Packets returned by the LLM
+ * @param existingPackets - Original existing packets that were passed to the LLM
+ * @param defaultPhaseId - Default phase to assign orphaned packets to
+ * @returns Merged packet list with all existing packets preserved
+ */
+export function mergePacketsWithExisting(
+  llmPackets: WorkPacket[],
+  existingPackets: ExistingPacketInfo[],
+  defaultPhaseId: string = "phase-1"
+): { packets: WorkPacket[]; mergeStats: { preserved: number; updated: number; added: number; missing: number } } {
+  const mergeStats = { preserved: 0, updated: 0, added: 0, missing: 0 }
+
+  // Create a map of LLM packets by ID for quick lookup
+  const llmPacketMap = new Map<string, WorkPacket>()
+  llmPackets.forEach(p => llmPacketMap.set(p.id, p))
+
+  // Create a set of existing packet IDs
+  const existingIds = new Set(existingPackets.map(p => p.id))
+
+  const mergedPackets: WorkPacket[] = []
+
+  // First, ensure ALL existing packets are in the output
+  for (const existing of existingPackets) {
+    const llmVersion = llmPacketMap.get(existing.id)
+
+    if (llmVersion) {
+      // LLM included this packet - use LLM version but ensure existing flag
+      mergedPackets.push({
+        ...llmVersion,
+        existing: true
+      })
+      mergeStats.updated++
+      llmPacketMap.delete(existing.id) // Remove from map so we don't add it again
+    } else {
+      // LLM MISSED this packet - preserve it with original data
+      // This is the critical case that prevents packet loss
+      mergedPackets.push({
+        id: existing.id,
+        phaseId: defaultPhaseId,
+        title: existing.title,
+        description: existing.description || "",
+        type: "feature" as PacketType,
+        priority: "medium",
+        status: "queued",
+        existing: true,
+        tasks: [{ id: `${existing.id}-task-1`, description: existing.title, completed: false, order: 0 }],
+        suggestedTaskType: "coding",
+        blockedBy: [],
+        blocks: [],
+        estimatedTokens: 1000,
+        acceptanceCriteria: [`Complete: ${existing.title}`]
+      })
+      mergeStats.missing++
+      mergeStats.preserved++
+    }
+  }
+
+  // Add any NEW packets from LLM (ones not in existing)
+  for (const [id, packet] of llmPacketMap) {
+    if (!existingIds.has(id)) {
+      mergedPackets.push({
+        ...packet,
+        existing: false
+      })
+      mergeStats.added++
+    }
+  }
+
+  console.log(`[mergePacketsWithExisting] Stats: ${mergeStats.preserved} preserved (${mergeStats.missing} were missing from LLM output), ${mergeStats.updated} updated, ${mergeStats.added} new`)
+
+  return { packets: mergedPackets, mergeStats }
 }
 
 /**
@@ -1258,3 +1402,160 @@ ${gameContext.technicalDetails?.length ? `TECHNICAL DETAILS:\n${gameContext.tech
 
   return prompt
 }
+
+// ============ Multi-Interview Build Plan Generation ============
+
+import type { InterviewSession, InterviewMessage } from "@/lib/data/types"
+
+/**
+ * Options for generating a build plan from multiple interviews
+ */
+export interface BuildPlanFromInterviewsOptions {
+  projectId: string
+  projectName: string
+  interviews: InterviewSession[]
+  availableModels?: AssignedModel[]
+  constraints?: Partial<BuildConstraints>
+  existingPackets?: ExistingPacketInfo[]
+}
+
+/**
+ * Format interview messages for inclusion in the prompt
+ */
+function formatInterviewMessages(messages: InterviewMessage[]): string {
+  return messages
+    .map((msg) => {
+      const role = msg.role === "assistant" ? "AI" : "User"
+      return `[${role}]: ${msg.content}`
+    })
+    .join("\n")
+}
+
+/**
+ * Extract nuance context from an interview's extracted data
+ */
+function extractNuanceFromInterview(interview: InterviewSession): NuanceContext | null {
+  const data = interview.extractedData
+  if (!data) return null
+
+  return {
+    decisions: Array.isArray(data.decisions) ? data.decisions : [],
+    requirements: Array.isArray(data.requirements)
+      ? data.requirements
+      : Array.isArray(data.features)
+        ? data.features
+        : [],
+    constraints: Array.isArray(data.constraints) ? data.constraints : [],
+    concerns: Array.isArray(data.concerns) ? data.concerns : [],
+    actionItems: Array.isArray(data.actionItems) ? data.actionItems : [],
+    context: Array.isArray(data.context) ? data.context : [],
+    summary: interview.summary || undefined
+  }
+}
+
+/**
+ * Generate a build plan from multiple interviews
+ * Combines all interview transcripts and extracted insights into a comprehensive context
+ * for build plan generation
+ */
+export async function generateBuildPlanFromInterviews(
+  options: BuildPlanFromInterviewsOptions,
+  generateFn: (systemPrompt: string, userPrompt: string) => Promise<{ content: string; error?: string }>
+): Promise<RobustGenerationResult> {
+  const { projectId, projectName, interviews, availableModels, constraints, existingPackets } = options
+
+  if (interviews.length === 0) {
+    return {
+      plan: null,
+      packetSummary: null,
+      attempts: 0,
+      usedSimplifiedPrompt: false,
+      error: "No interviews provided"
+    }
+  }
+
+  // Combine all interview transcripts
+  const combinedTranscript = interviews
+    .map((interview, index) => {
+      const typeLabel = interview.type.replace(/_/g, " ")
+      const version = interview.version || index + 1
+      return `## Interview ${version}: ${typeLabel}\n${formatInterviewMessages(interview.messages)}`
+    })
+    .join("\n\n---\n\n")
+
+  // Combine all extracted nuance contexts
+  const nuanceContexts = interviews
+    .map(extractNuanceFromInterview)
+    .filter((ctx): ctx is NuanceContext => ctx !== null)
+
+  const combinedNuance = nuanceContexts.length > 0 ? mergeNuanceContexts(nuanceContexts) : undefined
+
+  // Combine all extracted insights for additional context
+  const combinedInsights = {
+    goals: [...new Set(interviews.flatMap((i) => (i.extractedData?.goals as string[]) || []))],
+    features: [...new Set(interviews.flatMap((i) => (i.extractedData?.features as string[]) || []))],
+    techStack: [...new Set(interviews.flatMap((i) => (i.extractedData?.techStack as string[]) || []))],
+    summaries: interviews.map((i) => i.summary).filter(Boolean) as string[]
+  }
+
+  // Build enhanced project description from combined interviews
+  const enhancedDescription = `
+${projectName}
+
+=== INTERVIEW CONTEXT ===
+This project was discussed across ${interviews.length} interview(s). The following context has been extracted:
+
+${combinedInsights.summaries.length > 0 ? `SUMMARIES:\n${combinedInsights.summaries.map((s) => `- ${s}`).join("\n")}\n` : ""}
+${combinedInsights.goals.length > 0 ? `GOALS:\n${combinedInsights.goals.map((g) => `- ${g}`).join("\n")}\n` : ""}
+${combinedInsights.features.length > 0 ? `FEATURES DISCUSSED:\n${combinedInsights.features.map((f) => `- ${f}`).join("\n")}\n` : ""}
+${combinedInsights.techStack.length > 0 ? `TECH STACK:\n${combinedInsights.techStack.map((t) => `- ${t}`).join("\n")}\n` : ""}
+
+=== FULL INTERVIEW TRANSCRIPTS ===
+${combinedTranscript}
+`.trim()
+
+  // Use the robust generation with retry logic
+  return generateBuildPlanWithRetry(
+    {
+      projectId,
+      projectName,
+      projectDescription: enhancedDescription,
+      availableModels,
+      constraints,
+      existingPackets,
+      nuanceContext: combinedNuance,
+      maxRetries: 3,
+      onProgress: (status, attempt) => {
+        console.log(`[Build Plan from Interviews] ${status} (attempt ${attempt})`)
+      }
+    },
+    generateFn
+  )
+}
+
+/**
+ * System prompt specifically for interview-based build plan generation
+ */
+export const INTERVIEW_BUILD_PLAN_SYSTEM_PROMPT = `You are a senior software architect creating a build plan based on user interviews.
+
+Your job is to carefully analyze the interview transcripts and extracted insights to create a comprehensive build plan that:
+
+1. CAPTURES USER INTENT - Pay close attention to what the user actually wants
+2. ADDRESSES ALL DISCUSSED FEATURES - Every feature mentioned should have a corresponding packet
+3. RESPECTS CONSTRAINTS - Honor any technical or business constraints mentioned
+4. PRIORITIZES CORRECTLY - Use the user's emphasis to determine priority
+5. IS ACTIONABLE - Every packet should be something an AI or developer can execute
+
+INTERVIEW ANALYSIS:
+- Read ALL interview transcripts carefully
+- Note any decisions, requirements, and concerns raised
+- Identify explicit and implicit requirements
+- Pay attention to user feedback and clarifications
+- If multiple interviews exist, look for evolution of requirements
+
+OUTPUT FORMAT: Return valid JSON only.
+- No markdown code blocks
+- No text before or after the JSON
+- Start with { and end with }
+- Use double quotes for all strings
+- No trailing commas`

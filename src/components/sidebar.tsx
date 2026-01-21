@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import Link from "next/link"
-import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -45,6 +44,7 @@ import {
   Database,
   Rocket,
   PlusCircle,
+  History,
 } from "lucide-react"
 
 interface NavItem {
@@ -73,6 +73,7 @@ const projectsItems: NavItem[] = [
 // Tools category items
 const toolsItems: NavItem[] = [
   { title: "Claude Code", href: "/claude-code", icon: Terminal },
+  { title: "Run History", href: "/run-history", icon: History },
 ]
 
 // Upcoming Features category items (in development)
@@ -304,12 +305,13 @@ export function Sidebar() {
       icon: Wrench,
       items: toolsItems,
     },
-    {
-      id: "upcoming",
-      title: "Upcoming Features",
-      icon: Rocket,
-      items: upcomingFeaturesItems,
-    },
+    // Upcoming Features hidden until ready to ship
+    // {
+    //   id: "upcoming",
+    //   title: "Upcoming Features",
+    //   icon: Rocket,
+    //   items: upcomingFeaturesItems,
+    // },
   ]
 
   // Add admin category only for admin users
@@ -333,14 +335,8 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex h-14 items-center border-b px-4">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg overflow-hidden bg-gradient-to-br from-green-400/20 to-blue-500/20">
-            <Image
-              src="/claudia-logo.jpg"
-              alt="Claudia Coder"
-              width={32}
-              height={32}
-              className="h-8 w-8 object-cover"
-            />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600">
+            <Command className="h-5 w-5 text-white" />
           </div>
           {!collapsed && (
             <div className="flex items-center gap-2">

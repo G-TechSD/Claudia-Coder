@@ -4,6 +4,31 @@ const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
   output: "standalone",
 
+  // Turbopack configuration (Next.js 16+ uses Turbopack by default)
+  // Note: Turbopack doesn't support watchOptions ignore patterns yet
+  // Use webpack flag (next dev --webpack) if you need this feature
+  turbopack: {},
+
+  // Webpack configuration for when running with --webpack flag
+  // Ignores claudia-projects folder from hot reload during development
+  // This prevents page refreshes when builds modify files in project directories
+  webpack: (config, { dev }) => {
+    if (dev) {
+      config.watchOptions = {
+        ...config.watchOptions,
+        ignored: [
+          '**/node_modules/**',
+          '**/claudia-projects/**',
+          '/home/**/claudia-projects/**',
+          '**/.git/**',
+          '**/~/**',
+          '**/~/claudia-projects/**',
+        ],
+      };
+    }
+    return config;
+  },
+
   // Environment variables exposed to the browser
   env: {
     NEXT_PUBLIC_APP_NAME: "Claudia Coder",

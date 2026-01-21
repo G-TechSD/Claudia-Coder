@@ -9,11 +9,13 @@ import { NextResponse } from "next/server"
 export interface ProviderInfo {
   name: string
   displayName: string
-  type: "local" | "cloud"
+  type: "local" | "cloud" | "cli"
   status: "online" | "offline" | "checking" | "not-configured"
   baseUrl?: string
   model?: string  // Currently loaded model (if any)
   models?: string[]  // All available models on this server
+  usesCli?: boolean  // True for CLI-based providers like Claude Code
+  requiresApiKey?: boolean  // False for providers that don't need API keys
 }
 
 // Check if a local server is reachable and get available models
@@ -284,10 +286,28 @@ export async function GET() {
     })
   }
 
+  // Claude Code CLI - always available (uses Claude Code CLI with Max subscription)
+  // Offers multiple Claude models via the CLI
+  providers.push({
+    name: "claude-code",
+    displayName: "Claude Code",
+    type: "cli",
+    status: "online",
+    model: "claude-sonnet-4-20250514",  // Default to Sonnet 4 (balanced)
+    models: [
+      "claude-opus-4-20250514",      // Best for coding, most capable
+      "claude-sonnet-4-20250514",    // Good for coding, balanced
+      "claude-3-5-haiku-20241022"    // Fast, but not recommended for complex coding
+    ],
+    usesCli: true,
+    requiresApiKey: false
+  })
+
   return NextResponse.json({
     providers,
     localCount: providers.filter(p => p.type === "local").length,
     cloudCount: providers.filter(p => p.type === "cloud").length,
+    cliCount: providers.filter(p => p.type === "cli").length,
     onlineCount: providers.filter(p => p.status === "online").length
   })
 }

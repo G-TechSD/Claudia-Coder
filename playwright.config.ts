@@ -7,17 +7,23 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
-  
+
+  // 60 second timeout per test (AI operations take time)
+  timeout: 60 * 1000,
+
   use: {
-    // Base URL for tests - use CLAUDIA_TEST_URL env var or fallback to localhost
-    baseURL: process.env.CLAUDIA_TEST_URL || 'http://localhost:3000',
-    
+    // Base URL for tests - use CLAUDIA_TEST_URL env var or fallback to localhost with HTTPS
+    baseURL: process.env.CLAUDIA_TEST_URL || 'https://localhost:3000',
+
+    // Ignore HTTPS errors for self-signed certificates
+    ignoreHTTPSErrors: true,
+
     // Capture screenshot on failure
     screenshot: 'only-on-failure',
-    
-    // Record video for all tests
-    video: 'on',
-    
+
+    // Disable video recording to save resources
+    video: 'off',
+
     // Collect trace on failure
     trace: 'on-first-retry',
   },
@@ -33,7 +39,8 @@ export default defineConfig({
   // Skip webServer if CLAUDIA_TEST_URL is set (server already running)
   webServer: process.env.CLAUDIA_TEST_URL ? undefined : {
     command: 'npm run claudia',
-    url: 'http://localhost:3000',
+    url: 'https://localhost:3000',
+    ignoreHTTPSErrors: true,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },

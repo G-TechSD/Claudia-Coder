@@ -37,7 +37,10 @@ export function useStarredProjects() {
   // Listen for storage events (cross-tab sync and custom events)
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "claudia_projects") {
+      // Listen for both legacy and user-scoped storage keys
+      if (e.key === "claudia_projects" ||
+          (userId && e.key === `claudia_user_${userId}_projects`) ||
+          e.key?.startsWith("claudia_user_") && e.key?.endsWith("_projects")) {
         loadStarred()
       }
     }
@@ -48,12 +51,15 @@ export function useStarredProjects() {
 
     window.addEventListener("storage", handleStorageChange)
     window.addEventListener(STORAGE_EVENT_KEY, handleCustomEvent)
+    // Also listen for user storage changes
+    window.addEventListener("claudia_user_storage_change", handleCustomEvent)
 
     return () => {
       window.removeEventListener("storage", handleStorageChange)
       window.removeEventListener(STORAGE_EVENT_KEY, handleCustomEvent)
+      window.removeEventListener("claudia_user_storage_change", handleCustomEvent)
     }
-  }, [loadStarred])
+  }, [loadStarred, userId])
 
   // Toggle star status for a project
   const toggleStar = useCallback((projectId: string) => {

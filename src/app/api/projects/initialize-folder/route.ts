@@ -16,7 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { mkdir, writeFile, readdir } from "fs/promises"
+import { mkdir, writeFile, readdir, copyFile } from "fs/promises"
 import { existsSync } from "fs"
 import { exec } from "child_process"
 import { promisify } from "util"
@@ -30,7 +30,10 @@ import {
   generatePacketMarkdown,
   generateConfigJSON,
   getPacketFilename,
-  generateSlug
+  generateSlug,
+  generateBrainDumpsMarkdown,
+  generateInterviewsMarkdown,
+  generateResourcesMarkdown
 } from "@/lib/project-files/generators"
 import { getSessionWithBypass, unauthorizedResponse } from "@/lib/auth/api-helpers"
 import { getUserGitLabToken, getUserGitLabUrl } from "@/lib/data/user-gitlab"
@@ -62,6 +65,35 @@ function getAuthenticatedCloneUrl(repoUrl: string, token: string | null): string
 const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
 
 // Types matching the data stores
+
+// Interview types (defined early for use in Project interface)
+interface InterviewMessage {
+  id: string
+  role: "assistant" | "user"
+  content: string
+  timestamp: string
+  transcribedFrom?: string
+  skipped?: boolean
+  followUpRequested?: boolean
+}
+
+interface InterviewSession {
+  id: string
+  type: string
+  status: string
+  targetType?: string
+  targetId?: string
+  targetTitle?: string
+  targetContext?: Record<string, unknown>
+  messages: InterviewMessage[]
+  summary?: string
+  keyPoints?: string[]
+  suggestedActions?: string[]
+  extractedData?: Record<string, unknown>
+  createdAt: string
+  completedAt?: string
+}
+
 interface LinkedRepo {
   provider: string
   id: number
@@ -89,6 +121,8 @@ interface Project {
     teamId?: string
   }
   tags: string[]
+  // Interview data (from creation)
+  creationInterview?: InterviewSession
 }
 
 interface StoredBuildPlan {
@@ -149,6 +183,80 @@ interface WorkPacket {
   acceptanceCriteria: string[]
 }
 
+// Brain dump types
+interface BrainDump {
+  id: string
+  projectId: string
+  resourceId: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  transcription?: {
+    text: string
+    method: string
+    duration: number
+    wordCount: number
+    confidence?: number
+    transcribedAt: string
+  }
+  processedContent?: {
+    summary: string
+    structuredMarkdown: string
+    sections: Array<{
+      id: string
+      title: string
+      content: string
+      type: string
+      approved: boolean
+    }>
+    actionItems: Array<{
+      id: string
+      description: string
+      priority: string
+      category: string
+      approved: boolean
+    }>
+    ideas: string[]
+    decisions: Array<{
+      id: string
+      description: string
+      rationale: string
+      approved: boolean
+    }>
+    questions: string[]
+    rawInsights: string[]
+    processedAt: string
+    processedBy: string
+  }
+  reviewNotes?: string
+  approvedSections?: string[]
+}
+
+// Resource types
+interface ProjectResource {
+  id: string
+  projectId: string
+  name: string
+  type: string
+  mimeType: string
+  size: number
+  createdAt: string
+  updatedAt: string
+  storage: string
+  filePath?: string
+  indexedDbKey?: string
+  description?: string
+  tags: string[]
+  transcription?: {
+    text: string
+    method: string
+    duration: number
+    wordCount: number
+  }
+  // For copying files: base64 encoded content for small files
+  fileContent?: string
+}
+
 interface InitializeRequest {
   projectId: string
   targetPath?: string
@@ -156,6 +264,10 @@ interface InitializeRequest {
   project?: Project
   buildPlan?: StoredBuildPlan
   packets?: WorkPacket[]
+  // User-provided context data
+  brainDumps?: BrainDump[]
+  contextualInterviews?: InterviewSession[]
+  resources?: ProjectResource[]
   // Legacy fields for backward compatibility
   projectName?: string
   projectDescription?: string
@@ -399,8 +511,31 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Extract user-provided context data
+    const brainDumps: BrainDump[] = body.brainDumps || []
+    const contextualInterviews: InterviewSession[] = body.contextualInterviews || []
+    const resources: ProjectResource[] = body.resources || []
+    const creationInterview = project.creationInterview as InterviewSession | undefined
+
     // If dry run, return preview
     if (body.dryRun) {
+      const previewFiles = [
+        ".claudia/config.json",
+        "docs/PRD.md",
+        "docs/BUILD_PLAN.md",
+        "docs/BRAIN_DUMPS.md",
+        "docs/INTERVIEWS.md",
+        "docs/RESOURCES.md",
+        "KICKOFF.md",
+        ...packets.map((p, i) => `docs/packets/${getPacketFilename(p as Parameters<typeof getPacketFilename>[0], i + 1)}`)
+      ]
+      // Add resource files if any have filepath storage
+      resources.forEach(r => {
+        if (r.filePath || r.fileContent) {
+          previewFiles.push(`resources/${r.name}`)
+        }
+      })
+
       return NextResponse.json({
         success: true,
         dryRun: true,
@@ -412,16 +547,14 @@ export async function POST(request: NextRequest) {
             ".claudia/status",
             ".claudia/requests",
             "docs",
-            "docs/packets"
+            "docs/packets",
+            "resources"
           ],
-          files: [
-            ".claudia/config.json",
-            "docs/PRD.md",
-            "docs/BUILD_PLAN.md",
-            "KICKOFF.md",
-            ...packets.map((p, i) => `docs/packets/${getPacketFilename(p as Parameters<typeof getPacketFilename>[0], i + 1)}`)
-          ],
-          packetsCount: packets.length
+          files: previewFiles,
+          packetsCount: packets.length,
+          brainDumpsCount: brainDumps.length,
+          interviewsCount: (creationInterview ? 1 : 0) + contextualInterviews.length,
+          resourcesCount: resources.length
         }
       })
     }
@@ -439,6 +572,26 @@ export async function POST(request: NextRequest) {
     if (!existsSync(workingDirectory)) {
       await mkdir(workingDirectory, { recursive: true })
       console.log(`[initialize-folder] Created working directory: ${workingDirectory}`)
+
+      // Initialize as git repository
+      try {
+        await execAsync(`git init`, { cwd: workingDirectory })
+        console.log(`[initialize-folder] Initialized git repository in: ${workingDirectory}`)
+      } catch (gitError) {
+        console.warn(`[initialize-folder] Failed to initialize git repository: ${gitError instanceof Error ? gitError.message : "Unknown error"}`)
+        // Non-fatal error - continue with folder creation
+      }
+    } else {
+      // Directory exists - check if it's already a git repo
+      const gitDir = path.join(workingDirectory, ".git")
+      if (!existsSync(gitDir)) {
+        try {
+          await execAsync(`git init`, { cwd: workingDirectory })
+          console.log(`[initialize-folder] Initialized git repository in existing directory: ${workingDirectory}`)
+        } catch (gitError) {
+          console.warn(`[initialize-folder] Failed to initialize git repository: ${gitError instanceof Error ? gitError.message : "Unknown error"}`)
+        }
+      }
     }
 
     // Create folder structure
@@ -447,7 +600,8 @@ export async function POST(request: NextRequest) {
       path.join(workingDirectory, ".claudia", "status"),
       path.join(workingDirectory, ".claudia", "requests"),
       path.join(workingDirectory, "docs"),
-      path.join(workingDirectory, "docs", "packets")
+      path.join(workingDirectory, "docs", "packets"),
+      path.join(workingDirectory, "resources")
     ]
 
     for (const dir of directories) {
@@ -557,6 +711,80 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Generate and write docs/BRAIN_DUMPS.md
+    try {
+      const brainDumpsPath = path.join(workingDirectory, "docs", "BRAIN_DUMPS.md")
+      const brainDumpsContent = generateBrainDumpsMarkdown(
+        brainDumps as Parameters<typeof generateBrainDumpsMarkdown>[0],
+        project as unknown as Parameters<typeof generateBrainDumpsMarkdown>[1]
+      )
+      await writeFile(brainDumpsPath, brainDumpsContent, "utf-8")
+      createdFiles.push({ path: brainDumpsPath, description: "Brain dump transcriptions and insights" })
+      console.log(`[initialize-folder] Created: ${brainDumpsPath}`)
+    } catch (error) {
+      const msg = `Failed to create BRAIN_DUMPS.md: ${error instanceof Error ? error.message : "Unknown error"}`
+      errors.push(msg)
+      console.error(`[initialize-folder] ${msg}`)
+    }
+
+    // Generate and write docs/INTERVIEWS.md
+    try {
+      const interviewsPath = path.join(workingDirectory, "docs", "INTERVIEWS.md")
+      const interviewsContent = generateInterviewsMarkdown(
+        creationInterview as Parameters<typeof generateInterviewsMarkdown>[0],
+        contextualInterviews as Parameters<typeof generateInterviewsMarkdown>[1],
+        project as unknown as Parameters<typeof generateInterviewsMarkdown>[2]
+      )
+      await writeFile(interviewsPath, interviewsContent, "utf-8")
+      createdFiles.push({ path: interviewsPath, description: "Interview sessions and extracted insights" })
+      console.log(`[initialize-folder] Created: ${interviewsPath}`)
+    } catch (error) {
+      const msg = `Failed to create INTERVIEWS.md: ${error instanceof Error ? error.message : "Unknown error"}`
+      errors.push(msg)
+      console.error(`[initialize-folder] ${msg}`)
+    }
+
+    // Generate and write docs/RESOURCES.md
+    try {
+      const resourcesPath = path.join(workingDirectory, "docs", "RESOURCES.md")
+      const resourcesContent = generateResourcesMarkdown(
+        resources as Parameters<typeof generateResourcesMarkdown>[0],
+        project as unknown as Parameters<typeof generateResourcesMarkdown>[1]
+      )
+      await writeFile(resourcesPath, resourcesContent, "utf-8")
+      createdFiles.push({ path: resourcesPath, description: "Index of uploaded resources" })
+      console.log(`[initialize-folder] Created: ${resourcesPath}`)
+    } catch (error) {
+      const msg = `Failed to create RESOURCES.md: ${error instanceof Error ? error.message : "Unknown error"}`
+      errors.push(msg)
+      console.error(`[initialize-folder] ${msg}`)
+    }
+
+    // Copy resource files to resources/ directory
+    for (const resource of resources) {
+      try {
+        const targetPath = path.join(workingDirectory, "resources", resource.name)
+
+        // If resource has file content (base64 encoded), write it
+        if (resource.fileContent) {
+          const buffer = Buffer.from(resource.fileContent, "base64")
+          await writeFile(targetPath, buffer)
+          createdFiles.push({ path: targetPath, description: `Resource file: ${resource.name}` })
+          console.log(`[initialize-folder] Created resource: ${targetPath}`)
+        }
+        // If resource has a filepath, try to copy it
+        else if (resource.filePath && existsSync(resource.filePath)) {
+          await copyFile(resource.filePath, targetPath)
+          createdFiles.push({ path: targetPath, description: `Resource file (copied): ${resource.name}` })
+          console.log(`[initialize-folder] Copied resource: ${targetPath}`)
+        }
+      } catch (error) {
+        const msg = `Failed to copy resource ${resource.name}: ${error instanceof Error ? error.message : "Unknown error"}`
+        errors.push(msg)
+        console.error(`[initialize-folder] ${msg}`)
+      }
+    }
+
     // Clone git repository if one is linked
     let cloneResult: { success: boolean; error?: string; path?: string; authFailed?: boolean } | null = null
     const repoToClone = project.repos.find(r => r.url && !r.localPath)
@@ -592,6 +820,9 @@ export async function POST(request: NextRequest) {
         projectName: project.name,
         filesCreated: createdFiles.length,
         packetsCreated: packets.length,
+        brainDumpsIncluded: brainDumps.length,
+        interviewsIncluded: (creationInterview ? 1 : 0) + contextualInterviews.length,
+        resourcesIncluded: resources.length,
         repoCloned: cloneResult?.success || false,
         errors: errors.length > 0 ? errors : undefined
       }, null, 2)

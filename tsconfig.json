@@ -42,6 +42,8 @@
     "scripts",
     "generated",
     "vitest.config.ts",
-    "vitest.setup.ts"
+    "vitest.setup.ts",
+    "~",
+    "~/claudia-projects"
   ]
 }

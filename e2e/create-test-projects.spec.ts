@@ -126,8 +126,8 @@ test.describe('Test Project Generation', () => {
 
       await takeScreenshot(page, `create-${project.category}-start`);
 
-      // Try to select Feeling Lucky mode if available (quick project creation)
-      const quickOption = page.locator('button:has-text("Feeling Lucky"), button:has-text("Quick"), [data-testid="quick-mode"]');
+      // Try to select Quick Start mode if available (quick project creation)
+      const quickOption = page.locator('button:has-text("Quick Start"), button:has-text("Quick"), [data-testid="quick-mode"]');
       if (await quickOption.isVisible({ timeout: 3000 }).catch(() => false)) {
         await quickOption.click();
         await page.waitForTimeout(500);
@@ -196,7 +196,7 @@ test.describe('Test Project Generation', () => {
 
       // Submit the form to create the project
       const submitButton = page.locator(
-        'button:has-text("Feeling Lucky"), button:has-text("Full Interview"), main button[type="submit"], button:has-text("Create Project")'
+        'button:has-text("Quick Start"), button:has-text("Full Interview"), main button[type="submit"], button:has-text("Create Project")'
       ).first();
 
       if (await submitButton.isVisible({ timeout: 3000 }).catch(() => false)) {

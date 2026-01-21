@@ -2,16 +2,19 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { Play, Loader2, Zap, Rocket, CheckCircle } from "lucide-react"
+import { Play, Loader2, Zap, Rocket, CheckCircle, AlertTriangle } from "lucide-react"
 
 interface GoButtonProps {
   onClick: () => void
   disabled?: boolean
   loading?: boolean
-  status?: "idle" | "ready" | "running" | "complete" | "error"
+  status?: "idle" | "ready" | "running" | "complete" | "error" | "partial" | "failed" | "stopped"
   progress?: number
   className?: string
   size?: "default" | "large" | "hero"
+  /** For partial status: shows X/Y in button text */
+  successCount?: number
+  totalCount?: number
 }
 
 /**
@@ -26,10 +29,15 @@ export function GoButton({
   status = "idle",
   progress = 0,
   className,
-  size = "default"
+  size = "default",
+  successCount,
+  totalCount
 }: GoButtonProps) {
   const isRunning = status === "running" || loading
   const isComplete = status === "complete"
+  const isPartial = status === "partial"
+  const isFailed = status === "failed"
+  const isStopped = status === "stopped"
   const isReady = status === "ready"
 
   const sizeClasses = {
@@ -60,7 +68,13 @@ export function GoButton({
 
         // State-based styles
         isComplete
-          ? "bg-cyan-600 text-white shadow-lg shadow-cyan-500/30"
+          ? "bg-green-600 text-white shadow-lg shadow-green-500/30"
+          : isPartial
+          ? "bg-yellow-600 text-white shadow-lg shadow-yellow-500/30"
+          : isFailed
+          ? "bg-red-600 text-white shadow-lg shadow-red-500/30"
+          : isStopped
+          ? "bg-gray-600 text-white shadow-lg shadow-gray-500/30"
           : isRunning
           ? "bg-gradient-to-r from-cyan-500 via-blue-500 to-cyan-500 text-white shadow-xl shadow-cyan-500/40 animate-pulse"
           : isReady
@@ -88,7 +102,13 @@ export function GoButton({
       {/* Icon */}
       <span className="relative z-10">
         {isComplete ? (
-          <CheckCircle className={cn(iconSizes[size], "animate-bounce")} />
+          <CheckCircle className={cn(iconSizes[size], "text-green-200")} />
+        ) : isPartial ? (
+          <AlertTriangle className={cn(iconSizes[size], "text-yellow-200")} />
+        ) : isFailed ? (
+          <Play className={cn(iconSizes[size], "text-red-200")} />
+        ) : isStopped ? (
+          <Play className={cn(iconSizes[size], "text-gray-300")} />
         ) : isRunning ? (
           <Loader2 className={cn(iconSizes[size], "animate-spin")} />
         ) : isReady ? (
@@ -101,7 +121,15 @@ export function GoButton({
       {/* Text */}
       <span className="relative z-10">
         {isComplete
-          ? "Complete!"
+          ? "Complete"
+          : isPartial
+          ? successCount !== undefined && totalCount !== undefined
+            ? `Partial (${successCount}/${totalCount})`
+            : "Partial"
+          : isFailed
+          ? "Resume"
+          : isStopped
+          ? "Resume"
           : isRunning
           ? progress > 0
             ? `Building... ${progress}%`
@@ -132,15 +160,19 @@ export function HeroGoButton({
   disabled,
   loading,
   status,
-  progress
+  progress,
+  successCount,
+  totalCount
 }: {
   projectName: string
   packetCount: number
   onGo: () => void
   disabled?: boolean
   loading?: boolean
-  status?: "idle" | "ready" | "running" | "complete" | "error"
+  status?: "idle" | "ready" | "running" | "complete" | "error" | "partial" | "failed" | "stopped"
   progress?: number
+  successCount?: number
+  totalCount?: number
 }) {
   return (
     <div className="flex flex-col items-center gap-6 p-8 rounded-2xl bg-gradient-to-br from-gray-900/50 to-gray-800/30 border border-cyan-500/20">
@@ -148,7 +180,7 @@ export function HeroGoButton({
       <div className="text-center">
         <h2 className="text-2xl font-bold text-white mb-2">{projectName}</h2>
         <p className="text-muted-foreground">
-          {packetCount} work packet{packetCount !== 1 ? "s" : ""} ready to execute
+          {packetCount} work packet{packetCount !== 1 ? "s" : ""} ready to process
         </p>
       </div>
 
@@ -161,6 +193,8 @@ export function HeroGoButton({
           status={packetCount > 0 ? (status || "ready") : "idle"}
           progress={progress}
           size="hero"
+          successCount={successCount}
+          totalCount={totalCount}
         />
       </div>
 
@@ -169,7 +203,13 @@ export function HeroGoButton({
         {status === "running"
           ? "Claudia Coder is building your project. Watch the activity stream for progress."
           : status === "complete"
-          ? "All packets completed! Check the results below."
+          ? "All packets completed and verified! Check the results below."
+          : status === "partial"
+          ? `${successCount || 0} of ${totalCount || 0} packets succeeded. Some had issues.`
+          : status === "failed"
+          ? "A packet failed quality gates. Click Resume to skip it and continue with remaining packets."
+          : status === "stopped"
+          ? "Processing was stopped. Click Resume to continue with remaining packets."
           : packetCount === 0
           ? "Add work packets to your project to get started"
           : "Click GO to start autonomous development"}

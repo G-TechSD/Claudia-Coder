@@ -9,7 +9,7 @@ export interface FetchedModel {
   id: string
   name: string
   provider: string
-  type: "local" | "cloud"
+  type: "local" | "cloud" | "cli"
   contextWindow?: number
   maxOutput?: number
   created?: string
@@ -22,6 +22,9 @@ export interface FetchedModel {
   // Server info for local models
   serverId?: string
   serverUrl?: string
+  // CLI-specific flags
+  usesCli?: boolean
+  requiresApiKey?: boolean
 }
 
 interface CachedModels {
@@ -392,6 +395,46 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Add Claude Code CLI provider models (always available - uses CLI with Max subscription)
+  if (!provider || provider === "claude-code") {
+    allModels.push(
+      {
+        id: "claude-opus-4-20250514",
+        name: "Claude Opus 4 (Best for coding)",
+        provider: "claude-code",
+        type: "cli",
+        contextWindow: 200000,
+        maxOutput: 32000,
+        description: "Most capable model - recommended for complex coding tasks",
+        usesCli: true,
+        requiresApiKey: false
+      },
+      {
+        id: "claude-sonnet-4-20250514",
+        name: "Claude Sonnet 4 (Balanced)",
+        provider: "claude-code",
+        type: "cli",
+        contextWindow: 200000,
+        maxOutput: 16000,
+        description: "Balanced performance - good for coding with more usage allowance",
+        usesCli: true,
+        requiresApiKey: false
+      },
+      {
+        id: "claude-3-5-haiku-20241022",
+        name: "Claude Haiku (Fast)",
+        provider: "claude-code",
+        type: "cli",
+        contextWindow: 200000,
+        maxOutput: 8192,
+        description: "Fast and cheap - not recommended for complex coding",
+        usesCli: true,
+        requiresApiKey: false
+      }
+    )
+    providerStatus["claude-code"] = "online"
+  }
+
   // Build list of env-configured local servers
   const envServers: { url: string; type: "lmstudio" | "ollama" }[] = []
 
@@ -456,9 +499,13 @@ export async function GET(request: NextRequest) {
     providerStatus[serverKey] = result.status
   }
 
-  // Sort: local first, then by provider, then by name
+  // Sort: local first, then CLI, then cloud - then by provider, then by name
   allModels.sort((a, b) => {
-    if (a.type !== b.type) return a.type === "local" ? -1 : 1
+    // Type priority: local > cli > cloud
+    const typePriority = { local: 0, cli: 1, cloud: 2 }
+    const aTypePriority = typePriority[a.type] ?? 2
+    const bTypePriority = typePriority[b.type] ?? 2
+    if (aTypePriority !== bTypePriority) return aTypePriority - bTypePriority
     if (a.provider !== b.provider) return a.provider.localeCompare(b.provider)
     return a.name.localeCompare(b.name)
   })
@@ -479,12 +526,14 @@ export async function GET(request: NextRequest) {
       total: allModels.length,
       local: allModels.filter(m => m.type === "local").length,
       cloud: allModels.filter(m => m.type === "cloud").length,
+      cli: allModels.filter(m => m.type === "cli").length,
       byProvider: {
         anthropic: allModels.filter(m => m.provider === "anthropic").length,
         openai: allModels.filter(m => m.provider === "openai").length,
         google: allModels.filter(m => m.provider === "google").length,
         lmstudio: allModels.filter(m => m.provider === "lmstudio").length,
-        ollama: allModels.filter(m => m.provider === "ollama").length
+        ollama: allModels.filter(m => m.provider === "ollama").length,
+        "claude-code": allModels.filter(m => m.provider === "claude-code").length
       }
     }
   })

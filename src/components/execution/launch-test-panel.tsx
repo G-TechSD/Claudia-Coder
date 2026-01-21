@@ -30,7 +30,8 @@ import {
   AlertTriangle,
   Package,
   FolderOpen,
-  Code2
+  Code2,
+  Undo2
 } from "lucide-react"
 
 // Reserved ports that should not be used (Claudia runs on port 3000)
@@ -64,37 +65,24 @@ function getSafeDefaultPort(requestedPort: number): number {
 
 // Project type configurations with run commands
 const PROJECT_TYPES = {
-  flutter: {
-    name: "Flutter",
-    runCommand: "flutter run -d chrome --web-port=8080",
-    devCommand: "flutter run -d chrome --web-port=8080",
-    buildCommand: "flutter build web",
-    defaultPort: 8080,
-    icon: "mobile"
-  },
-  rust: {
-    name: "Rust",
-    runCommand: "cargo run",
-    devCommand: "cargo watch -x run",
-    buildCommand: "cargo build --release",
-    defaultPort: 8080,
-    icon: "rust"
-  },
+  // Web Frameworks - JavaScript/TypeScript
   nextjs: {
     name: "Next.js",
     runCommand: "npm run dev -- -p 3001",
     devCommand: "npm run dev -- -p 3001",
     buildCommand: "npm run build",
-    defaultPort: 3001, // Changed from 3000 - port 3000 is reserved for Claudia
-    icon: "react"
+    defaultPort: 3001,
+    icon: "react",
+    supportsHttps: true // Next.js supports --experimental-https
   },
   nuxt: {
     name: "Nuxt",
     runCommand: "npm run dev -- --port 3001",
     devCommand: "npm run dev -- --port 3001",
     buildCommand: "npm run build",
-    defaultPort: 3001, // Changed from 3000 - port 3000 is reserved for Claudia
-    icon: "vue"
+    defaultPort: 3001,
+    icon: "vue",
+    supportsHttps: false
   },
   svelte: {
     name: "SvelteKit",
@@ -102,15 +90,17 @@ const PROJECT_TYPES = {
     devCommand: "npm run dev",
     buildCommand: "npm run build",
     defaultPort: 5173,
-    icon: "svelte"
+    icon: "svelte",
+    supportsHttps: true
   },
   react: {
-    name: "React",
+    name: "React (CRA)",
     runCommand: "PORT=3001 npm start",
     devCommand: "PORT=3001 npm start",
     buildCommand: "npm run build",
-    defaultPort: 3001, // Changed from 3000 - port 3000 is reserved for Claudia
-    icon: "react"
+    defaultPort: 3001,
+    icon: "react",
+    supportsHttps: true // CRA supports HTTPS=true env var
   },
   vue: {
     name: "Vue",
@@ -118,23 +108,50 @@ const PROJECT_TYPES = {
     devCommand: "npm run dev",
     buildCommand: "npm run build",
     defaultPort: 5173,
-    icon: "vue"
+    icon: "vue",
+    supportsHttps: false
   },
   node: {
-    name: "Node.js",
+    name: "Node.js / Express",
     runCommand: "PORT=3001 npm start",
     devCommand: "PORT=3001 npm run dev",
     buildCommand: "npm run build",
-    defaultPort: 3001, // Changed from 3000 - port 3000 is reserved for Claudia
-    icon: "node"
+    defaultPort: 3001,
+    icon: "node",
+    supportsHttps: false
   },
+
+  // Static Sites
+  html: {
+    name: "Static HTML",
+    runCommand: "npx serve -p 8080",
+    devCommand: "npx live-server --port=8080",
+    buildCommand: "echo 'No build needed for static HTML'",
+    defaultPort: 8080,
+    icon: "html",
+    supportsHttps: false
+  },
+
+  // PHP / Traditional Web
+  php: {
+    name: "PHP / MySQL",
+    runCommand: "php -S 0.0.0.0:8080",
+    devCommand: "php -S 0.0.0.0:8080",
+    buildCommand: "composer install",
+    defaultPort: 8080,
+    icon: "php",
+    supportsHttps: false
+  },
+
+  // Python Frameworks
   python: {
     name: "Python",
     runCommand: "python main.py",
     devCommand: "python main.py",
     buildCommand: "pip install -r requirements.txt",
     defaultPort: 8000,
-    icon: "python"
+    icon: "python",
+    supportsHttps: false
   },
   django: {
     name: "Django",
@@ -142,7 +159,8 @@ const PROJECT_TYPES = {
     devCommand: "python manage.py runserver 0.0.0.0:8000",
     buildCommand: "pip install -r requirements.txt",
     defaultPort: 8000,
-    icon: "python"
+    icon: "python",
+    supportsHttps: false
   },
   fastapi: {
     name: "FastAPI",
@@ -150,7 +168,8 @@ const PROJECT_TYPES = {
     devCommand: "uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
     buildCommand: "pip install -r requirements.txt",
     defaultPort: 8000,
-    icon: "python"
+    icon: "python",
+    supportsHttps: true // uvicorn supports --ssl-keyfile/--ssl-certfile
   },
   flask: {
     name: "Flask",
@@ -158,11 +177,75 @@ const PROJECT_TYPES = {
     devCommand: "flask run --host=0.0.0.0 --port=5000 --debug",
     buildCommand: "pip install -r requirements.txt",
     defaultPort: 5000,
-    icon: "python"
+    icon: "python",
+    supportsHttps: false
+  },
+
+  // Mobile / Cross-platform
+  flutter: {
+    name: "Flutter Web",
+    runCommand: "flutter run -d chrome --web-port=8080",
+    devCommand: "flutter run -d chrome --web-port=8080",
+    buildCommand: "flutter build web",
+    defaultPort: 8080,
+    icon: "mobile",
+    supportsHttps: false
+  },
+
+  // Systems / Compiled
+  rust: {
+    name: "Rust",
+    runCommand: "cargo run",
+    devCommand: "cargo watch -x run",
+    buildCommand: "cargo build --release",
+    defaultPort: 8080,
+    icon: "rust",
+    supportsHttps: false
+  },
+
+  // Automation / Low-code
+  n8n: {
+    name: "n8n Workflows",
+    runCommand: "n8n start",
+    devCommand: "n8n start",
+    buildCommand: "npm install -g n8n",
+    defaultPort: 5678,
+    icon: "workflow",
+    supportsHttps: true
+  },
+
+  // Desktop Apps (build only - can't launch in browser)
+  desktop: {
+    name: "Desktop App (Electron/Tauri)",
+    runCommand: "npm run start",
+    devCommand: "npm run dev",
+    buildCommand: "npm run build",
+    defaultPort: 0, // Not applicable
+    icon: "desktop",
+    supportsHttps: false,
+    isDesktopApp: true
   }
 } as const
 
 type ProjectType = keyof typeof PROJECT_TYPES
+
+/**
+ * Replace the port in a command string with the desired port
+ * Handles various formats: --port 3001, -p 3001, PORT=3001, :3001, --port=3001
+ */
+function replacePortInCommand(command: string, newPort: number): string {
+  return command
+    // --port 3001 or --port=3001
+    .replace(/--port[=\s]+\d+/g, `--port ${newPort}`)
+    // -p 3001 or -p=3001
+    .replace(/-p[=\s]+\d+/g, `-p ${newPort}`)
+    // PORT=3001
+    .replace(/PORT=\d+/g, `PORT=${newPort}`)
+    // :3001 (for Django, FastAPI, Flask style)
+    .replace(/:(\d{4,5})(?=\s|$)/g, `:${newPort}`)
+    // 0.0.0.0:3001 pattern
+    .replace(/0\.0\.0\.0:\d+/g, `0.0.0.0:${newPort}`)
+}
 
 interface FeedbackItem {
   id: string
@@ -208,7 +291,9 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
   const [projectType, setProjectType] = React.useState<ProjectType | null>(null)
   const [appUrl, setAppUrl] = React.useState<string | null>(null)
   const [appPort, setAppPort] = React.useState<number>(3001) // Default to 3001 (3000 is reserved for Claudia)
+  const [useHttps, setUseHttps] = React.useState<boolean>(false) // HTTPS for self-signed cert environments
   const [launchError, setLaunchError] = React.useState<string | null>(null)
+  const [detectedCommand, setDetectedCommand] = React.useState<string | null>(null) // Command from detection API (e.g., for FastAPI module path)
   const [noProjectFiles, setNoProjectFiles] = React.useState<{
     detected: boolean
     expectedFiles?: string
@@ -229,6 +314,8 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
   const [isFixing, setIsFixing] = React.useState(false)
   const [fixProgress, setFixProgress] = React.useState(0)
   const [fixStage, setFixStage] = React.useState<string>("")
+  const [rollbackCommit, setRollbackCommit] = React.useState<string | null>(null)
+  const [canRollback, setCanRollback] = React.useState(false)
 
   // Visual verification state
   const [verificationStatus, setVerificationStatus] = React.useState<VerificationStatus>("idle")
@@ -322,6 +409,14 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
         setAppPort(safePort)
         const detectedBy = data.detectedBy ? ` (via ${data.detectedBy})` : ""
         addLog(`Detected: ${PROJECT_TYPES[data.projectType as ProjectType]?.name}${detectedBy}`)
+
+        // Store suggested command if provided (e.g., FastAPI with correct module path)
+        if (data.suggestedCommand) {
+          setDetectedCommand(data.suggestedCommand)
+          addLog(`Suggested command: ${data.suggestedCommand}`)
+        } else {
+          setDetectedCommand(null) // Clear any previous detected command
+        }
       } else if (data.error) {
         addLog(`Detection failed: ${data.error}`)
         if (data.suggestion) {
@@ -434,6 +529,13 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       setAppStatus("launching")
       addLog(`Launching ${PROJECT_TYPES[projectType].name} app...`)
 
+      // Build command with the selected port
+      // Use detected command if available (e.g., FastAPI with correct module path like "src.main:app")
+      // Otherwise fall back to the static command from PROJECT_TYPES
+      const baseCommand = detectedCommand || PROJECT_TYPES[projectType].runCommand
+      const commandWithPort = replacePortInCommand(baseCommand, appPort)
+      addLog(`Running: ${commandWithPort}`)
+
       const response = await fetch("/api/launch-test/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -441,7 +543,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
           projectId: project.id,
           repoPath: workingDirectory,
           projectType,
-          command: PROJECT_TYPES[projectType].runCommand,
+          command: commandWithPort,
           port: appPort,
           skipDependencyCheck: true // We already checked/installed
         })
@@ -451,9 +553,11 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
 
       if (data.success) {
         setProcessId(data.processId)
-        setAppUrl(data.url || `http://localhost:${appPort}`)
+        const protocol = useHttps ? "https" : "http"
+        const finalUrl = `${protocol}://localhost:${appPort}`
+        setAppUrl(data.url || finalUrl)
         setAppStatus("running")
-        addLog(`App running at ${data.url || `http://localhost:${appPort}`}`)
+        addLog(`App running at ${data.url || finalUrl}`)
       } else if (data.noProjectFiles) {
         // Handle no project files error from start API
         setNoProjectFiles({
@@ -559,16 +663,72 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
     addLog(`Feedback recorded: "${feedbackText.substring(0, 50)}..."`)
   }
 
+  const handleRollback = async () => {
+    if (!rollbackCommit || !workingDirectory) return
+
+    setFixStage("Rolling back to previous state...")
+    addLog(`Rolling back to commit ${rollbackCommit}...`)
+
+    try {
+      const response = await fetch("/api/launch-test/rollback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoPath: workingDirectory,
+          commitHash: rollbackCommit
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        addLog("Rollback successful - code restored to previous state")
+        setCanRollback(false)
+        setRollbackCommit(null)
+        // Reset feedback items to pending so they can be retried
+        setFeedbackItems(prev => prev.map(f =>
+          f.status === "failed" || f.status === "processing"
+            ? { ...f, status: "pending" as const, workPacketId: undefined }
+            : f
+        ))
+      } else {
+        addLog(`Rollback failed: ${data.error}`)
+      }
+    } catch (error) {
+      addLog(`Rollback error: ${error instanceof Error ? error.message : "Unknown"}`)
+    }
+  }
+
   const handleAutoFix = async () => {
     const pendingFeedback = feedbackItems.filter(f => f.status === "pending")
     if (pendingFeedback.length === 0) return
 
     setIsFixing(true)
     setFixProgress(0)
-    setFixStage("Converting feedback to work packets...")
+    setCanRollback(false)
+    setFixStage("Storing current state for rollback...")
 
     try {
+      // Step 0: Store current git commit for potential rollback
+      if (workingDirectory) {
+        try {
+          const gitResponse = await fetch("/api/launch-test/git-state", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ repoPath: workingDirectory })
+          })
+          const gitData = await gitResponse.json()
+          if (gitData.commitHash) {
+            setRollbackCommit(gitData.commitHash)
+            addLog(`Stored rollback point: ${gitData.commitHash.substring(0, 8)}`)
+          }
+        } catch (gitError) {
+          addLog("Warning: Could not store rollback point - proceeding without rollback capability")
+        }
+      }
+
       // Step 1: Convert feedback to work packets
+      setFixStage("Converting feedback to work packets...")
       addLog(`Converting ${pendingFeedback.length} feedback items to work packets...`)
 
       const packetsResponse = await fetch("/api/launch-test/create-packets", {
@@ -585,7 +745,12 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       setFixProgress(20)
 
       if (!packetsData.packets?.length) {
-        throw new Error("Failed to create work packets from feedback")
+        const errorDetail = packetsData.error
+          ? `Server error: ${packetsData.error}`
+          : packetsData.message
+            ? `API response: ${packetsData.message}`
+            : `No work packets generated. The feedback may be too vague or the AI could not parse the issues. Try providing more specific descriptions of what needs to be fixed.`
+        throw new Error(`Failed to create work packets: ${errorDetail}`)
       }
 
       // Update feedback items with packet IDs
@@ -674,10 +839,17 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       setFixProgress(75)
 
       if (!buildData.success) {
-        addLog(`Build warning: ${buildData.error}`)
-      } else {
-        addLog("Build completed successfully")
+        // CRITICAL: Build failure must stop the auto-fix workflow
+        // Enable rollback since we have changes that broke the build
+        if (rollbackCommit) {
+          setCanRollback(true)
+        }
+        const buildError = buildData.error || "Unknown build error"
+        addLog(`Build FAILED: ${buildError}`)
+        throw new Error(`Build failed after applying fixes: ${buildError}. Use the Rollback button to restore the previous working state.`)
       }
+
+      addLog("Build completed successfully")
 
       // Restart app
       setFixStage("Restarting application...")
@@ -696,6 +868,11 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       const message = error instanceof Error ? error.message : "Auto-fix failed"
       addLog(`Auto-fix error: ${message}`)
       setFixStage(`Error: ${message}`)
+      // Enable rollback if we have a rollback point and there were changes made
+      if (rollbackCommit) {
+        setCanRollback(true)
+        addLog("Rollback available - click 'Rollback' to restore previous state")
+      }
     } finally {
       setIsFixing(false)
     }
@@ -843,7 +1020,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
                 </Button>
               </div>
             </div>
-            <div className="w-32">
+            <div className="w-24">
               <label className="text-sm text-muted-foreground mb-2 block">Port</label>
               <input
                 type="number"
@@ -856,7 +1033,36 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
                 disabled={appStatus === "running"}
               />
             </div>
+            <div className="w-24">
+              <label className="text-sm text-muted-foreground mb-2 block">Protocol</label>
+              <Button
+                variant={useHttps ? "default" : "outline"}
+                size="sm"
+                className={cn(
+                  "w-full h-10",
+                  useHttps ? "bg-green-600 hover:bg-green-700 text-white" : ""
+                )}
+                onClick={() => setUseHttps(!useHttps)}
+                disabled={appStatus === "running"}
+                title={useHttps ? "Using HTTPS (for self-signed certs)" : "Using HTTP"}
+              >
+                {useHttps ? "HTTPS" : "HTTP"}
+              </Button>
+            </div>
           </div>
+
+          {/* HTTPS Notice */}
+          {useHttps && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/30">
+              <CheckCircle className="h-4 w-4 text-green-500 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-green-400 font-medium">HTTPS Mode Enabled</p>
+                <p className="text-xs text-green-400/70 mt-1">
+                  URLs will use https:// protocol. Your browser may show a certificate warning for self-signed certs - click "Advanced" → "Proceed" to continue.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Port Warning */}
           {portWarning && (
@@ -1196,34 +1402,66 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
           )}
 
           {/* Fix Button */}
-          <Button
-            size="lg"
-            className="w-full h-14 text-lg font-bold bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500"
-            onClick={handleAutoFix}
-            disabled={
-              isFixing ||
-              feedbackItems.filter(f => f.status === "pending").length === 0 ||
-              !workingDirectory ||
-              !projectType
-            }
-          >
-            {isFixing ? (
-              <>
-                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                Fixing...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-5 w-5 mr-2" />
-                Fix All Issues ({feedbackItems.filter(f => f.status === "pending").length})
-              </>
+          <div className="flex gap-3">
+            <Button
+              size="lg"
+              className="flex-1 h-14 text-lg font-bold bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500"
+              onClick={handleAutoFix}
+              disabled={
+                isFixing ||
+                feedbackItems.filter(f => f.status === "pending").length === 0 ||
+                !workingDirectory ||
+                !projectType
+              }
+            >
+              {isFixing ? (
+                <>
+                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  Fixing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-5 w-5 mr-2" />
+                  Fix All Issues ({feedbackItems.filter(f => f.status === "pending").length})
+                </>
+              )}
+            </Button>
+
+            {/* Rollback Button - only shown when rollback is available */}
+            {canRollback && rollbackCommit && (
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-14 px-6 text-lg font-bold border-red-500/50 text-red-400 hover:bg-red-500/20 hover:text-red-300"
+                onClick={handleRollback}
+                disabled={isFixing}
+                title={`Rollback to commit ${rollbackCommit.substring(0, 8)}`}
+              >
+                <Undo2 className="h-5 w-5 mr-2" />
+                Rollback
+              </Button>
             )}
-          </Button>
+          </div>
 
           <p className="text-xs text-gray-500 text-center">
             This will convert feedback to work packets, execute fixes, rebuild the app,
             and run visual verification on the testing VM
           </p>
+
+          {/* Rollback info message when available */}
+          {canRollback && rollbackCommit && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+              <Undo2 className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm text-red-300 font-medium">Fixes failed - rollback available</p>
+                <p className="text-xs text-red-400/70 mt-1">
+                  The auto-fix process encountered errors. Click "Rollback" to restore your code to
+                  commit <span className="font-mono">{rollbackCommit.substring(0, 8)}</span> before
+                  the fixes were attempted.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Visual Verification Status */}
           {verificationStatus !== "idle" && (

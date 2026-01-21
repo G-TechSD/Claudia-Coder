@@ -15,6 +15,8 @@ import {
   FileText,
   FolderKanban,
   Sparkles,
+  Download,
+  XCircle,
 } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
 
@@ -414,6 +416,212 @@ export default function AdminCleanupPage() {
     }
   }
 
+  // Export all data to markdown and save to file
+  const exportAndSaveBackup = async (outputPath: string) => {
+    if (!user?.id) return
+
+    setCleaning(true)
+    try {
+      const userPrefix = `claudia_user_${user.id}_`
+      const timestamp = new Date().toISOString()
+
+      // Gather all data
+      const projectsData = localStorage.getItem(`${userPrefix}projects`)
+      const projects = projectsData ? JSON.parse(projectsData) : []
+
+      const buildPlansData = localStorage.getItem(`${userPrefix}build_plans`)
+      const buildPlans = buildPlansData ? JSON.parse(buildPlansData) : []
+
+      const packetRunsData = localStorage.getItem(`${userPrefix}packet_runs`)
+      const packetRuns = packetRunsData ? JSON.parse(packetRunsData) : []
+
+      const resourcesData = localStorage.getItem(`${userPrefix}resources`)
+      const resources = resourcesData ? JSON.parse(resourcesData) : []
+
+      // Also get legacy data
+      const legacyProjectsData = localStorage.getItem("claudia_projects")
+      const legacyProjects = legacyProjectsData ? JSON.parse(legacyProjectsData) : []
+
+      const legacyBuildPlansData = localStorage.getItem("claudia_build_plans")
+      const legacyBuildPlans = legacyBuildPlansData ? JSON.parse(legacyBuildPlansData) : []
+
+      // Build markdown content
+      let markdown = `# Claudia Coder Projects Backup\n\n`
+      markdown += `**Backup Date:** ${timestamp}\n`
+      markdown += `**User ID:** ${user.id}\n\n`
+      markdown += `---\n\n`
+
+      // Projects section
+      markdown += `## Projects (${projects.length})\n\n`
+      for (const project of projects) {
+        markdown += `### ${project.name}\n\n`
+        markdown += `- **ID:** ${project.id}\n`
+        markdown += `- **Status:** ${project.status}\n`
+        markdown += `- **Priority:** ${project.priority || "N/A"}\n`
+        markdown += `- **Description:** ${project.description || "N/A"}\n`
+        markdown += `- **Working Directory:** ${project.workingDirectory || "N/A"}\n`
+        markdown += `- **Base Path:** ${project.basePath || "N/A"}\n`
+        markdown += `- **Created:** ${project.createdAt}\n`
+        markdown += `- **Updated:** ${project.updatedAt}\n`
+        markdown += `- **Tags:** ${project.tags?.join(", ") || "None"}\n`
+
+        if (project.repos?.length > 0) {
+          markdown += `- **Repos:**\n`
+          for (const repo of project.repos) {
+            markdown += `  - ${repo.name} (${repo.provider}): ${repo.url || repo.path}\n`
+            if (repo.localPath) {
+              markdown += `    - Local Path: ${repo.localPath}\n`
+            }
+          }
+        }
+
+        // Find build plans for this project
+        const projectBuildPlans = buildPlans.filter((bp: { projectId: string }) => bp.projectId === project.id)
+        if (projectBuildPlans.length > 0) {
+          markdown += `\n#### Build Plans\n\n`
+          for (const bp of projectBuildPlans) {
+            markdown += `**Plan ID:** ${bp.id}\n\n`
+            if (bp.packets?.length > 0) {
+              markdown += `**Packets (${bp.packets.length}):**\n\n`
+              for (const packet of bp.packets) {
+                markdown += `- **${packet.title}** (${packet.status})\n`
+                markdown += `  - Type: ${packet.type}\n`
+                markdown += `  - Priority: ${packet.priority}\n`
+                markdown += `  - Description: ${packet.description || "N/A"}\n`
+                if (packet.tasks?.length > 0) {
+                  markdown += `  - Tasks:\n`
+                  for (const task of packet.tasks) {
+                    markdown += `    - ${task}\n`
+                  }
+                }
+                if (packet.acceptanceCriteria?.length > 0) {
+                  markdown += `  - Acceptance Criteria:\n`
+                  for (const ac of packet.acceptanceCriteria) {
+                    markdown += `    - ${ac}\n`
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        markdown += `\n---\n\n`
+      }
+
+      // Legacy Projects section (if any)
+      if (legacyProjects.length > 0) {
+        markdown += `## Legacy Projects (${legacyProjects.length})\n\n`
+        for (const project of legacyProjects) {
+          markdown += `### ${project.name}\n\n`
+          markdown += `- **ID:** ${project.id}\n`
+          markdown += `- **Status:** ${project.status}\n`
+          markdown += `- **Description:** ${project.description || "N/A"}\n`
+          markdown += `\n---\n\n`
+        }
+      }
+
+      // Raw JSON backup at the end
+      markdown += `## Raw JSON Data\n\n`
+      markdown += `### Projects JSON\n\n`
+      markdown += "```json\n"
+      markdown += JSON.stringify(projects, null, 2)
+      markdown += "\n```\n\n"
+
+      markdown += `### Build Plans JSON\n\n`
+      markdown += "```json\n"
+      markdown += JSON.stringify(buildPlans, null, 2)
+      markdown += "\n```\n\n"
+
+      markdown += `### Packet Runs JSON\n\n`
+      markdown += "```json\n"
+      markdown += JSON.stringify(packetRuns, null, 2)
+      markdown += "\n```\n\n"
+
+      markdown += `### Resources JSON\n\n`
+      markdown += "```json\n"
+      markdown += JSON.stringify(resources, null, 2)
+      markdown += "\n```\n\n"
+
+      if (legacyProjects.length > 0) {
+        markdown += `### Legacy Projects JSON\n\n`
+        markdown += "```json\n"
+        markdown += JSON.stringify(legacyProjects, null, 2)
+        markdown += "\n```\n\n"
+      }
+
+      if (legacyBuildPlans.length > 0) {
+        markdown += `### Legacy Build Plans JSON\n\n`
+        markdown += "```json\n"
+        markdown += JSON.stringify(legacyBuildPlans, null, 2)
+        markdown += "\n```\n\n"
+      }
+
+      // Save to file via API
+      const response = await fetch("/api/admin/backup-projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data: markdown,
+          outputPath
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to save backup")
+      }
+
+      const result = await response.json()
+      setCleanupResult(`Backup saved to ${result.outputPath} (${Math.round(result.size / 1024)}KB)`)
+    } catch (error) {
+      console.error("Failed to export backup:", error)
+      setCleanupResult(`Error exporting backup: ${error}`)
+    } finally {
+      setCleaning(false)
+    }
+  }
+
+  // Clear ALL projects and related data
+  const clearAllData = () => {
+    if (!user?.id) return
+
+    setCleaning(true)
+    try {
+      const userPrefix = `claudia_user_${user.id}_`
+
+      // Clear user-scoped data
+      localStorage.removeItem(`${userPrefix}projects`)
+      localStorage.removeItem(`${userPrefix}build_plans`)
+      localStorage.removeItem(`${userPrefix}packet_runs`)
+      localStorage.removeItem(`${userPrefix}resources`)
+      localStorage.removeItem(`${userPrefix}interviews`)
+      localStorage.removeItem(`${userPrefix}brain_dumps`)
+      localStorage.removeItem(`${userPrefix}research`)
+
+      // Clear legacy data
+      for (const key of LEGACY_STORAGE_KEYS) {
+        localStorage.removeItem(key)
+      }
+
+      setCleanupResult("All projects and data cleared successfully!")
+      analyzeData()
+    } catch (error) {
+      console.error("Failed to clear data:", error)
+      setCleanupResult(`Error clearing data: ${error}`)
+    } finally {
+      setCleaning(false)
+    }
+  }
+
+  // Backup and clear in one action
+  const backupAndClear = async (outputPath: string) => {
+    await exportAndSaveBackup(outputPath)
+    // Only clear if backup succeeded
+    if (!cleanupResult?.includes("Error")) {
+      clearAllData()
+    }
+  }
+
   const hasIssues =
     analysis &&
     (analysis.duplicateProjects.length > 0 ||
@@ -508,6 +716,64 @@ export default function AdminCleanupPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Backup & Clear All - DANGER ZONE */}
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <XCircle className="h-5 w-5" />
+                Backup & Clear All Projects
+              </CardTitle>
+              <CardDescription>
+                Export all projects and data to a markdown file, then completely clear all data.
+                This is useful when starting fresh after major changes.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => exportAndSaveBackup("/mnt/claudia/Shared/ClaudiaProjectsBackup-1-18-26.md")}
+                  disabled={cleaning}
+                >
+                  {cleaning ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Download className="h-4 w-4 mr-2" />
+                  )}
+                  Backup Only
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => backupAndClear("/mnt/claudia/Shared/ClaudiaProjectsBackup-1-18-26.md")}
+                  disabled={cleaning}
+                >
+                  {cleaning ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  Backup & Clear All
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={clearAllData}
+                  disabled={cleaning}
+                >
+                  {cleaning ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <XCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Clear Without Backup
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Backup will be saved to: /mnt/claudia/Shared/ClaudiaProjectsBackup-1-18-26.md
+              </p>
+            </CardContent>
+          </Card>
 
           {/* One-click cleanup */}
           {hasIssues && (

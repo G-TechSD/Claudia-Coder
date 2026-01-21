@@ -107,13 +107,23 @@ export async function checkServerStatus(server: LLMServer, verifyModel = false, 
       availableModels = llmModels.map((m: { id: string }) => m.id)
 
       // Use preferred model if specified and available, otherwise use first available
-      if (preferredModel && availableModels.includes(preferredModel)) {
-        currentModel = preferredModel
-        console.log(`[LLM] checkServerStatus: Using preferred model: ${preferredModel}`)
-      } else if (preferredModel) {
-        // Preferred model specified but not available - log warning and use first
-        console.warn(`[LLM] checkServerStatus: Preferred model "${preferredModel}" not available on ${server.name}. Available: ${availableModels.join(', ')}`)
-        currentModel = llmModels[0]?.id
+      // Support both exact match and partial match (e.g., "gpt-oss-20b" matches "openai/gpt-oss-20b")
+      if (preferredModel) {
+        const exactMatch = availableModels.find(m => m === preferredModel)
+        const partialMatch = availableModels.find(m =>
+          m.toLowerCase().includes(preferredModel.toLowerCase()) ||
+          preferredModel.toLowerCase().includes(m.toLowerCase().split('/').pop() || '')
+        )
+        if (exactMatch) {
+          currentModel = exactMatch
+          console.log(`[LLM] checkServerStatus: Using exact match model: ${currentModel}`)
+        } else if (partialMatch) {
+          currentModel = partialMatch
+          console.log(`[LLM] checkServerStatus: Using partial match model: ${currentModel} (requested: ${preferredModel})`)
+        } else {
+          console.warn(`[LLM] checkServerStatus: Preferred model "${preferredModel}" not available on ${server.name}. Available: ${availableModels.join(', ')}`)
+          currentModel = llmModels[0]?.id
+        }
       } else {
         currentModel = llmModels[0]?.id
       }
@@ -126,13 +136,23 @@ export async function checkServerStatus(server: LLMServer, verifyModel = false, 
       availableModels = llmModels.map((m: { name: string }) => m.name)
 
       // Use preferred model if specified and available, otherwise use first available
-      if (preferredModel && availableModels.includes(preferredModel)) {
-        currentModel = preferredModel
-        console.log(`[LLM] checkServerStatus: Using preferred model: ${preferredModel}`)
-      } else if (preferredModel) {
-        // Preferred model specified but not available - log warning and use first
-        console.warn(`[LLM] checkServerStatus: Preferred model "${preferredModel}" not available on ${server.name}. Available: ${availableModels.join(', ')}`)
-        currentModel = llmModels[0]?.name
+      // Support both exact match and partial match
+      if (preferredModel) {
+        const exactMatch = availableModels.find(m => m === preferredModel)
+        const partialMatch = availableModels.find(m =>
+          m.toLowerCase().includes(preferredModel.toLowerCase()) ||
+          preferredModel.toLowerCase().includes(m.toLowerCase().split('/').pop() || '')
+        )
+        if (exactMatch) {
+          currentModel = exactMatch
+          console.log(`[LLM] checkServerStatus: Using exact match model: ${currentModel}`)
+        } else if (partialMatch) {
+          currentModel = partialMatch
+          console.log(`[LLM] checkServerStatus: Using partial match model: ${currentModel} (requested: ${preferredModel})`)
+        } else {
+          console.warn(`[LLM] checkServerStatus: Preferred model "${preferredModel}" not available on ${server.name}. Available: ${availableModels.join(', ')}`)
+          currentModel = llmModels[0]?.name
+        }
       } else {
         currentModel = llmModels[0]?.name
       }

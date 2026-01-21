@@ -1065,6 +1065,7 @@ ${p.acceptanceCriteria.map(c => `- ${c}`).join("\n")}
               {workingDirectory && (
                 <FileBrowser
                   projectId={createdProject.id}
+                  projectName={createdProject.name}
                   basePath={workingDirectory}
                 />
               )}

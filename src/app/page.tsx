@@ -7,7 +7,7 @@ import { ProjectsPreview } from "@/components/dashboard/projects-preview"
 import { AgentGrid } from "@/components/dashboard/agent-grid"
 import { SetupGuide } from "@/components/setup/setup-guide"
 import { Package, CheckCircle, AlertTriangle, Layers } from "lucide-react"
-import { seedSampleProjects, getAllProjects } from "@/lib/data/projects"
+import { getAllProjects } from "@/lib/data/projects"
 import { useAuth } from "@/components/auth/auth-provider"
 
 interface DashboardMetrics {
@@ -30,9 +30,6 @@ function loadMetrics(userId: string | undefined): DashboardMetrics {
       budgetPercent: 100
     }
   }
-
-  // Ensure sample projects are seeded (if no projects exist yet)
-  seedSampleProjects(userId)
 
   try {
     // Load projects using user-scoped storage

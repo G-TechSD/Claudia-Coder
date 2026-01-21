@@ -91,7 +91,7 @@ test.describe('Comprehensive Project Creation E2E Flow', () => {
     // ============================================
     console.log('Step 3: Selecting Quick Start mode...');
 
-    // The page shows 3 options: Quick Start, Full Interview, Feeling Lucky
+    // The page shows 2 options: Quick Start and Full Interview
     // These are clickable cards with text and arrows
     // Look for the entire card that contains "Quick Start" text
 

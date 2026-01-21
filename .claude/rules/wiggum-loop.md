@@ -25,4 +25,5 @@ When active, this rule REQUIRES:
 ## Iteration Tracking:
 - Track iteration count
 - Report progress every 5 iterations
-- Stop at max iterations if not complete
+- **Maximum 10 iterations before stopping and reporting**
+- If not complete after 10 iterations, STOP and report current status with remaining work

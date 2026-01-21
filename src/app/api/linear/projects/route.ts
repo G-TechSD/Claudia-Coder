@@ -26,6 +26,12 @@ export async function GET(request: NextRequest) {
       projects = await listProjects(teamId || undefined)
     }
 
+    // Log project details for debugging
+    console.log(`[Linear Projects] Fetched ${projects.length} projects:`)
+    for (const p of projects) {
+      console.log(`  - ${p.name} (${p.id}): ${p.issueCount || 0} issues, state: ${p.state}, description: ${p.description?.substring(0, 50) || 'none'}`)
+    }
+
     return NextResponse.json({ projects })
   } catch (error) {
     console.error("Linear projects fetch error:", error)

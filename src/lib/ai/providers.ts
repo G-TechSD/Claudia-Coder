@@ -8,8 +8,8 @@
  * LOCAL MODELS ARE ALWAYS PRIORITIZED OVER PAID CLOUD SERVICES.
  */
 
-export type ProviderType = "local" | "cloud"
-export type ProviderName = "lmstudio" | "ollama" | "anthropic" | "openai" | "google"
+export type ProviderType = "local" | "cloud" | "cli"
+export type ProviderName = "lmstudio" | "ollama" | "anthropic" | "openai" | "google" | "claude-code"
 
 export interface AIModel {
   id: string
@@ -46,6 +46,8 @@ export interface AIProvider {
   defaultModel?: string
   apiKeyEnvVar?: string
   baseUrlEnvVar?: string
+  usesCli?: boolean  // True for providers that use CLI execution (like Claude Code Max)
+  requiresApiKey?: boolean  // False for providers that don't need API keys (like Claude Code Max)
 }
 
 /**
@@ -382,6 +384,54 @@ export const AI_PROVIDERS: AIProvider[] = [
     configurable: true,
     apiKeyEnvVar: "GOOGLE_AI_API_KEY",
     models: [] // Populated dynamically via /api/models
+  },
+  {
+    id: "claude-code",
+    name: "Claude Code",
+    type: "cli",
+    description: "Claude Code CLI with Max subscription - No API key needed",
+    configurable: true,
+    usesCli: true,
+    requiresApiKey: false,
+    models: [
+      {
+        id: "claude-opus-4-20250514",
+        name: "Claude Opus 4",
+        provider: "claude-code",
+        type: "cli",
+        contextWindow: 200000,
+        maxOutput: 32000,
+        strengths: ["coding", "reasoning", "analysis", "planning", "long-context"],
+        costPer1kTokens: 0.015,
+        speed: "slow",
+        quality: "frontier"
+      },
+      {
+        id: "claude-sonnet-4-20250514",
+        name: "Claude Sonnet 4",
+        provider: "claude-code",
+        type: "cli",
+        contextWindow: 200000,
+        maxOutput: 16000,
+        strengths: ["coding", "reasoning", "fast-iteration"],
+        costPer1kTokens: 0.003,
+        speed: "medium",
+        quality: "high"
+      },
+      {
+        id: "claude-3-5-haiku-20241022",
+        name: "Claude Haiku",
+        provider: "claude-code",
+        type: "cli",
+        contextWindow: 200000,
+        maxOutput: 8192,
+        strengths: ["fast-iteration", "documentation"],
+        costPer1kTokens: 0.00025,
+        speed: "fast",
+        quality: "standard"
+      }
+    ],
+    defaultModel: "claude-sonnet-4-20250514"
   }
 ]
 
@@ -547,6 +597,21 @@ export function getCloudProviders(): AIProvider[] {
 }
 
 /**
+ * Get all CLI providers (like Claude Code)
+ */
+export function getCliProviders(): AIProvider[] {
+  return AI_PROVIDERS.filter(p => p.type === "cli")
+}
+
+/**
+ * Get all non-local providers (cloud + CLI)
+ * Useful for dropdowns that should show all remote/paid options
+ */
+export function getRemoteProviders(): AIProvider[] {
+  return AI_PROVIDERS.filter(p => p.type === "cloud" || p.type === "cli")
+}
+
+/**
  * Model preference patterns for selecting recommended defaults
  * Higher index = higher priority within same provider
  */
@@ -592,6 +657,12 @@ const MODEL_PREFERENCE_ORDER: Record<string, RegExp[]> = {
     /deepseek.*coder/i,
     /codellama/i,
     /./,                        // Any model
+  ],
+  "claude-code": [
+    /claude.*opus.*4/i,         // Opus 4 (most capable)
+    /claude.*sonnet.*4/i,       // Sonnet 4 (balanced)
+    /claude.*haiku/i,           // Haiku (fast)
+    /./,                        // Any model
   ]
 }
 
@@ -628,7 +699,7 @@ export function getRecommendedModel(
 export function getRecommendedModels(
   models: Array<{ id: string; name: string; provider: string }>
 ): Record<string, { id: string; name: string; provider: string } | undefined> {
-  const providers = ["anthropic", "openai", "google", "lmstudio", "ollama"]
+  const providers = ["anthropic", "openai", "google", "lmstudio", "ollama", "claude-code"]
   const recommendations: Record<string, { id: string; name: string; provider: string } | undefined> = {}
 
   for (const provider of providers) {

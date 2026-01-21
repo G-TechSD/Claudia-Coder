@@ -101,13 +101,13 @@ test.describe('Complete Project Creation Flow', () => {
       await takeScreenshot(page, '03-description-filled');
     }
 
-    // Check for "Feeling Lucky" (quick mode) option
-    const feelingLuckyBtn = page.locator('button:has-text("Feeling Lucky")');
-    const hasFeelingLucky = await feelingLuckyBtn.isVisible().catch(() => false);
-    console.log('Feeling Lucky button visible:', hasFeelingLucky);
+    // Check for "Quick Start" (quick mode) option
+    const quickStartBtn = page.locator('button:has-text("Quick Start")');
+    const hasQuickStart = await quickStartBtn.isVisible().catch(() => false);
+    console.log('Quick Start button visible:', hasQuickStart);
 
-    if (hasFeelingLucky) {
-      await takeScreenshot(page, '03-feeling-lucky-visible');
+    if (hasQuickStart) {
+      await takeScreenshot(page, '03-quick-start-visible');
     }
 
     // Check for voice input option (Speak button)
@@ -172,7 +172,7 @@ test.describe('Complete Project Creation Flow', () => {
     console.log('Console errors:', errors);
   });
 
-  test('Step 5: Test Feeling Lucky project creation', async ({ page }) => {
+  test('Step 5: Test Quick Start project creation', async ({ page }) => {
     const getErrors = setupConsoleErrorCheck(page);
 
     await page.goto('/projects/new');
@@ -187,18 +187,18 @@ test.describe('Complete Project Creation Flow', () => {
       await takeScreenshot(page, '05-description-entered');
     }
 
-    // Click "Feeling Lucky" button to generate plan
-    const feelingLuckyBtn = page.locator('button:has-text("Feeling Lucky")');
+    // Click "Quick Start" button to generate plan
+    const quickStartBtn = page.locator('button:has-text("Quick Start")');
 
-    if (await feelingLuckyBtn.isVisible().catch(() => false)) {
-      console.log('Clicking Feeling Lucky button');
-      await takeScreenshot(page, '05-before-feeling-lucky');
+    if (await quickStartBtn.isVisible().catch(() => false)) {
+      console.log('Clicking Quick Start button');
+      await takeScreenshot(page, '05-before-quick-start');
 
-      await feelingLuckyBtn.click();
+      await quickStartBtn.click();
 
       // Wait for generation (can take time with AI)
       await page.waitForTimeout(5000);
-      await takeScreenshot(page, '05-after-feeling-lucky-click');
+      await takeScreenshot(page, '05-after-quick-start-click');
 
       // Check for loading state
       const loadingIndicator = page.locator('[class*="animate-spin"]').first();
@@ -214,14 +214,14 @@ test.describe('Complete Project Creation Flow', () => {
 
       await takeScreenshot(page, '05-generation-result');
     } else {
-      console.log('Feeling Lucky button not found');
+      console.log('Quick Start button not found');
     }
 
     const errors = getErrors();
     console.log('Console errors:', errors);
   });
 
-  test('Step 6: Verify Build Plan generation via Feeling Lucky', async ({ page }) => {
+  test('Step 6: Verify Build Plan generation via Quick Start', async ({ page }) => {
     const getErrors = setupConsoleErrorCheck(page);
 
     await page.goto('/projects/new');
@@ -235,10 +235,10 @@ test.describe('Complete Project Creation Flow', () => {
 
     await takeScreenshot(page, '06-before-plan-generation');
 
-    // Click Feeling Lucky to generate
-    const feelingLuckyBtn = page.locator('button:has-text("Feeling Lucky")');
-    if (await feelingLuckyBtn.isVisible().catch(() => false)) {
-      await feelingLuckyBtn.click();
+    // Click Quick Start to generate
+    const quickStartBtn = page.locator('button:has-text("Quick Start")');
+    if (await quickStartBtn.isVisible().catch(() => false)) {
+      await quickStartBtn.click();
 
       // Wait for generation
       await page.waitForTimeout(10000);
@@ -315,12 +315,12 @@ test.describe('Complete Project Creation Flow', () => {
       await takeScreenshot(page, '08-description-filled');
     }
 
-    // Click Feeling Lucky to generate
-    const feelingLuckyBtn = page.locator('button:has-text("Feeling Lucky")');
-    if (await feelingLuckyBtn.isVisible().catch(() => false)) {
-      await feelingLuckyBtn.click();
+    // Click Quick Start to generate
+    const quickStartBtn = page.locator('button:has-text("Quick Start")');
+    if (await quickStartBtn.isVisible().catch(() => false)) {
+      await quickStartBtn.click();
       await page.waitForTimeout(10000);
-      await takeScreenshot(page, '08-after-feeling-lucky');
+      await takeScreenshot(page, '08-after-quick-start');
     }
 
     // Look for the final create/save button after plan generation

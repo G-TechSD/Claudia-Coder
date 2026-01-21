@@ -120,7 +120,74 @@ export function getBuildPlanForProject(projectId: string, userId?: string): Stor
   const projectPlans = plans
     .filter(p => p.projectId === projectId)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-  return projectPlans[0] || null
+
+  if (projectPlans[0]) {
+    return projectPlans[0]
+  }
+
+  // Fallback: Check claudia_build_plans_raw (used by lib/ai/build-plan.ts)
+  // This handles the case where build plans were saved via saveBuildPlan() from the AI module
+  if (typeof window !== "undefined") {
+    const rawStorage = localStorage.getItem("claudia_build_plans_raw")
+    if (rawStorage) {
+      try {
+        const rawPlans = JSON.parse(rawStorage) as Record<string, unknown>
+        const rawPlan = rawPlans[projectId]
+        if (rawPlan && typeof rawPlan === "object") {
+          // Convert raw BuildPlan to StoredBuildPlan format
+          const plan = rawPlan as {
+            id?: string
+            projectId?: string
+            createdAt?: string
+            status?: string
+            spec?: { objectives?: string[]; nonGoals?: string[] }
+            packets?: Array<{ id: string; priority?: string }>
+          }
+
+          const now = plan.createdAt || new Date().toISOString()
+          const objectives = plan.spec?.objectives || []
+          const nonGoals = plan.spec?.nonGoals || []
+          const packets = plan.packets || []
+
+          const storedPlan: StoredBuildPlan = {
+            id: plan.id || generateUUID(),
+            projectId: projectId,
+            status: (plan.status as StoredBuildPlanStatus) || "approved",
+            createdAt: now,
+            updatedAt: now,
+            originalPlan: rawPlan as StoredBuildPlan["originalPlan"],
+            editedObjectives: objectives.map((text: string, i: number) => ({
+              id: `obj-${i}`,
+              text,
+              isOriginal: true,
+              isDeleted: false
+            })),
+            editedNonGoals: nonGoals.map((text: string, i: number) => ({
+              id: `ng-${i}`,
+              text,
+              isOriginal: true,
+              isDeleted: false
+            })),
+            packetFeedback: packets.map((p: { id: string; priority?: string }) => ({
+              packetId: p.id,
+              approved: null,
+              priority: (p.priority || "medium") as PacketFeedback["priority"],
+              comment: ""
+            })),
+            sectionComments: [],
+            generatedBy: { server: "local", model: "unknown" },
+            revisionNumber: 1
+          }
+
+          return storedPlan
+        }
+      } catch (e) {
+        console.error("Failed to parse claudia_build_plans_raw:", e)
+      }
+    }
+  }
+
+  return null
 }
 
 /**

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { spawn } from "child_process"
 import { generateWithLocalLLM, getAllServersWithStatus } from "@/lib/llm/local-llm"
 import {
   BUILD_PLAN_SYSTEM_PROMPT,
@@ -8,6 +9,7 @@ import {
   parseBuildPlanResponse,
   validateBuildPlan,
   generateBuildPlanWithRetry,
+  mergePacketsWithExisting,
   type ExistingPacketInfo,
   type PacketSummary,
   type NuanceContext
@@ -18,6 +20,126 @@ import {
   parseBusinessDevResponse
 } from "@/lib/ai/business-dev"
 import type { BusinessDev } from "@/lib/data/types"
+
+/**
+ * Helper function to run Claude Code CLI for generation tasks
+ * Uses the -p flag for non-interactive mode and --output-format json for structured output
+ */
+async function generateWithClaudeCodeCLI(
+  systemPrompt: string,
+  userPrompt: string,
+  options?: { timeout?: number }
+): Promise<{ content: string; model?: string; error?: string }> {
+  const timeout = options?.timeout ?? 120000 // 2 minute default
+
+  return new Promise((resolve) => {
+    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`
+
+    // Spawn claude CLI with -p flag for non-interactive mode
+    // IMPORTANT: --dangerously-skip-permissions is required to prevent permission prompts
+    // that would cause the CLI to hang waiting for input
+    const claude = spawn("claude", [
+      "-p", fullPrompt,
+      "--output-format", "json",
+      "--dangerously-skip-permissions", // Required for non-interactive mode
+      "--allowedTools", "Read,Glob,Grep" // Allow read-only tools for context
+    ], {
+      timeout,
+      env: { ...process.env }
+    })
+
+    let stdout = ""
+    let stderr = ""
+
+    claude.stdout.on("data", (data) => {
+      stdout += data.toString()
+    })
+
+    claude.stderr.on("data", (data) => {
+      stderr += data.toString()
+    })
+
+    claude.on("close", (code) => {
+      if (code !== 0) {
+        console.error(`[build-plan] Claude Code CLI exited with code ${code}:`, stderr)
+        resolve({ content: "", error: `Claude Code CLI failed: ${stderr || `exit code ${code}`}` })
+        return
+      }
+
+      try {
+        // Parse JSON output from Claude Code CLI
+        // Format: {"type":"result","subtype":"success","result":"...actual content...","modelUsage":{...}}
+        const jsonOutput = JSON.parse(stdout)
+
+        if (jsonOutput.is_error) {
+          resolve({ content: "", error: `Claude Code error: ${jsonOutput.result || "Unknown error"}` })
+          return
+        }
+
+        // Extract the actual result content
+        const result = jsonOutput.result || ""
+
+        // Get model info from modelUsage
+        const modelUsed = Object.keys(jsonOutput.modelUsage || {})[0] || "claude-code"
+
+        console.log(`[build-plan] Claude Code CLI success - model: ${modelUsed}, result length: ${result.length}`)
+        resolve({ content: result, model: modelUsed })
+      } catch (parseError) {
+        // If not valid JSON, use raw output
+        console.warn("[build-plan] Claude Code CLI output not JSON, using raw:", parseError)
+        resolve({ content: stdout })
+      }
+    })
+
+    claude.on("error", (err) => {
+      console.error("[build-plan] Claude Code CLI spawn error:", err)
+      resolve({ content: "", error: `Failed to spawn Claude Code CLI: ${err.message}` })
+    })
+  })
+}
+
+/**
+ * Helper function to parse build plan response AND merge with existing packets
+ * CRITICAL: This ensures existing packets are NEVER lost during regeneration
+ */
+function parseAndMergeBuildPlan(
+  response: string,
+  projectId: string,
+  generatedBy: string,
+  existingPackets: ExistingPacketInfo[]
+): ReturnType<typeof parseBuildPlanResponse> & { mergeStats?: { preserved: number; updated: number; added: number; missing: number } } | null {
+  const result = parseBuildPlanResponse(response, projectId, generatedBy)
+
+  if (!result) return null
+
+  // If there are existing packets, merge to ensure none are lost
+  if (existingPackets && existingPackets.length > 0) {
+    const defaultPhaseId = result.plan.phases[0]?.id || "phase-1"
+    const { packets: mergedPackets, mergeStats } = mergePacketsWithExisting(
+      result.plan.packets,
+      existingPackets,
+      defaultPhaseId
+    )
+
+    // Update the plan with merged packets
+    result.plan.packets = mergedPackets
+
+    // Update packet summary
+    const existingCount = mergedPackets.filter(p => p.existing).length
+    const newCount = mergedPackets.filter(p => !p.existing).length
+    result.packetSummary = {
+      existingCount,
+      newCount,
+      summary: `${existingCount} existing packets preserved, ${newCount} new packets added`
+    }
+
+    console.log(`[build-plan] Merged packets: ${mergeStats.missing} were missing from LLM output and preserved`)
+
+    return { ...result, mergeStats }
+  }
+
+  return result
+}
 
 /**
  * Helper function to generate business dev analysis
@@ -108,7 +230,7 @@ async function generateBusinessDevAnalysis(
       })
 
       const response = await anthropic.messages.create({
-        model: preferredProvider === "paid_claudecode" ? "claude-opus-4-20250514" : "claude-sonnet-4-20250514",
+        model: preferredProvider === "paid_claudecode" ? "claude-opus-4-5-20251101" : "claude-sonnet-4-20250514",
         max_tokens: 4096,
         system: BUSINESS_DEV_SYSTEM_PROMPT,
         messages: [{ role: "user", content: businessDevPrompt }]
@@ -126,7 +248,7 @@ async function generateBusinessDevAnalysis(
 
   // Try local LLM
   const localPreferredServer = preferredProvider &&
-    !["anthropic", "chatgpt", "gemini", "paid_claudecode"].includes(preferredProvider)
+    !["anthropic", "chatgpt", "gemini", "paid_claudecode", "claude-code"].includes(preferredProvider)
       ? preferredProvider
       : undefined
 
@@ -190,7 +312,7 @@ async function generateBusinessDevAnalysis(
  *
  * Supported providers:
  * - Local: "local-llm-server", "local-llm-server-2" (LM Studio servers)
- * - Paid: "anthropic", "chatgpt", "gemini", "paid_claudecode"
+ * - Paid: "anthropic", "chatgpt", "gemini", "paid_claudecode", "claude-code"
  */
 export async function POST(request: NextRequest) {
   try {
@@ -336,7 +458,7 @@ export async function POST(request: NextRequest) {
           const data = await response.json()
           const content = data.choices?.[0]?.message?.content || ""
 
-          const result = parseBuildPlanResponse(content, projectId, "openai:gpt-4o")
+          const result = parseAndMergeBuildPlan(content, projectId, "openai:gpt-4o", existingPackets)
 
           if (result) {
             const validation = validateBuildPlan(result.plan)
@@ -365,6 +487,7 @@ export async function POST(request: NextRequest) {
               availableModels: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
               packetSummary: result.packetSummary,
               sourcesUsed,
+              mergeStats: result.mergeStats,
               ...(businessDev && { businessDev })
             })
           }
@@ -404,7 +527,7 @@ export async function POST(request: NextRequest) {
           const data = await response.json()
           const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
 
-          const result = parseBuildPlanResponse(content, projectId, "google:gemini-2.5-pro")
+          const result = parseAndMergeBuildPlan(content, projectId, "google:gemini-2.5-pro", existingPackets)
 
           if (result) {
             const validation = validateBuildPlan(result.plan)
@@ -433,6 +556,7 @@ export async function POST(request: NextRequest) {
               availableModels: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
               packetSummary: result.packetSummary,
               sourcesUsed,
+              mergeStats: result.mergeStats,
               ...(businessDev && { businessDev })
             })
           }
@@ -446,7 +570,66 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Handle Claude Code (paid_claudecode) - uses Anthropic Claude Opus
+    // Handle Claude Code CLI (claude-code) - uses the `claude` CLI tool
+    if (preferredProvider === "claude-code") {
+      console.log("[build-plan] Using Claude Code CLI for generation")
+
+      const cliResponse = await generateWithClaudeCodeCLI(
+        BUILD_PLAN_SYSTEM_PROMPT + "\n\nYou are running as Claude Code - generate extremely detailed and comprehensive build plans suitable for autonomous coding agents.",
+        userPrompt,
+        { timeout: 180000 } // 3 minute timeout for complex plans
+      )
+
+      if (cliResponse.error) {
+        console.error("Claude Code CLI build plan failed:", cliResponse.error)
+        return NextResponse.json({
+          error: cliResponse.error,
+          source: "claude-code"
+        }, { status: 503 })
+      }
+
+      const cliModel = cliResponse.model || "claude-code"
+      const result = parseAndMergeBuildPlan(cliResponse.content, projectId, `claude-code:${cliModel}`, existingPackets)
+
+      if (result) {
+        const validation = validateBuildPlan(result.plan)
+
+        // Generate business dev if monetization is enabled
+        let businessDev: BusinessDev | null = null
+        if (monetization) {
+          businessDev = await generateBusinessDevAnalysis(
+            projectId,
+            projectName,
+            projectDescription,
+            result.plan.spec,
+            preferredProvider,
+            preferredModel,
+            allowPaidFallback
+          )
+        }
+
+        return NextResponse.json({
+          plan: result.plan,
+          validation,
+          source: "claude-code",
+          server: "Claude Code CLI",
+          model: cliModel,
+          requestedModel: requestedModel || "claude-code",
+          availableModels: ["claude-code"],
+          packetSummary: result.packetSummary,
+          sourcesUsed,
+          mergeStats: result.mergeStats,
+          ...(businessDev && { businessDev })
+        })
+      } else {
+        return NextResponse.json({
+          error: "Claude Code CLI returned invalid build plan format",
+          source: "claude-code"
+        }, { status: 503 })
+      }
+    }
+
+    // Handle paid_claudecode - uses Anthropic Claude Opus API
     if (preferredProvider === "paid_claudecode" && process.env.ANTHROPIC_API_KEY) {
       try {
         const Anthropic = (await import("@anthropic-ai/sdk")).default
@@ -455,7 +638,7 @@ export async function POST(request: NextRequest) {
         })
 
         const response = await anthropic.messages.create({
-          model: "claude-opus-4-20250514",
+          model: "claude-opus-4-5-20251101",
           max_tokens: 8192,
           system: BUILD_PLAN_SYSTEM_PROMPT + "\n\nYou are running as Claude Code - generate extremely detailed and comprehensive build plans suitable for autonomous coding agents.",
           messages: [{ role: "user", content: userPrompt }]
@@ -465,7 +648,7 @@ export async function POST(request: NextRequest) {
           ? response.content[0].text
           : ""
 
-        const result = parseBuildPlanResponse(content, projectId, "anthropic:claude-opus-4")
+        const result = parseAndMergeBuildPlan(content, projectId, "anthropic:claude-opus-4.5", existingPackets)
 
         if (result) {
           const validation = validateBuildPlan(result.plan)
@@ -488,17 +671,18 @@ export async function POST(request: NextRequest) {
             plan: result.plan,
             validation,
             source: "anthropic",
-            server: "Claude Code",
-            model: "claude-opus-4",
-            requestedModel: requestedModel || "claude-opus-4",
-            availableModels: ["claude-opus-4", "claude-sonnet-4", "claude-haiku-3"],
+            server: "Claude Code API",
+            model: "claude-opus-4.5",
+            requestedModel: requestedModel || "claude-opus-4.5",
+            availableModels: ["claude-opus-4.5", "claude-sonnet-4", "claude-haiku-3"],
             packetSummary: result.packetSummary,
             sourcesUsed,
+            mergeStats: result.mergeStats,
             ...(businessDev && { businessDev })
           })
         }
       } catch (error) {
-        console.error("Claude Code build plan failed:", error)
+        console.error("Claude Code API build plan failed:", error)
         return NextResponse.json({
           error: "Claude Code API error",
           source: "anthropic"
@@ -525,10 +709,11 @@ export async function POST(request: NextRequest) {
           ? response.content[0].text
           : ""
 
-        const result = parseBuildPlanResponse(
+        const result = parseAndMergeBuildPlan(
           content,
           projectId,
-          "anthropic:claude-sonnet-4"
+          "anthropic:claude-sonnet-4",
+          existingPackets
         )
 
         if (result) {
@@ -555,9 +740,10 @@ export async function POST(request: NextRequest) {
             server: "Anthropic",
             model: "claude-sonnet-4",
             requestedModel: requestedModel || "claude-sonnet-4",
-            availableModels: ["claude-sonnet-4", "claude-opus-4", "claude-haiku-3"],
+            availableModels: ["claude-sonnet-4", "claude-opus-4.5", "claude-haiku-3"],
             packetSummary: result.packetSummary,
             sourcesUsed,
+            mergeStats: result.mergeStats,
             ...(businessDev && { businessDev })
           })
         }
@@ -574,7 +760,7 @@ export async function POST(request: NextRequest) {
     // Only pass preferredServer for local providers (local-llm-server, local-llm-server-2, etc.)
     // Paid providers are handled above and return early
     const localPreferredServer = preferredProvider &&
-      !["anthropic", "chatgpt", "gemini", "paid_claudecode"].includes(preferredProvider)
+      !["anthropic", "chatgpt", "gemini", "paid_claudecode", "claude-code"].includes(preferredProvider)
         ? preferredProvider
         : undefined
 
@@ -617,10 +803,11 @@ export async function POST(request: NextRequest) {
     console.log(`[build-plan] ========================================`)
 
     if (!localResponse.error) {
-      const result = parseBuildPlanResponse(
+      const result = parseAndMergeBuildPlan(
         localResponse.content,
         projectId,
-        `local:${localResponse.server}:${localResponse.model}`
+        `local:${localResponse.server}:${localResponse.model}`,
+        existingPackets
       )
 
       if (result) {
@@ -651,6 +838,7 @@ export async function POST(request: NextRequest) {
           packetSummary: result.packetSummary,
           sourcesUsed,
           nuanceContextProvided: !!nuanceContext,
+          mergeStats: result.mergeStats,
           ...(businessDev && { businessDev })
         })
       }
@@ -678,10 +866,11 @@ export async function POST(request: NextRequest) {
       )
 
       if (!retryResponse.error) {
-        const retryResult = parseBuildPlanResponse(
+        const retryResult = parseAndMergeBuildPlan(
           retryResponse.content,
           projectId,
-          `local:${retryResponse.server}:${retryResponse.model}:simplified`
+          `local:${retryResponse.server}:${retryResponse.model}:simplified`,
+          existingPackets
         )
 
         if (retryResult) {
@@ -713,6 +902,7 @@ export async function POST(request: NextRequest) {
             sourcesUsed,
             usedSimplifiedPrompt: true,
             nuanceContextProvided: !!nuanceContext,
+            mergeStats: retryResult.mergeStats,
             ...(businessDev && { businessDev })
           })
         }
@@ -740,10 +930,11 @@ export async function POST(request: NextRequest) {
           ? response.content[0].text
           : ""
 
-        const result = parseBuildPlanResponse(
+        const result = parseAndMergeBuildPlan(
           content,
           projectId,
-          "anthropic:claude-sonnet-4"
+          "anthropic:claude-sonnet-4",
+          existingPackets
         )
 
         if (result) {
@@ -770,10 +961,11 @@ export async function POST(request: NextRequest) {
             server: "Anthropic (fallback)",
             model: "claude-sonnet-4",
             requestedModel: requestedModel || null,
-            availableModels: ["claude-sonnet-4", "claude-opus-4", "claude-haiku-3"],
+            availableModels: ["claude-sonnet-4", "claude-opus-4.5", "claude-haiku-3"],
             warning: "Using paid API - local LLM unavailable",
             packetSummary: result.packetSummary,
             sourcesUsed,
+            mergeStats: result.mergeStats,
             ...(businessDev && { businessDev })
           })
         }

@@ -11,21 +11,32 @@ import {
   Brain,
   CheckCircle,
   XCircle,
+  AlertTriangle,
   Clock,
   Zap,
   GitCommit,
-  Sparkles
+  Sparkles,
+  Terminal,
+  MessageSquare,
+  Bot,
+  Flag
 } from "lucide-react"
 
 export interface ActivityEvent {
   id: string
-  type: "start" | "iteration" | "file_change" | "test_run" | "thinking" | "complete" | "error" | "commit"
+  type: "start" | "iteration" | "file_change" | "test_run" | "thinking" | "complete" | "error" | "warning" | "commit" | "tool_use" | "progress" | "output" | "milestone"
   timestamp: Date
   message: string
   detail?: string
   iteration?: number
   progress?: number
   files?: string[]
+  tool?: string        // Tool name for tool_use events
+  command?: string     // Command for bash tool_use
+  content?: string     // Content for output events
+  streaming?: boolean  // Whether this is streaming output
+  provider?: string    // AI provider name (e.g., "anthropic", "openai", "lmstudio")
+  model?: string       // Model name (e.g., "claude-3-sonnet", "gpt-4")
   testResults?: {
     passed: number
     failed: number
@@ -47,7 +58,12 @@ const eventIcons: Record<ActivityEvent["type"], React.ElementType> = {
   thinking: Brain,
   complete: CheckCircle,
   error: XCircle,
-  commit: GitCommit
+  warning: AlertTriangle,
+  commit: GitCommit,
+  tool_use: Terminal,
+  progress: Zap,
+  output: MessageSquare,
+  milestone: Flag
 }
 
 const eventColors: Record<ActivityEvent["type"], string> = {
@@ -58,7 +74,12 @@ const eventColors: Record<ActivityEvent["type"], string> = {
   thinking: "text-pink-400 bg-pink-500/10 border-pink-500/30",
   complete: "text-green-400 bg-green-500/10 border-green-500/30",
   error: "text-red-400 bg-red-500/10 border-red-500/30",
-  commit: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+  warning: "text-amber-400 bg-amber-500/10 border-amber-500/30",
+  commit: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
+  tool_use: "text-orange-400 bg-orange-500/10 border-orange-500/30",
+  progress: "text-indigo-400 bg-indigo-500/10 border-indigo-500/30",
+  output: "text-gray-400 bg-gray-500/10 border-gray-500/30",
+  milestone: "text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/30"
 }
 
 /**
@@ -81,7 +102,7 @@ export function ActivityStream({ events, isRunning, className }: ActivityStreamP
     return (
       <div className={cn("flex flex-col items-center justify-center py-12 text-muted-foreground", className)}>
         <Sparkles className="h-12 w-12 mb-4 opacity-30" />
-        <p className="text-sm">Activity will appear here when execution starts</p>
+        <p className="text-sm">Activity will appear here when processing starts</p>
       </div>
     )
   }
@@ -117,8 +138,9 @@ export function ActivityStream({ events, isRunning, className }: ActivityStreamP
 }
 
 function ActivityEventCard({ event, isLatest }: { event: ActivityEvent; isLatest?: boolean }) {
-  const Icon = eventIcons[event.type]
-  const colorClass = eventColors[event.type]
+  // Safely get icon with fallback to Bot for unknown types
+  const Icon = eventIcons[event.type] || Bot
+  const colorClass = eventColors[event.type] || "text-gray-400 bg-gray-500/10 border-gray-500/30"
 
   return (
     <div
@@ -149,6 +171,36 @@ function ActivityEventCard({ event, isLatest }: { event: ActivityEvent; isLatest
           <p className="text-xs opacity-70 mt-1 truncate">
             {event.detail}
           </p>
+        )}
+
+        {/* Tool name badge for tool_use events */}
+        {event.tool && (
+          <div className="mt-1">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-orange-500/20 text-orange-300 font-mono">
+              {event.tool}
+            </span>
+          </div>
+        )}
+
+        {/* Command display for bash commands */}
+        {event.command && (
+          <div className="mt-1">
+            <code className="text-xs bg-black/30 px-2 py-1 rounded font-mono block truncate max-w-full">
+              $ {event.command}
+            </code>
+          </div>
+        )}
+
+        {/* Output content for output events */}
+        {event.content && event.type === "output" && (
+          <div className="mt-1">
+            <pre className={cn(
+              "text-xs bg-black/30 px-2 py-1 rounded font-mono whitespace-pre-wrap max-h-32 overflow-y-auto",
+              event.streaming && "border-l-2 border-green-500"
+            )}>
+              {event.content.length > 500 ? event.content.slice(-500) + "..." : event.content}
+            </pre>
+          </div>
         )}
 
         {/* File list for file_change events */}
@@ -185,6 +237,22 @@ function ActivityEventCard({ event, isLatest }: { event: ActivityEvent; isLatest
             )}
             <span className="opacity-70">
               {event.testResults.total} total
+            </span>
+          </div>
+        )}
+
+        {/* Provider and Model info */}
+        {(event.provider || event.model) && (
+          <div className="mt-2 flex items-center gap-2 text-xs">
+            <Bot className="h-3 w-3 text-purple-400" />
+            <span className="text-purple-400">
+              {event.provider && (
+                <span className="font-medium capitalize">{event.provider}</span>
+              )}
+              {event.provider && event.model && <span className="opacity-50 mx-1">/</span>}
+              {event.model && (
+                <span className="opacity-80">{event.model}</span>
+              )}
             </span>
           </div>
         )}

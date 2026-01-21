@@ -141,10 +141,17 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Expand ~ to home directory in paths
+ */
+function expandPath(p: string): string {
+  return p.replace(/^~/, process.env.HOME || require("os").homedir())
+}
+
+/**
  * Detect project type from file structure
  */
 async function handleDetect(body: { repoPath: string; projectId: string }) {
-  const { repoPath } = body
+  const repoPath = expandPath(body.repoPath)
 
   try {
     // Check for various project type indicators
@@ -210,7 +217,8 @@ async function handleStart(body: {
   command: string
   port: number
 }) {
-  const { projectId, repoPath, command, port } = body
+  const { projectId, command, port } = body
+  const repoPath = expandPath(body.repoPath)
 
   try {
     // Check if already running
@@ -416,7 +424,8 @@ async function handleBuild(body: {
   projectType: string
   command: string
 }) {
-  const { repoPath, command } = body
+  const repoPath = expandPath(body.repoPath)
+  const { command } = body
 
   try {
     const { stdout, stderr } = await execAsync(command, {

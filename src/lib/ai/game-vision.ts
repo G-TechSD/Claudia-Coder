@@ -20,6 +20,83 @@ export const GAME_CREATIVE_CATEGORIES: ProjectCategory[] = ["game", "vr", "creat
 export const NON_GAME_CATEGORIES: ProjectCategory[] = ["web", "mobile", "desktop", "api", "library", "tool"]
 
 /**
+ * Negative keywords that BLOCK game/creative detection when present.
+ * These indicate serious/enterprise applications that should NOT be gamified.
+ * If ANY of these are found, the project is NOT classified as a game.
+ */
+export const GAME_BLOCKING_KEYWORDS = [
+  // Healthcare/Medical domain - NEVER gamify
+  "healthcare",
+  "medical",
+  "patient",
+  "patients",
+  "hospital",
+  "clinic",
+  "doctor",
+  "physician",
+  "nurse",
+  "diagnosis",
+  "prescription",
+  "medication",
+  "treatment",
+  "therapy",
+  "insurance claim",
+  "health insurance",
+  "medicare",
+  "medicaid",
+  "hipaa",
+  "ehr",
+  "emr",
+  "electronic health record",
+  "electronic medical record",
+  "telehealth",
+  "telemedicine",
+  "appointment booking",
+  "medical billing",
+  "clinical",
+  "pharmacy",
+
+  // Finance/Banking - serious applications
+  "banking",
+  "bank account",
+  "financial services",
+  "investment portfolio",
+  "trading platform",
+  "stock trading",
+  "tax filing",
+  "accounting software",
+  "payroll",
+  "invoicing",
+  "compliance",
+
+  // Legal/Government
+  "legal services",
+  "law firm",
+  "court filing",
+  "government",
+  "municipal",
+  "regulatory",
+
+  // Enterprise/Business critical
+  "enterprise",
+  "erp",
+  "crm software",
+  "business intelligence",
+  "analytics dashboard",
+  "supply chain",
+  "inventory management",
+  "project management tool",
+
+  // Infrastructure/DevOps
+  "infrastructure",
+  "devops",
+  "kubernetes",
+  "monitoring system",
+  "logging system",
+  "ci/cd",
+]
+
+/**
  * Helper function to check if a category is game/creative
  */
 export function isGameCreativeCategory(category: ProjectCategory | undefined): boolean {
@@ -303,13 +380,30 @@ export function detectGameOrCreativeProject(
     }
   }
 
-  // PRIORITY 2: Fall back to keyword detection for "standard" or undefined category
+  // PRIORITY 2: Check for blocking keywords that indicate serious/enterprise apps
+  // These should NEVER be classified as games even if they contain game-ish words
   const allText = [
     projectName,
     projectDescription,
     ...(issueContent || [])
   ].join(" ").toLowerCase()
 
+  // Check blocking keywords FIRST
+  for (const blocker of GAME_BLOCKING_KEYWORDS) {
+    const regex = new RegExp(`\\b${blocker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    if (regex.test(allText)) {
+      // Found a blocking keyword - this is NOT a game project
+      return {
+        isGameOrCreative: false,
+        confidence: "high",
+        matchedKeywords: [`blocked:${blocker}`],
+        projectType: "standard",
+        suggestedCategory: "Software Application",
+      }
+    }
+  }
+
+  // PRIORITY 3: Fall back to keyword detection for "standard" or undefined category
   const matchedKeywords: string[] = []
   let primaryMatches = 0
   let secondaryMatches = 0

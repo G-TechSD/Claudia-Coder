@@ -30,7 +30,8 @@ import {
   Pencil,
   Trash2,
   Key,
-  CheckCircle
+  CheckCircle,
+  Terminal
 } from "lucide-react"
 
 // Fallback models if dynamic fetch fails - these should be kept up to date
@@ -57,6 +58,11 @@ const FALLBACK_PROVIDER_MODELS: Record<string, { id: string; name: string }[]> =
     { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
     { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
     { id: "gemini-2.0-flash-thinking", name: "Gemini 2.0 Flash Thinking" },
+  ],
+  "claude-code": [
+    { id: "claude-opus-4-20250514", name: "Claude Opus 4 (Best for coding)" },
+    { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4 (Balanced)" },
+    { id: "claude-3-5-haiku-20241022", name: "Claude Haiku (Fast)" },
   ],
 }
 
@@ -104,6 +110,10 @@ function categorizeConnection(service: ServiceStatus): CategorizedConnection {
                        name.includes("secondary-llm") ? "secondary-llm" :
                        service.id || name.replace(/\s+/g, "-").toLowerCase()
     return { service, category: "ai", providerId }
+  }
+  // Claude Code Max - CLI-based provider (check before anthropic to avoid conflict)
+  if (name.includes("claude code") && (name.includes("max") || name.includes("cli"))) {
+    return { service, category: "ai", providerId: "claude-code" }
   }
   if (name.includes("claude") || name.includes("anthropic") || url.includes("anthropic")) {
     return { service, category: "ai", providerId: "anthropic" }
@@ -164,6 +174,13 @@ export function ConnectionsTab({
   // LM Studio models cache (fetched on demand)
   const [lmStudioModels, setLmStudioModels] = useState<Record<string, string[]>>({})
   const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({})
+  // Claude Code CLI status
+  const [claudeCodeStatus, setClaudeCodeStatus] = useState<{
+    status: "unknown" | "connected" | "not_installed" | "error"
+    version?: string
+    error?: string
+  }>({ status: "unknown" })
+  const [checkingClaudeCode, setCheckingClaudeCode] = useState(false)
 
   // Load saved preferences from localStorage on mount
   useEffect(() => {
@@ -259,6 +276,27 @@ export function ConnectionsTab({
     )
     if (server) {
       updateLocalServer(server.id, { defaultModel: modelId })
+    }
+  }
+
+  // Check Claude Code CLI status
+  async function checkClaudeCodeStatus() {
+    setCheckingClaudeCode(true)
+    try {
+      const response = await fetch("/api/claude-code/status")
+      const data = await response.json()
+      setClaudeCodeStatus({
+        status: data.status as "connected" | "not_installed" | "error",
+        version: data.version,
+        error: data.error
+      })
+    } catch (error) {
+      setClaudeCodeStatus({
+        status: "error",
+        error: error instanceof Error ? error.message : "Failed to check status"
+      })
+    } finally {
+      setCheckingClaudeCode(false)
     }
   }
 
@@ -369,10 +407,11 @@ export function ConnectionsTab({
     const isLocalServer = service.serverType || service.name.toLowerCase().includes("lm studio") ||
                           service.name.toLowerCase().includes("ollama")
     const isCloudProvider = ["anthropic", "openai", "google"].includes(providerId || "")
+    const isClaudeCode = providerId === "claude-code"
     const isDefault = defaultAiProvider === providerId
 
     // Get available models - prefer dynamically fetched, fall back to hardcoded
-    const models = isCloudProvider
+    const models = isCloudProvider || isClaudeCode
       ? FALLBACK_PROVIDER_MODELS[providerId || ""] || []
       : lmStudioModels[providerId || ""] || []
 
@@ -526,9 +565,81 @@ export function ConnectionsTab({
           </div>
         )}
 
+        {/* Claude Code Max - CLI-based authentication (no API key needed) */}
+        {isClaudeCode && (
+          <div className="mt-4 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Terminal className="h-4 w-4 text-muted-foreground" />
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs font-medium">CLI Authentication</Label>
+                    <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">Max Subscription</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Uses Claude Code CLI - no API key required
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Status indicator */}
+                {claudeCodeStatus.status === "connected" && (
+                  <>
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span className="text-xs text-green-600">
+                      Connected{claudeCodeStatus.version ? ` (v${claudeCodeStatus.version})` : ""}
+                    </span>
+                  </>
+                )}
+                {claudeCodeStatus.status === "not_installed" && (
+                  <>
+                    <div className="h-2 w-2 rounded-full bg-amber-400" />
+                    <span className="text-xs text-amber-600">Not installed</span>
+                  </>
+                )}
+                {claudeCodeStatus.status === "error" && (
+                  <>
+                    <div className="h-2 w-2 rounded-full bg-red-400" />
+                    <span className="text-xs text-red-600">Error</span>
+                  </>
+                )}
+                {/* Check Status button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={checkClaudeCodeStatus}
+                  disabled={checkingClaudeCode}
+                  className="gap-2 ml-2"
+                >
+                  {checkingClaudeCode ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3 w-3" />
+                  )}
+                  Check Status
+                </Button>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2 ml-6">
+              This provider uses your Max subscription via the Claude Code terminal.
+              Make sure the &apos;claude&apos; CLI is installed and authenticated.
+            </p>
+            {claudeCodeStatus.status === "error" && claudeCodeStatus.error && (
+              <p className="text-xs text-red-500 mt-1 ml-6">
+                {claudeCodeStatus.error}
+              </p>
+            )}
+            {claudeCodeStatus.status === "not_installed" && (
+              <p className="text-xs text-amber-500 mt-1 ml-6">
+                Install with: npm install -g @anthropic-ai/claude-code
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Model Selection */}
         {service.status === "connected" && (
-          <div className={cn("mt-4 pt-4 border-t", isCloudProvider && "mt-3 pt-3")}>
+          <div className={cn("mt-4 pt-4 border-t", (isCloudProvider || isClaudeCode) && "mt-3 pt-3")}>
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <Label className="text-xs font-medium">Default Model</Label>

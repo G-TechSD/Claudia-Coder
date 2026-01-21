@@ -53,11 +53,19 @@ function getStoredRunsForUser(userId: string): PacketRun[] {
   if (typeof window === "undefined") return []
 
   const userRuns = getUserStorageItem<PacketRun[]>(userId, USER_STORAGE_KEYS.PACKET_RUNS)
-  if (userRuns) return userRuns
+  if (Array.isArray(userRuns)) return userRuns
 
   // Fallback to legacy storage
-  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
-  return stored ? JSON.parse(stored) : []
+  try {
+    const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch {
+    // JSON parse failed, return empty
+  }
+  return []
 }
 
 /**
@@ -74,8 +82,16 @@ function saveRunsForUser(userId: string, runs: PacketRun[]): void {
  */
 function getStoredRuns(): PacketRun[] {
   if (typeof window === "undefined") return []
-  const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
-  return stored ? JSON.parse(stored) : []
+  try {
+    const stored = localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch {
+    // JSON parse failed, return empty
+  }
+  return []
 }
 
 /**
