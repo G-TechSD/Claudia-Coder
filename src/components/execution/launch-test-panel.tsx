@@ -64,12 +64,13 @@ function getSafeDefaultPort(requestedPort: number): number {
 }
 
 // Project type configurations with run commands
+// All commands bind to 0.0.0.0 for network accessibility
 const PROJECT_TYPES = {
   // Web Frameworks - JavaScript/TypeScript
   nextjs: {
     name: "Next.js",
-    runCommand: "npm run dev -- -p 3001",
-    devCommand: "npm run dev -- -p 3001",
+    runCommand: "npm run dev -- -H 0.0.0.0 -p 3001",
+    devCommand: "npm run dev -- -H 0.0.0.0 -p 3001",
     buildCommand: "npm run build",
     defaultPort: 3001,
     icon: "react",
@@ -77,8 +78,8 @@ const PROJECT_TYPES = {
   },
   nuxt: {
     name: "Nuxt",
-    runCommand: "npm run dev -- --port 3001",
-    devCommand: "npm run dev -- --port 3001",
+    runCommand: "npm run dev -- --host 0.0.0.0 --port 3001",
+    devCommand: "npm run dev -- --host 0.0.0.0 --port 3001",
     buildCommand: "npm run build",
     defaultPort: 3001,
     icon: "vue",
@@ -86,8 +87,8 @@ const PROJECT_TYPES = {
   },
   svelte: {
     name: "SvelteKit",
-    runCommand: "npm run dev",
-    devCommand: "npm run dev",
+    runCommand: "npm run dev -- --host 0.0.0.0",
+    devCommand: "npm run dev -- --host 0.0.0.0",
     buildCommand: "npm run build",
     defaultPort: 5173,
     icon: "svelte",
@@ -95,8 +96,8 @@ const PROJECT_TYPES = {
   },
   react: {
     name: "React (CRA)",
-    runCommand: "PORT=3001 npm start",
-    devCommand: "PORT=3001 npm start",
+    runCommand: "HOST=0.0.0.0 PORT=3001 npm start",
+    devCommand: "HOST=0.0.0.0 PORT=3001 npm start",
     buildCommand: "npm run build",
     defaultPort: 3001,
     icon: "react",
@@ -104,8 +105,8 @@ const PROJECT_TYPES = {
   },
   vue: {
     name: "Vue",
-    runCommand: "npm run dev",
-    devCommand: "npm run dev",
+    runCommand: "npm run dev -- --host 0.0.0.0",
+    devCommand: "npm run dev -- --host 0.0.0.0",
     buildCommand: "npm run build",
     defaultPort: 5173,
     icon: "vue",
@@ -113,8 +114,8 @@ const PROJECT_TYPES = {
   },
   node: {
     name: "Node.js / Express",
-    runCommand: "PORT=3001 npm start",
-    devCommand: "PORT=3001 npm run dev",
+    runCommand: "HOST=0.0.0.0 PORT=3001 npm start",
+    devCommand: "HOST=0.0.0.0 PORT=3001 npm run dev",
     buildCommand: "npm run build",
     defaultPort: 3001,
     icon: "node",
@@ -124,8 +125,8 @@ const PROJECT_TYPES = {
   // Static Sites
   html: {
     name: "Static HTML",
-    runCommand: "npx serve -p 8080",
-    devCommand: "npx live-server --port=8080",
+    runCommand: "npx serve -l tcp://0.0.0.0:8080",
+    devCommand: "npx live-server --host=0.0.0.0 --port=8080",
     buildCommand: "echo 'No build needed for static HTML'",
     defaultPort: 8080,
     icon: "html",
