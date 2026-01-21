@@ -273,7 +273,8 @@ export function generateBuildPlanPrompt(
   availableModels: AssignedModel[],
   constraints?: Partial<BuildConstraints>,
   existingPackets?: ExistingPacketInfo[],
-  nuanceContext?: NuanceContext
+  nuanceContext?: NuanceContext,
+  planType?: string | null  // Override project type: "game", "vr", "creative", "web", "mobile", etc.
 ): string {
   const modelList = availableModels
     .map(m => `- ${m.name} (${m.provider})`)
@@ -429,9 +430,15 @@ ${sections.join("\n\n")}
     }
   }
 
+  // Build project type hint if specified
+  const projectTypeHint = planType ? `
+PROJECT TYPE: ${planType.toUpperCase()}
+${planType === "game" ? "This is a VIDEO GAME project. Focus on game mechanics, player experience, levels, enemies, items, UI/HUD, and game loop." : ""}${planType === "vr" ? "This is a VR/AR project. Focus on VR locomotion, hand tracking, spatial UI, immersion, and VR-specific mechanics." : ""}${planType === "creative" ? "This is a CREATIVE/INTERACTIVE project. Focus on user experience, visual design, interactivity, and creative expression." : ""}${planType === "interactive" ? "This is an INTERACTIVE EXPERIENCE. Focus on user engagement, real-time feedback, and dynamic content." : ""}${planType === "web" ? "This is a WEB APPLICATION. Focus on frontend UI, backend API, database, authentication, and deployment." : ""}${planType === "mobile" ? "This is a MOBILE APP. Focus on mobile UI patterns, native features, offline support, and app store requirements." : ""}${planType === "api" ? "This is an API/BACKEND service. Focus on endpoints, data models, authentication, rate limiting, and documentation." : ""}${planType === "standard" ? "This is a standard software project. Focus on requirements, architecture, implementation, and testing." : ""}
+` : ""
+
   return `Generate a build plan for:
 
-PROJECT: ${projectName}
+PROJECT: ${projectName}${projectTypeHint}
 DESCRIPTION: ${projectDescription}
 ${nuanceSection}
 

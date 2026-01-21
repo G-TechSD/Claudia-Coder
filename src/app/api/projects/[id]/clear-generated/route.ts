@@ -33,6 +33,14 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import os from "os"
 
+/**
+ * Expand ~ to home directory in a path
+ */
+function expandPath(p: string): string {
+  if (!p) return p
+  return p.replace(/^~/, os.homedir())
+}
+
 // Directories to ALWAYS preserve (never delete)
 const PRESERVE_DIRECTORIES = [
   ".claudia",
@@ -276,6 +284,9 @@ export async function POST(
         { status: 400 }
       )
     }
+
+    // Expand ~ to home directory
+    workingDirectory = expandPath(workingDirectory)
 
     // Verify the directory exists
     try {

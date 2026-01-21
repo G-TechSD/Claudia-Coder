@@ -271,6 +271,8 @@ export function BuildPlanEditor({
 
   // Regeneration model selection - starts empty, will be set from defaults
   const [regenerationModel, setRegenerationModel] = useState<string>("")
+  // Plan type override - "auto" uses detection, others force a specific type
+  const [planType, setPlanType] = useState<string>("auto")
   const [isGeneratingPackets, setIsGeneratingPackets] = useState(false)
   const [packetGenerationStatus, setPacketGenerationStatus] = useState("")
   const [userDefaultModel, setUserDefaultModel] = useState<EnabledInstance | null>(null)
@@ -1066,6 +1068,8 @@ export function BuildPlanEditor({
           existingPackets: buildPlanSources.existingPackets ? existingPackets : [],  // Only pass if enabled
           sources: buildPlanSources,  // Pass source flags for API to handle user uploads and interview data
           allowPaidFallback: isCloudOrCli,
+          // Plan type override - "auto" uses detection, others force a specific project type
+          planType: planType !== "auto" ? planType : undefined,
           constraints: {
             requireLocalFirst: modelOption?.type === "local",
             requireHumanApproval: ["planning", "deployment"]
@@ -1603,6 +1607,23 @@ export function BuildPlanEditor({
                             </Link>
                           </div>
                         )}
+                      </SelectContent>
+                    </Select>
+                    {/* Plan Type Selector */}
+                    <Select value={planType} onValueChange={setPlanType}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue placeholder="Plan type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto Detect</SelectItem>
+                        <SelectItem value="standard">Standard</SelectItem>
+                        <SelectItem value="game">Game</SelectItem>
+                        <SelectItem value="vr">VR/AR</SelectItem>
+                        <SelectItem value="creative">Creative</SelectItem>
+                        <SelectItem value="interactive">Interactive</SelectItem>
+                        <SelectItem value="web">Web App</SelectItem>
+                        <SelectItem value="mobile">Mobile</SelectItem>
+                        <SelectItem value="api">API/Backend</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button

@@ -329,6 +329,7 @@ export async function POST(request: NextRequest) {
       monetization = false,  // When true, also generate business dev analysis
       nuanceContext = null as NuanceContext | null,  // Extracted context from comments/discussions
       useRetryLogic = false,  // When true, uses retry with simplified prompts for smaller models
+      planType = null as string | null,  // Override project type: "game", "vr", "creative", "web", etc.
       // Source selection parameters
       includeSources = {
         existingPackets: true,
@@ -426,7 +427,8 @@ export async function POST(request: NextRequest) {
       availableModels,
       constraints,
       includeSources.existingPackets !== false ? existingPackets : [],
-      nuanceContext || undefined
+      nuanceContext || undefined,
+      planType  // Override project type if specified
     )
 
     // Append sources context section to the prompt
