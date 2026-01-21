@@ -45,6 +45,16 @@ interface TouchdownSectionProps {
     acceptanceCriteria: string[]
   }>
   onTouchdownComplete?: () => void
+  onPacketsGenerated?: (packets: Array<{
+    id: string
+    title: string
+    description: string
+    type: string
+    priority: string
+    status: string
+    tasks: Array<{ id: string; description: string; completed: boolean }>
+    acceptanceCriteria: string[]
+  }>) => void
 }
 
 interface QualityGates {
@@ -80,16 +90,17 @@ export function TouchdownSection({
   workingDirectory,
   packets,
   onTouchdownComplete,
+  onPacketsGenerated,
 }: TouchdownSectionProps) {
   const [isRunning, setIsRunning] = React.useState(false)
   const [result, setResult] = React.useState<TouchdownResult | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const [isProcessingRefinements, setIsProcessingRefinements] = React.useState(false)
 
   // Options
   const [mode, setMode] = React.useState<"auto" | "local" | "cloud">("auto")
   const [runQualityGates, setRunQualityGates] = React.useState(true)
   const [generateAnalysis, setGenerateAnalysis] = React.useState(true)
-  const [executeRefinements, setExecuteRefinements] = React.useState(false)
 
   const completedPackets = packets.filter(p => p.status === "completed")
   const hasCompletedWork = completedPackets.length > 0
@@ -114,7 +125,6 @@ export function TouchdownSection({
           mode,
           runQualityGates,
           generateAnalysis,
-          executeRefinements,
           // Pass project info since server can't access localStorage
           project: {
             id: projectId,
@@ -138,6 +148,48 @@ export function TouchdownSection({
       setIsRunning(false)
     }
   }
+
+  // Process the touchdown analysis into refinement packets
+  const handleProcessRefinements = async () => {
+    if (!result) return
+
+    setIsProcessingRefinements(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/touchdown/process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          projectName,
+          qualityGates: result.qualityGates,
+          aiAnalysis: result.aiAnalysis,
+          touchdownMarkdown: result.touchdownMarkdown,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to process refinements")
+      }
+
+      if (data.packets && data.packets.length > 0) {
+        onPacketsGenerated?.(data.packets)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to process refinements")
+    } finally {
+      setIsProcessingRefinements(false)
+    }
+  }
+
+  // Check if there are issues that could become refinement packets
+  const hasIssues = result && (
+    (result.qualityGates && (!result.qualityGates.tests.passed || !result.qualityGates.typeCheck.passed || !result.qualityGates.build.passed)) ||
+    (result.aiAnalysis && result.aiAnalysis.length > 100)
+  )
 
   return (
     <Card className="border-2 border-sky-500/30 bg-gradient-to-br from-sky-500/5 via-blue-500/5 to-transparent relative overflow-hidden">
@@ -287,23 +339,8 @@ export function TouchdownSection({
                   onCheckedChange={setGenerateAnalysis}
                 />
               </div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="execute" className="text-xs text-sky-400">Execute Refinements</Label>
-                <Switch
-                  id="execute"
-                  checked={executeRefinements}
-                  onCheckedChange={setExecuteRefinements}
-                />
-              </div>
             </div>
           </div>
-
-          {executeRefinements && (
-            <div className="p-3 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sm text-sky-400">
-              <AlertTriangle className="h-4 w-4 inline mr-2" />
-              Execute Refinements will make changes to your codebase. Use with caution.
-            </div>
-          )}
         </div>
 
         {/* Error Display */}
@@ -358,6 +395,32 @@ export function TouchdownSection({
             </Button>
           )}
         </div>
+
+        {/* Process Refinements Button - appears after touchdown completes with issues */}
+        {result && hasIssues && (
+          <div className="pt-4 border-t border-gray-800">
+            <Button
+              onClick={handleProcessRefinements}
+              disabled={isProcessingRefinements}
+              className="w-full bg-purple-600 hover:bg-purple-500 text-white"
+            >
+              {isProcessingRefinements ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Processing Refinements...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Process Refinements into Packets
+                </>
+              )}
+            </Button>
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              Create work packets from quality gate failures and AI-detected issues
+            </p>
+          </div>
+        )}
 
         {!workingDirectory && (
           <p className="text-xs text-muted-foreground text-center">
