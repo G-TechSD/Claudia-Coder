@@ -96,6 +96,8 @@ export function TouchdownSection({
   const [result, setResult] = React.useState<TouchdownResult | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [isProcessingRefinements, setIsProcessingRefinements] = React.useState(false)
+  const [processedPacketsCount, setProcessedPacketsCount] = React.useState<number | null>(null)
+  const [processedMessage, setProcessedMessage] = React.useState<string | null>(null)
 
   // Options
   const [mode, setMode] = React.useState<"auto" | "local" | "cloud">("auto")
@@ -155,6 +157,8 @@ export function TouchdownSection({
 
     setIsProcessingRefinements(true)
     setError(null)
+    setProcessedPacketsCount(null)
+    setProcessedMessage(null)
 
     try {
       const response = await fetch(`/api/projects/${projectId}/touchdown/process`, {
@@ -170,13 +174,30 @@ export function TouchdownSection({
       })
 
       const data = await response.json()
+      console.log("[touchdown] Process refinements response:", data)
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to process refinements")
       }
 
+      setProcessedPacketsCount(data.count || 0)
+
       if (data.packets && data.packets.length > 0) {
+        setProcessedMessage(`Created ${data.packets.length} refinement packet${data.packets.length > 1 ? "s" : ""}!`)
         onPacketsGenerated?.(data.packets)
+      } else {
+        // No packets generated - explain why
+        const reasons: string[] = []
+        if (result.qualityGates?.tests.passed) reasons.push("tests passing")
+        if (result.qualityGates?.typeCheck.passed) reasons.push("no TypeScript errors")
+        if (result.qualityGates?.build.passed) reasons.push("build succeeding")
+        if (!result.aiAnalysis || result.aiAnalysis.length < 100) reasons.push("no AI suggestions")
+
+        if (reasons.length > 0) {
+          setProcessedMessage(`No refinement packets needed - ${reasons.join(", ")}. Project looks good!`)
+        } else {
+          setProcessedMessage("No actionable refinements could be extracted. Review the AI analysis manually.")
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to process refinements")
@@ -398,7 +419,7 @@ export function TouchdownSection({
 
         {/* Process Refinements Button - appears after touchdown completes with issues */}
         {result && hasIssues && (
-          <div className="pt-4 border-t border-gray-800">
+          <div className="pt-4 border-t border-gray-800 space-y-3">
             <Button
               onClick={handleProcessRefinements}
               disabled={isProcessingRefinements}
@@ -409,6 +430,11 @@ export function TouchdownSection({
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Processing Refinements...
                 </>
+              ) : processedPacketsCount !== null ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Process Again
+                </>
               ) : (
                 <>
                   <Sparkles className="h-4 w-4 mr-2" />
@@ -416,9 +442,29 @@ export function TouchdownSection({
                 </>
               )}
             </Button>
-            <p className="text-xs text-muted-foreground text-center mt-2">
-              Create work packets from quality gate failures and AI-detected issues
-            </p>
+
+            {/* Feedback after processing */}
+            {processedMessage && (
+              <div className={cn(
+                "p-3 rounded-lg text-sm",
+                processedPacketsCount && processedPacketsCount > 0
+                  ? "bg-green-500/10 border border-green-500/30 text-green-400"
+                  : "bg-blue-500/10 border border-blue-500/30 text-blue-400"
+              )}>
+                {processedPacketsCount && processedPacketsCount > 0 ? (
+                  <CheckCircle className="h-4 w-4 inline mr-2" />
+                ) : (
+                  <Target className="h-4 w-4 inline mr-2" />
+                )}
+                {processedMessage}
+              </div>
+            )}
+
+            {!processedMessage && (
+              <p className="text-xs text-muted-foreground text-center">
+                Create work packets from quality gate failures and AI-detected issues
+              </p>
+            )}
           </div>
         )}
 

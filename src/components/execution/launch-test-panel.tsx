@@ -291,6 +291,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
   const [projectType, setProjectType] = React.useState<ProjectType | null>(null)
   const [appUrl, setAppUrl] = React.useState<string | null>(null)
   const [appPort, setAppPort] = React.useState<number>(3001) // Default to 3001 (3000 is reserved for Claudia)
+  const [hostAddress, setHostAddress] = React.useState<string>("localhost") // Can be IP or hostname for network access
   const [useHttps, setUseHttps] = React.useState<boolean>(false) // HTTPS for self-signed cert environments
   const [launchError, setLaunchError] = React.useState<string | null>(null)
   const [detectedCommand, setDetectedCommand] = React.useState<string | null>(null) // Command from detection API (e.g., for FastAPI module path)
@@ -554,8 +555,8 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       if (data.success) {
         setProcessId(data.processId)
         const protocol = useHttps ? "https" : "http"
-        const finalUrl = `${protocol}://localhost:${appPort}`
-        setAppUrl(data.url || finalUrl)
+        const finalUrl = `${protocol}://${hostAddress}:${appPort}`
+        setAppUrl(data.url?.replace("localhost", hostAddress) || finalUrl)
         setAppStatus("running")
         addLog(`App running at ${data.url || finalUrl}`)
       } else if (data.noProjectFiles) {
@@ -1020,7 +1021,18 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
                 </Button>
               </div>
             </div>
-            <div className="w-24">
+            <div className="flex-1 min-w-[120px]">
+              <label className="text-sm text-muted-foreground mb-2 block">Host/IP</label>
+              <input
+                type="text"
+                value={hostAddress}
+                onChange={(e) => setHostAddress(e.target.value || "localhost")}
+                placeholder="localhost or IP"
+                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                disabled={appStatus === "running"}
+              />
+            </div>
+            <div className="w-20">
               <label className="text-sm text-muted-foreground mb-2 block">Port</label>
               <input
                 type="number"
@@ -1033,7 +1045,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
                 disabled={appStatus === "running"}
               />
             </div>
-            <div className="w-24">
+            <div className="w-20">
               <label className="text-sm text-muted-foreground mb-2 block">Protocol</label>
               <Button
                 variant={useHttps ? "default" : "outline"}
