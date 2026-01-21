@@ -30,7 +30,9 @@ import {
   LayoutList,
   Star,
   Download,
-  Loader2
+  Loader2,
+  Rocket,
+  Square
 } from "lucide-react"
 import {
   getAllProjects,
@@ -92,6 +94,33 @@ export default function ProjectsPage() {
   const [viewMode, setViewMode] = useState<ViewMode | null>(null) // Start as null to avoid hydration mismatch
   const [isLoadingTaskFlow, setIsLoadingTaskFlow] = useState(false)
   const { isStarred, toggleStar, refresh: refreshStarred } = useStarredProjects()
+
+  // Running processes state
+  const [runningProjects, setRunningProjects] = useState<Record<string, { port: number; url: string }>>({})
+
+  // Fetch running processes
+  const fetchRunningProcesses = async () => {
+    try {
+      const response = await fetch("/api/launch-test/stop")
+      const data = await response.json()
+      const running: Record<string, { port: number; url: string }> = {}
+      for (const proc of data.processes || []) {
+        if (proc.projectId) {
+          running[proc.projectId] = { port: proc.port, url: `http://localhost:${proc.port}` }
+        }
+      }
+      setRunningProjects(running)
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  // Fetch running processes on mount and periodically
+  useEffect(() => {
+    fetchRunningProcesses()
+    const interval = setInterval(fetchRunningProcesses, 10000) // Every 10 seconds
+    return () => clearInterval(interval)
+  }, [])
 
   // Load view preference - sets initial value after mount to avoid hydration mismatch
   useEffect(() => {
@@ -426,6 +455,25 @@ export default function ProjectsPage() {
                     <StatusIcon className="h-4 w-4" />
                   </div>
 
+                  {/* Running Indicator */}
+                  {runningProjects[project.id] && (
+                    <div className="flex-none">
+                      <a
+                        href={runningProjects[project.id].url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors"
+                        title={`Running on port ${runningProjects[project.id].port}`}
+                      >
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        </span>
+                        <span className="text-xs font-medium">:{runningProjects[project.id].port}</span>
+                      </a>
+                    </div>
+                  )}
+
                   {/* Name & Description */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -558,7 +606,7 @@ export default function ProjectsPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {/* Status & Priority */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Badge variant="secondary" className={cn("gap-1", statusConf.color)}>
                         <StatusIcon className="h-3 w-3" />
                         {statusConf.label}
@@ -566,6 +614,23 @@ export default function ProjectsPage() {
                       <Badge variant="outline" className={priorityConf.color}>
                         {priorityConf.label}
                       </Badge>
+                      {/* Running Indicator */}
+                      {runningProjects[project.id] && (
+                        <a
+                          href={runningProjects[project.id].url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors"
+                          title={`Running on port ${runningProjects[project.id].port}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                          </span>
+                          <span className="text-xs font-medium">:{runningProjects[project.id].port}</span>
+                        </a>
+                      )}
                     </div>
 
                     {/* Tags */}

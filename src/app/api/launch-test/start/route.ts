@@ -18,6 +18,81 @@ import { validatePort, getSuggestedPorts } from "@/lib/execution/port-config"
 const execAsync = promisify(exec)
 
 /**
+ * Runtime requirements for each project type
+ */
+const RUNTIME_REQUIREMENTS: Record<string, { command: string; name: string; installHint: string }> = {
+  php: {
+    command: "php",
+    name: "PHP",
+    installHint: "Install PHP: sudo apt install php (Ubuntu/Debian) or brew install php (macOS)"
+  },
+  python: {
+    command: "python3",
+    name: "Python 3",
+    installHint: "Install Python: sudo apt install python3 (Ubuntu/Debian) or brew install python (macOS)"
+  },
+  django: {
+    command: "python3",
+    name: "Python 3",
+    installHint: "Install Python: sudo apt install python3 (Ubuntu/Debian) or brew install python (macOS)"
+  },
+  fastapi: {
+    command: "python3",
+    name: "Python 3",
+    installHint: "Install Python: sudo apt install python3 (Ubuntu/Debian) or brew install python (macOS)"
+  },
+  flask: {
+    command: "python3",
+    name: "Python 3",
+    installHint: "Install Python: sudo apt install python3 (Ubuntu/Debian) or brew install python (macOS)"
+  },
+  rust: {
+    command: "cargo",
+    name: "Rust/Cargo",
+    installHint: "Install Rust: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+  },
+  flutter: {
+    command: "flutter",
+    name: "Flutter",
+    installHint: "Install Flutter: https://docs.flutter.dev/get-started/install"
+  }
+}
+
+/**
+ * Check if a runtime is available
+ */
+async function checkRuntime(projectType: string): Promise<{ available: boolean; name?: string; installHint?: string }> {
+  const requirement = RUNTIME_REQUIREMENTS[projectType]
+  if (!requirement) {
+    // Node.js based projects - check for node
+    if (["nextjs", "react", "vue", "svelte", "nuxt", "node", "html"].includes(projectType)) {
+      try {
+        await execAsync("which node", { timeout: 5000 })
+        return { available: true }
+      } catch {
+        return {
+          available: false,
+          name: "Node.js",
+          installHint: "Install Node.js: https://nodejs.org/ or use nvm"
+        }
+      }
+    }
+    return { available: true } // Unknown type, assume available
+  }
+
+  try {
+    await execAsync(`which ${requirement.command}`, { timeout: 5000 })
+    return { available: true }
+  } catch {
+    return {
+      available: false,
+      name: requirement.name,
+      installHint: requirement.installHint
+    }
+  }
+}
+
+/**
  * Expand ~ to the user's home directory
  */
 function expandPath(p: string): string {
@@ -85,10 +160,10 @@ async function checkProjectFiles(repoPath: string, projectType?: string): Promis
   const rustFiles = ["Cargo.toml"]
   // Flutter project files
   const flutterFiles = ["pubspec.yaml"]
-  // Static HTML project files (check multiple common locations)
-  const htmlFiles = ["index.html", "index.htm", "public/index.html", "public/index.htm", "dist/index.html"]
-  // PHP project files
-  const phpFiles = ["index.php", "composer.json"]
+  // Static HTML project files (check public/ folder first for security)
+  const htmlFiles = ["public/index.html", "public/index.htm", "index.html", "index.htm", "dist/index.html"]
+  // PHP project files (check public/ folder first for security)
+  const phpFiles = ["public/index.php", "index.php", "composer.json"]
 
   // Check based on project type if specified
   if (projectType) {
@@ -495,9 +570,9 @@ export async function POST(request: NextRequest) {
         } else if (projectType === "flutter") {
           expectedFiles = "pubspec.yaml"
         } else if (projectType === "html") {
-          expectedFiles = "index.html (in root, public/, or dist/)"
+          expectedFiles = "index.html (in public/, root, or dist/)"
         } else if (projectType === "php") {
-          expectedFiles = "index.php or composer.json"
+          expectedFiles = "public/index.php, index.php, or composer.json"
         }
       }
 
@@ -513,6 +588,23 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[Launch] Project files found: ${projectFilesCheck.foundFiles.join(", ")}`)
+
+    // Check if required runtime is available
+    if (projectType) {
+      const runtimeCheck = await checkRuntime(projectType)
+      if (!runtimeCheck.available) {
+        console.log(`[Launch] Runtime not found: ${runtimeCheck.name}`)
+        return NextResponse.json({
+          success: false,
+          error: `${runtimeCheck.name} is not installed or not in PATH`,
+          runtimeMissing: true,
+          runtime: runtimeCheck.name,
+          installHint: runtimeCheck.installHint,
+          suggestion: runtimeCheck.installHint
+        })
+      }
+      console.log(`[Launch] Runtime check passed for ${projectType}`)
+    }
 
     // Check if already running for this project
     const entries = Array.from(global.launchTestProcesses.entries())

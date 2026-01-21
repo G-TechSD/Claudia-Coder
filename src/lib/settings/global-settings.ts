@@ -67,6 +67,9 @@ export interface GlobalSettings {
   // App preferences
   preferLocalModels: boolean
   autoRouteByTaskType: boolean
+
+  // Launch & Test settings
+  defaultLaunchHost?: string  // Default hostname/IP for Launch Test (e.g., "192.168.1.100" or "myserver.local")
 }
 
 const SETTINGS_KEY = "claudia_global_settings"
@@ -216,6 +219,16 @@ export function getEnabledProviders(): {
     local: settings.localServers.filter(s => s.enabled),
     cloud: settings.cloudProviders.filter(p => p.enabled)
   }
+}
+
+export function getDefaultLaunchHost(): string | undefined {
+  return getGlobalSettings().defaultLaunchHost
+}
+
+export function setDefaultLaunchHost(host: string | undefined): void {
+  const settings = getGlobalSettings()
+  settings.defaultLaunchHost = host
+  saveGlobalSettings(settings)
 }
 
 /**

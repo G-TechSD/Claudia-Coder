@@ -33,6 +33,7 @@ import {
   Code2,
   Undo2
 } from "lucide-react"
+import { getDefaultLaunchHost } from "@/lib/settings/global-settings"
 
 // Reserved ports that should not be used (Claudia runs on port 3000)
 const RESERVED_PORTS: Record<number, string> = {
@@ -123,25 +124,29 @@ const PROJECT_TYPES = {
   },
 
   // Static Sites
+  // SECURITY: Serve from public/ folder to avoid exposing project root files (.env, config, etc.)
   html: {
     name: "Static HTML",
-    runCommand: "npx serve -l tcp://0.0.0.0:9000",
-    devCommand: "npx live-server --host=0.0.0.0 --port=9000",
+    runCommand: "npx serve public -l tcp://0.0.0.0:9000 --no-clipboard",
+    devCommand: "npx live-server public --host=0.0.0.0 --port=9000",
     buildCommand: "echo 'No build needed for static HTML'",
     defaultPort: 9000,  // 8080 often used by nginx
     icon: "html",
-    supportsHttps: false
+    supportsHttps: false,
+    publicDir: "public"  // Document root for security
   },
 
   // PHP / Traditional Web
+  // SECURITY: Serve from public/ folder using -t flag to set document root
   php: {
     name: "PHP / MySQL",
-    runCommand: "php -S 0.0.0.0:9000",
-    devCommand: "php -S 0.0.0.0:9000",
+    runCommand: "php -S 0.0.0.0:9000 -t public",
+    devCommand: "php -S 0.0.0.0:9000 -t public",
     buildCommand: "composer install",
     defaultPort: 9000,  // 8080 often used by nginx
     icon: "php",
-    supportsHttps: false
+    supportsHttps: false,
+    publicDir: "public"  // Document root for security
   },
 
   // Python Frameworks
@@ -292,7 +297,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
   const [projectType, setProjectType] = React.useState<ProjectType | null>(null)
   const [appUrl, setAppUrl] = React.useState<string | null>(null)
   const [appPort, setAppPort] = React.useState<number>(3001) // Default to 3001 (3000 is reserved for Claudia)
-  const [hostAddress, setHostAddress] = React.useState<string>("localhost") // Can be IP or hostname for network access
+  const [hostAddress, setHostAddress] = React.useState<string>(() => getDefaultLaunchHost() || "localhost") // Can be IP or hostname for network access
   const [useHttps, setUseHttps] = React.useState<boolean>(false) // HTTPS for self-signed cert environments
   const [launchError, setLaunchError] = React.useState<string | null>(null)
   const [detectedCommand, setDetectedCommand] = React.useState<string | null>(null) // Command from detection API (e.g., for FastAPI module path)
@@ -301,10 +306,16 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
     expectedFiles?: string
     suggestion?: string
   } | null>(null)
+  const [runtimeMissing, setRuntimeMissing] = React.useState<{
+    runtime: string
+    installHint: string
+  } | null>(null)
   const [processId, setProcessId] = React.useState<string | null>(null)
   const [launchLogs, setLaunchLogs] = React.useState<string[]>([])
   const [portWarning, setPortWarning] = React.useState<string | null>(null)
   const [suggestedPorts, setSuggestedPorts] = React.useState<number[]>([])
+  const [securityWarning, setSecurityWarning] = React.useState<string | null>(null)
+  const [structureWarning, setStructureWarning] = React.useState<string | null>(null)
 
   // Feedback state
   const [feedbackText, setFeedbackText] = React.useState("")
@@ -389,6 +400,8 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
     }
 
     setAppStatus("detecting")
+    setSecurityWarning(null)
+    setStructureWarning(null)
     addLog(`Scanning: ${workingDirectory}`)
 
     try {
@@ -418,6 +431,16 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
           addLog(`Suggested command: ${data.suggestedCommand}`)
         } else {
           setDetectedCommand(null) // Clear any previous detected command
+        }
+
+        // Handle security/structure warnings for projects that should use public/ folder
+        if (data.securityWarning) {
+          setSecurityWarning(data.securityWarning)
+          addLog(`SECURITY: ${data.securityWarning}`)
+        }
+        if (data.structureWarning) {
+          setStructureWarning(data.structureWarning)
+          addLog(`Structure: ${data.structureWarning}`)
         }
       } else if (data.error) {
         addLog(`Detection failed: ${data.error}`)
@@ -457,6 +480,7 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
 
     setLaunchError(null)
     setNoProjectFiles(null)
+    setRuntimeMissing(null)
     setPortWarning(null)
 
     // Step 1: Check and install dependencies if needed
@@ -571,6 +595,16 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
         setAppStatus("error")
         addLog(`No project files found. Expected: ${data.expectedFiles}`)
         addLog(data.suggestion || "Generate code first or check the project folder.")
+      } else if (data.runtimeMissing) {
+        // Handle runtime not installed error
+        setRuntimeMissing({
+          runtime: data.runtime,
+          installHint: data.installHint
+        })
+        setLaunchError(data.error)
+        setAppStatus("error")
+        addLog(`Runtime not found: ${data.runtime}`)
+        addLog(data.installHint || "Install the required runtime to launch this project.")
       } else {
         setLaunchError(data.error || "Failed to launch app")
         setAppStatus("error")
@@ -1105,6 +1139,32 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
             </div>
           )}
 
+          {/* Security Warning - project structure */}
+          {securityWarning && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+              <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-red-400 font-medium">Security Warning</p>
+                <p className="text-xs text-red-400/70 mt-1">{securityWarning}</p>
+                <p className="text-xs text-red-400/60 mt-2">
+                  The server will attempt to serve from <code className="px-1 py-0.5 bg-red-900/30 rounded">public/</code> folder.
+                  If it doesn't exist, files from the project root may be exposed.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Structure Warning - misplaced files */}
+          {structureWarning && !securityWarning && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-amber-400 font-medium">Project Structure</p>
+                <p className="text-xs text-amber-400/70 mt-1">{structureWarning}</p>
+              </div>
+            </div>
+          )}
+
           {/* Launch Controls */}
           <div className="flex items-center gap-4">
             <Button
@@ -1207,8 +1267,38 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
             </div>
           )}
 
+          {/* Runtime Missing Error - Special prominent display */}
+          {runtimeMissing && (
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-purple-500/10 border border-purple-500/30">
+              <Package className="h-5 w-5 text-purple-500 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm text-purple-400 font-medium">Runtime Not Installed</p>
+                <p className="text-xs text-purple-400/70 mt-1">
+                  <span className="font-semibold">{runtimeMissing.runtime}</span> is required but not found in your PATH.
+                </p>
+                <div className="mt-3 p-2 rounded bg-gray-900/50 border border-gray-700/50">
+                  <p className="text-xs text-gray-300 font-mono">{runtimeMissing.installHint}</p>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 text-xs border-purple-500/50 text-purple-400 hover:bg-purple-500/20"
+                    onClick={() => {
+                      setRuntimeMissing(null)
+                      setLaunchError(null)
+                      setAppStatus("idle")
+                    }}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Error Display */}
-          {launchError && !noProjectFiles?.detected && (
+          {launchError && !noProjectFiles?.detected && !runtimeMissing && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
               <AlertCircle className="h-4 w-4 text-red-500 mt-0.5" />
               <div className="flex-1">

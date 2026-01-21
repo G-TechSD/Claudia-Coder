@@ -37,6 +37,8 @@ import {
   addLocalServer,
   updateLocalServer,
   removeLocalServer,
+  getDefaultLaunchHost,
+  setDefaultLaunchHost,
   type LocalServerConfig,
   type CloudProviderConfig,
   type DefaultModelConfig,
@@ -78,6 +80,7 @@ import {
   Code2,
   MessageSquare,
   BookOpen,
+  Rocket,
 } from "lucide-react"
 
 // Provider display names and colors
@@ -179,6 +182,9 @@ function SettingsPageContent() {
   // Feedback modal state
   const [feedbackOpen, setFeedbackOpen] = useState(false)
 
+  // Launch & Test state
+  const [defaultHost, setDefaultHost] = useState("")
+
   // Initialize from URL params
   useEffect(() => {
     const section = searchParams.get("section")
@@ -223,6 +229,9 @@ function SettingsPageContent() {
       oauthUser: p.oauthUser,
     }))
     setCloudProviders(providers)
+
+    // Initialize Launch & Test settings
+    setDefaultHost(getDefaultLaunchHost() || "")
 
     // Check server statuses
     if (servers.length > 0) {
@@ -436,6 +445,12 @@ function SettingsPageContent() {
     }
     saveGlobalSettings(gs)
     setGlobalSettings(gs)
+  }
+
+  // Handle default launch host change
+  const handleDefaultHostChange = (value: string) => {
+    setDefaultHost(value)
+    setDefaultLaunchHost(value || undefined)
   }
 
   // Get all available models for default selection
@@ -984,6 +999,47 @@ function SettingsPageContent() {
                     </div>
                   </div>
                   <Button variant="outline" size="sm">Configure</Button>
+                </div>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Launch & Test Section */}
+        <AccordionItem value="launch-test" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-cyan-500/10">
+                <Rocket className="h-5 w-5 text-cyan-500" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-semibold">Launch & Test</h3>
+                <p className="text-sm text-muted-foreground font-normal">
+                  Settings for testing applications on local network
+                </p>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4 pt-2">
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Configure default settings for launching and testing your applications on the local network.
+              </p>
+
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="defaultHost" className="text-sm font-medium">Default Host/IP Address</Label>
+                  <Input
+                    id="defaultHost"
+                    placeholder="e.g., 192.168.1.100 or myserver.local"
+                    value={defaultHost}
+                    onChange={(e) => handleDefaultHostChange(e.target.value)}
+                    className="max-w-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The hostname or IP address that other devices on your network will use to access test applications.
+                    Leave empty to use "localhost" by default.
+                  </p>
                 </div>
               </div>
             </div>

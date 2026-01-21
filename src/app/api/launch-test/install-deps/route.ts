@@ -59,10 +59,10 @@ async function checkProjectFiles(repoPath: string, projectType?: string): Promis
   const rustFiles = ["Cargo.toml"]
   // Flutter project files
   const flutterFiles = ["pubspec.yaml"]
-  // Static HTML project files (check multiple common locations)
-  const htmlFiles = ["index.html", "index.htm", "public/index.html", "public/index.htm", "dist/index.html"]
-  // PHP project files
-  const phpFiles = ["index.php", "composer.json"]
+  // Static HTML project files (check multiple common locations including public/ for security)
+  const htmlFiles = ["public/index.html", "public/index.htm", "index.html", "index.htm", "dist/index.html"]
+  // PHP project files (check public/ folder first for security)
+  const phpFiles = ["public/index.php", "index.php", "composer.json"]
 
   // Check based on project type if specified
   if (projectType) {
@@ -463,9 +463,9 @@ export async function POST(request: NextRequest) {
         } else if (projectType === "flutter") {
           expectedFiles = "pubspec.yaml"
         } else if (projectType === "html") {
-          expectedFiles = "index.html (in root, public/, or dist/)"
+          expectedFiles = "index.html (in public/, root, or dist/)"
         } else if (projectType === "php") {
-          expectedFiles = "index.php or composer.json"
+          expectedFiles = "public/index.php, index.php, or composer.json"
         }
       }
 
@@ -590,9 +590,9 @@ export async function GET(request: NextRequest) {
         } else if (projectType === "flutter") {
           expectedFiles = "pubspec.yaml"
         } else if (projectType === "html") {
-          expectedFiles = "index.html (in root, public/, or dist/)"
+          expectedFiles = "index.html (in public/, root, or dist/)"
         } else if (projectType === "php") {
-          expectedFiles = "index.php or composer.json"
+          expectedFiles = "public/index.php, index.php, or composer.json"
         }
       }
 

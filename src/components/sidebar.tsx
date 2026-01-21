@@ -74,6 +74,7 @@ const projectsItems: NavItem[] = [
 const toolsItems: NavItem[] = [
   { title: "Claude Code", href: "/claude-code", icon: Terminal },
   { title: "Run History", href: "/run-history", icon: History },
+  { title: "Processes", href: "/processes", icon: Rocket },
 ]
 
 // Upcoming Features category items (in development)
@@ -95,6 +96,7 @@ const adminItems: NavItem[] = [
   { title: "Invites", href: "/admin/invites", icon: UserPlus },
   { title: "Referrals", href: "/admin/referrals", icon: Gift },
   { title: "Migration", href: "/admin/migration", icon: Database },
+  { title: "Processes", href: "/admin/processes", icon: Rocket },
   { title: "Cleanup", href: "/admin/cleanup", icon: Trash2 },
   { title: "Settings", href: "/settings", icon: Settings },
   { title: "Security", href: "/settings/security", icon: Shield },

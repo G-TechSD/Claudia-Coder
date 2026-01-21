@@ -21,6 +21,8 @@ interface ProjectTypeConfig {
   packageJsonDeps: string[]
   // Additional files to check as fallback
   fallbackFiles: string[]
+  // SECURITY: Directory to serve from (e.g., "public" for static sites)
+  publicDir?: string
 }
 
 // Order matters! More specific types should come before generic ones
@@ -90,11 +92,13 @@ const PROJECT_TYPES: Record<string, ProjectTypeConfig> = {
   },
 
   // PHP / Traditional Web
+  // SECURITY: Should serve from public/ folder
   php: {
     name: "PHP / MySQL",
     identifyingFiles: ["composer.json", "composer.lock"],
     packageJsonDeps: [],
-    fallbackFiles: ["index.php", "wp-config.php", "config.php"]
+    fallbackFiles: ["public/index.php", "index.php", "wp-config.php", "config.php"],
+    publicDir: "public"
   },
 
   // Python Frameworks
@@ -134,11 +138,13 @@ const PROJECT_TYPES: Record<string, ProjectTypeConfig> = {
   },
 
   // Static HTML (check last - very generic)
+  // SECURITY: Should serve from public/ folder
   html: {
     name: "Static HTML",
     identifyingFiles: [],
     packageJsonDeps: [],
-    fallbackFiles: ["index.html", "index.htm", "public/index.html", "public/index.htm", "dist/index.html"]
+    fallbackFiles: ["public/index.html", "public/index.htm", "index.html", "index.htm", "dist/index.html"],
+    publicDir: "public"
   }
 }
 
@@ -323,10 +329,31 @@ export async function POST(request: NextRequest) {
         const filePath = path.join(expandedPath, file)
         if (await fileExists(filePath)) {
           console.log(`[detect] Found fallback ${file} -> ${typeName}`)
-          return NextResponse.json({
+
+          // For types that should use public/ folder, check structure and warn
+          const response: Record<string, unknown> = {
             projectType: typeName,
             detectedBy: `fallback:${file}`
-          })
+          }
+
+          if (config.publicDir) {
+            const publicDirPath = path.join(expandedPath, config.publicDir)
+            const hasPublicDir = await fileExists(publicDirPath)
+            const isFileInPublicDir = file.startsWith(config.publicDir + "/")
+
+            response.publicDir = config.publicDir
+            response.hasPublicDir = hasPublicDir
+
+            // SECURITY: Warn if serving from root instead of public folder
+            if (!isFileInPublicDir && !hasPublicDir) {
+              response.securityWarning = `For security, create a '${config.publicDir}/' folder and move web-accessible files there. This prevents exposing config files, .env, etc.`
+              console.log(`[detect] SECURITY WARNING: ${typeName} project serving from root, not ${config.publicDir}/`)
+            } else if (!isFileInPublicDir && hasPublicDir) {
+              response.structureWarning = `Found '${config.publicDir}/' folder but entry file is in root. Move ${file} to ${config.publicDir}/ for proper security.`
+            }
+          }
+
+          return NextResponse.json(response)
         }
       }
     }
