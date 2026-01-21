@@ -104,6 +104,7 @@ interface BuildPlanEditorProps {
   onProviderChange: (provider: string) => void
   onKickoffGenerated?: (kickoffPath: string) => void
   onPriorArtResearch?: () => void  // Callback to trigger prior art research
+  kickoffTrigger?: number  // Incremented to signal kickoff content is ready in sessionStorage
   className?: string
 }
 
@@ -248,6 +249,7 @@ export function BuildPlanEditor({
   onProviderChange,
   onKickoffGenerated,
   onPriorArtResearch,
+  kickoffTrigger = 0,
   className
 }: BuildPlanEditorProps) {
   const [storedPlan, setStoredPlan] = useState<StoredBuildPlan | null>(null)
@@ -297,14 +299,16 @@ export function BuildPlanEditor({
     sourceResourceId: string
   } | null>(null)
 
-  // Check for kickoff content in sessionStorage on mount
+  // Check for kickoff content in sessionStorage on mount or when kickoffTrigger changes
   useEffect(() => {
     try {
       const stored = sessionStorage.getItem("claudia_kickoff_content")
+      console.log(`[build-plan-editor] Checking for kickoff content (trigger=${kickoffTrigger}):`, stored ? "found" : "not found")
       if (stored) {
         const data = JSON.parse(stored)
         // Only use if it matches this project
         if (data.projectId === projectId) {
+          console.log(`[build-plan-editor] Loading kickoff content from: ${data.sourceName}`)
           setKickoffContent({
             content: data.content,
             sourceName: data.sourceName,
@@ -312,12 +316,14 @@ export function BuildPlanEditor({
           })
           // Clear it so it doesn't persist
           sessionStorage.removeItem("claudia_kickoff_content")
+        } else {
+          console.log(`[build-plan-editor] Kickoff content projectId mismatch: ${data.projectId} !== ${projectId}`)
         }
       }
     } catch (err) {
       console.error("Failed to read kickoff content from sessionStorage:", err)
     }
-  }, [projectId])
+  }, [projectId, kickoffTrigger])
 
   // Auto-save timer
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)

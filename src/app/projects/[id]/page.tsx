@@ -266,11 +266,17 @@ export default function ProjectDetailPage() {
       setActiveSection(tabToSection[tab])
     }
 
-    // If coming from kickoff source, increment trigger to remount BuildPlanEditor
+    // If coming from kickoff source, increment trigger to signal BuildPlanEditor to check sessionStorage
     if (source === "kickoff") {
-      setKickoffTrigger(prev => prev + 1)
-      // Clear the query params from URL without full navigation
-      router.replace(`/projects/${projectId}`, { scroll: false })
+      console.log("[project-page] Detected kickoff source, incrementing trigger")
+      setKickoffTrigger(prev => {
+        console.log(`[project-page] kickoffTrigger: ${prev} -> ${prev + 1}`)
+        return prev + 1
+      })
+      // Clear the query params from URL after a small delay to ensure state update is processed
+      setTimeout(() => {
+        router.replace(`/projects/${projectId}`, { scroll: false })
+      }, 100)
     }
   }, [searchParams, projectId, router])
 
@@ -2563,6 +2569,7 @@ export default function ProjectDetailPage() {
                   providers={providers}
                   selectedProvider={selectedProvider}
                   onProviderChange={setSelectedProvider}
+                  kickoffTrigger={kickoffTrigger}
                   onKickoffGenerated={(kickoffPath) => {
                     console.log(`[project-page] KICKOFF.md generated at: ${kickoffPath}`)
                   }}
