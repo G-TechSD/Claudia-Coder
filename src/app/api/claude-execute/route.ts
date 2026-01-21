@@ -1,17 +1,24 @@
 /**
  * Claudia Execution API
  * Executes work packets using:
- * - TURBO MODE (Preferred): Claude Code CLI - higher quality, cloud-powered
+ * - LOCAL MODE (Default): LM Studio - works completely offline, no subscriptions, FREE
+ * - TURBO MODE: Claude Code CLI - higher quality, cloud-powered, requires API subscription
  * - N8N MODE: N8N workflow orchestration - handles iteration loops and quality validation
- * - LOCAL MODE (Free): LM Studio - works completely offline, no subscriptions
  *
- * TURBO MODE (Claude Code) is the preferred default for higher quality execution.
- * It is automatically selected when available.
+ * EXECUTION MODE PRIORITY:
+ * 1. If explicit mode is set in options, use it
+ * 2. If project-level provider is configured, use that provider
+ * 3. If global default model is configured, use that provider
+ * 4. AUTO mode: Prefer LOCAL first (free), only fall back to Claude Code if local unavailable
+ *
+ * IMPORTANT: Claude Code (turbo) should ONLY be used if:
+ * - Explicitly selected by user in UI
+ * - Explicitly set as project default
+ * - Explicitly set as global default
+ * It should NOT automatically default to Claude Code just because it's available.
  *
  * N8N MODE triggers an external N8N workflow that handles the iteration loop,
  * quality validation, and progress tracking. Results are delivered via callback.
- *
- * LOCAL MODE is the fallback option that works offline with no internet.
  *
  * MANDATORY QUALITY GATES:
  * All execution modes enforce mandatory quality gates before marking code as complete:
@@ -26,6 +33,7 @@ import { exec, spawn } from "child_process"
 import { promisify } from "util"
 import * as fs from "fs/promises"
 import * as path from "path"
+import * as os from "os"
 import https from "https"
 import { generateWithLocalLLM, getAvailableServer } from "@/lib/llm/local-llm"
 import { db } from "@/lib/auth/db"
@@ -40,6 +48,7 @@ import {
   recordUsage,
   getUserApiKey,
 } from "@/lib/beta/api-budget"
+import { writeRunContext } from "@/lib/ai/run-context"
 
 // Path to store activity events for API access (curl calls don't have localStorage)
 const ACTIVITY_EVENTS_FILE = path.join(process.cwd(), ".local-storage", "activity-events.json")
@@ -71,6 +80,14 @@ async function fetchWithSelfSignedCert(url: string, options: RequestInit = {}): 
 }
 
 const execAsync = promisify(exec)
+
+/**
+ * Expand ~ to home directory in paths
+ */
+function expandPath(p: string): string {
+  if (!p) return p
+  return p.replace(/^~/, os.homedir())
+}
 
 // Timeout for Claude Code execution (10 minutes)
 const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000
@@ -106,6 +123,9 @@ interface ExecutionRequest {
     tasks: Array<{ id: string; description: string; completed: boolean }>
     acceptanceCriteria: string[]
   }
+  // Project-level model settings (override global defaults)
+  projectModelId?: string
+  projectProviderId?: string
   options?: {
     maxIterations?: number
     runTests?: boolean
@@ -114,6 +134,9 @@ interface ExecutionRequest {
     useRemote?: boolean // Run on remote VM vs local Claude CLI
     mode?: ExecutionMode // "local" = LM Studio (free), "turbo" = Claude Code (paid)
     preferredServer?: string // Which LM Studio server to use (local-llm-server/local-llm-server-2)
+    skipQualityGates?: boolean // Skip quality gates (not recommended) - marks packets as "unverified"
+    selectedModel?: string // Selected model ID (e.g., "claude-sonnet-4-20250514", "claude-opus-4-20250514")
+    selectedProvider?: string // Selected provider (e.g., "claude-code", "lmstudio")
   }
 }
 
@@ -365,10 +388,47 @@ export async function POST(request: NextRequest) {
     }
 
     const body: ExecutionRequest = await request.json()
-    const { projectName, repoPath, packet, options = {} } = body
-    const mode = options.mode || "auto"
+    const { projectName, repoPath: rawRepoPath, packet, projectModelId, projectProviderId, options = {} } = body
 
-    emit("start", `Starting execution: ${packet.title}`, `Project: ${projectName}`, { progress: 0 })
+    // Expand ~ in repoPath to the actual home directory
+    const repoPath = expandPath(rawRepoPath)
+
+    // Determine execution mode based on model selection hierarchy:
+    // 1. Explicit mode in options (user selected in UI)
+    // 2. Project-level model settings
+    // 3. Global settings (via getEffectiveDefaultModel - handled client-side)
+    // 4. Auto-detect available backends (NO automatic Claude API)
+    let mode = options.mode || "auto"
+
+    // If project has specific model settings, use them to determine mode
+    if (!options.mode && projectProviderId) {
+      // Map provider to execution mode
+      if (projectProviderId === "lmstudio" || projectProviderId === "ollama" || projectProviderId === "custom") {
+        mode = "local"
+        // Set preferred server if available
+        if (projectModelId && !options.preferredServer) {
+          options.preferredServer = projectModelId
+        }
+      } else if (projectProviderId === "anthropic") {
+        mode = "turbo" // Claude Code uses Anthropic
+      } else if (projectProviderId === "claude-code") {
+        // Claude Code Max uses the same turbo execution path (Claude CLI)
+        // but authenticates via Max subscription instead of API key
+        mode = "turbo"
+      } else if (projectProviderId === "n8n") {
+        mode = "n8n"
+      }
+      // For other providers (openai, google), default to auto for now
+    }
+
+    // Write run context for AI before starting execution
+    try {
+      await writeRunContext(repoPath, body.projectId, packet)
+    } catch (contextError) {
+      console.warn("[claude-execute] Failed to write run context (non-fatal):", contextError)
+    }
+
+    emit("start", `Starting processing: ${packet.title}`, `Project: ${projectName}`, { progress: 0 })
 
     // Build the prompt
     const prompt = buildClaudePrompt(packet)
@@ -380,6 +440,7 @@ export async function POST(request: NextRequest) {
       mode: string
       executionId?: string
       async?: boolean
+      unverified?: boolean
       qualityGates?: {
         passed: boolean
         tests: { success: boolean; output: string }
@@ -422,29 +483,31 @@ export async function POST(request: NextRequest) {
     } else if (mode === "turbo") {
       // Force Claude Code (paid, higher quality)
       emit("thinking", "Using Turbo Mode (Claude Code)...", "Premium, cloud-powered")
-      const claudeResult = await executeWithClaudeCode(prompt, repoPath, options, emit)
+      const claudeResult = await executeWithClaudeCode(prompt, repoPath, options, emit, body.projectId)
       result = { ...claudeResult, mode: "turbo" }
     } else {
-      // Auto mode: Prefer Claude Code (turbo), fall back to LM Studio (local)
-      const claudeAvailable = await checkLocalClaudeAvailable()
+      // Auto mode: Prefer LOCAL mode first (free, no API costs)
+      // Only use Claude Code if local is not available
+      // Claude Code should NOT be automatically selected - it requires explicit configuration
+      const lmStudioAvailable = await getAvailableServer()
 
-      if (claudeAvailable) {
-        emit("thinking", "Using Claude Code (auto-selected)...", "Premium mode - higher quality")
-        const claudeResult = await executeWithClaudeCode(prompt, repoPath, options, emit)
-        result = { ...claudeResult, mode: "turbo" }
+      if (lmStudioAvailable) {
+        emit("thinking", `Using Local Mode (${lmStudioAvailable.name})...`, "Free, works offline")
+        result = await executeWithLMStudio(prompt, repoPath, packet, options, emit)
       } else {
-        // Fall back to LM Studio if Claude Code not available
-        const lmStudioAvailable = await getAvailableServer()
-        if (lmStudioAvailable) {
-          emit("thinking", `No Claude Code available, using Local Mode (${lmStudioAvailable.name})...`, "Falling back to free offline mode")
-          result = await executeWithLMStudio(prompt, repoPath, packet, options, emit)
+        // Fall back to Claude Code only if local is not available
+        const claudeAvailable = await checkLocalClaudeAvailable()
+        if (claudeAvailable) {
+          emit("thinking", "No local LLM available, using Claude Code...", "Falling back to cloud-powered mode")
+          const claudeResult = await executeWithClaudeCode(prompt, repoPath, options, emit, body.projectId)
+          result = { ...claudeResult, mode: "turbo" }
         } else {
           // Persist failure event - no backend available
           await persistActivityEvents(events, body.projectId, projectName, packet.id, packet.title, "none", false)
           return NextResponse.json({
             success: false,
             events,
-            error: "No execution backend available. Install Claude Code CLI or start LM Studio.",
+            error: "No execution backend available. Start LM Studio or install Claude Code CLI.",
             duration: Date.now() - startTime
           })
         }
@@ -510,6 +573,7 @@ export async function POST(request: NextRequest) {
       output: result.output,
       duration: Date.now() - startTime,
       mode: result.mode,
+      unverified: result.unverified || false, // True if quality gates were skipped
       qualityGates: result.qualityGates || null,
       ...(usageInfo.spent !== undefined && {
         apiUsage: {
@@ -549,6 +613,111 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Setup project-scoped MCP configuration for Claude Code
+ * Writes a .mcp.json file to the project directory that Claude Code will automatically read
+ */
+async function setupProjectMCP(
+  projectId: string,
+  repoPath: string
+): Promise<void> {
+  try {
+    // Read project from storage to get MCP settings
+    // We use a simple storage approach here since we're in an API route
+    const projectsFile = path.join(process.cwd(), ".local-storage", "projects.json")
+
+    let projects: Array<{
+      id: string
+      mcpSettings?: {
+        enabledServers: string[]
+        customServers?: Array<{
+          id: string
+          name: string
+          command: string
+          args?: string[]
+          env?: Record<string, string>
+        }>
+      }
+    }> = []
+
+    try {
+      const projectsData = await fs.readFile(projectsFile, "utf-8")
+      projects = JSON.parse(projectsData)
+    } catch {
+      // No projects file or invalid JSON - skip MCP setup
+      return
+    }
+
+    const project = projects.find(p => p.id === projectId)
+    if (!project?.mcpSettings?.enabledServers?.length) {
+      // No MCP settings configured for this project
+      return
+    }
+
+    // Read global MCP server configurations
+    const mcpStorageFile = path.join(process.cwd(), ".local-storage", "mcp-servers.json")
+    let mcpServers: Array<{
+      id: string
+      name: string
+      command: string
+      args: string[]
+      env?: Record<string, string>
+      enabled: boolean
+    }> = []
+
+    try {
+      const mcpData = await fs.readFile(mcpStorageFile, "utf-8")
+      const mcpStorage = JSON.parse(mcpData)
+      mcpServers = mcpStorage.servers || []
+    } catch {
+      // No MCP servers file - skip MCP setup
+      return
+    }
+
+    // Build MCP configuration for this project
+    const mcpConfig: {
+      mcpServers: Record<string, {
+        command: string
+        args?: string[]
+        env?: Record<string, string>
+      }>
+    } = { mcpServers: {} }
+
+    // Add enabled servers from global config
+    for (const serverId of project.mcpSettings.enabledServers) {
+      const server = mcpServers.find(s => s.id === serverId && s.enabled)
+      if (server) {
+        mcpConfig.mcpServers[server.name] = {
+          command: server.command,
+          args: server.args?.length ? server.args : undefined,
+          env: server.env && Object.keys(server.env).length ? server.env : undefined
+        }
+      }
+    }
+
+    // Add project-specific custom servers
+    if (project.mcpSettings.customServers?.length) {
+      for (const server of project.mcpSettings.customServers) {
+        mcpConfig.mcpServers[server.name] = {
+          command: server.command,
+          args: server.args?.length ? server.args : undefined,
+          env: server.env && Object.keys(server.env).length ? server.env : undefined
+        }
+      }
+    }
+
+    // Only write if we have servers to configure
+    if (Object.keys(mcpConfig.mcpServers).length > 0) {
+      const mcpConfigPath = path.join(repoPath, ".mcp.json")
+      await fs.writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2), "utf-8")
+      console.log(`[setupProjectMCP] Wrote MCP config with ${Object.keys(mcpConfig.mcpServers).length} servers to ${mcpConfigPath}`)
+    }
+  } catch (error) {
+    // MCP setup is non-critical - log and continue
+    console.warn("[setupProjectMCP] Failed to setup project MCP:", error)
+  }
+}
+
+/**
  * Execute with Claude Code CLI (Turbo Mode - paid)
  * Wraps the local/remote Claude CLI execution with MANDATORY quality gates
  */
@@ -556,8 +725,14 @@ async function executeWithClaudeCode(
   prompt: string,
   repoPath: string,
   options: ExecutionRequest["options"],
-  emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void
-): Promise<{ success: boolean; output: string; filesChanged: string[]; qualityGates?: { passed: boolean; tests: { success: boolean; output: string }; typeCheck: { success: boolean; output: string; errorCount?: number }; build: { success: boolean; output: string } } }> {
+  emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void,
+  projectId?: string
+): Promise<{ success: boolean; output: string; filesChanged: string[]; unverified?: boolean; qualityGates?: { passed: boolean; tests: { success: boolean; output: string }; typeCheck: { success: boolean; output: string; errorCount?: number }; build: { success: boolean; output: string } } | null }> {
+  // Setup project-specific MCP configuration if available
+  if (projectId) {
+    await setupProjectMCP(projectId, repoPath)
+  }
+
   // Determine execution mode - prefer local when available
   const localAvailable = await checkLocalClaudeAvailable()
   const useLocal = localAvailable && (options?.useRemote === false || options?.useRemote === undefined)
@@ -573,6 +748,18 @@ async function executeWithClaudeCode(
   // If execution failed, return immediately
   if (!result.success) {
     return result
+  }
+
+  // Check if quality gates should be skipped
+  if (options?.skipQualityGates) {
+    emit("thinking", "SKIPPING quality gates (user requested)", "WARNING: Code is NOT verified!")
+    return {
+      success: true,
+      output: `${result.output}\n\n=== WARNING: QUALITY GATES SKIPPED ===\nCode was NOT verified. Tests, TypeScript, and Build checks were skipped at user request.\nUse this code at your own risk.`,
+      filesChanged: result.filesChanged,
+      unverified: true,
+      qualityGates: null
+    }
   }
 
   // MANDATORY QUALITY GATES - No code is "complete" without passing these
@@ -780,30 +967,158 @@ async function executeWithLMStudio(
   packet: ExecutionRequest["packet"],
   options: ExecutionRequest["options"],
   emit: (type: ExecutionEvent["type"], message: string, detail?: string, extra?: Partial<ExecutionEvent>) => void
-): Promise<{ success: boolean; output: string; filesChanged: string[]; mode: string; qualityGates?: { passed: boolean; tests: { success: boolean; output: string }; typeCheck: { success: boolean; output: string; errorCount?: number }; build: { success: boolean; output: string } } }> {
+): Promise<{ success: boolean; output: string; filesChanged: string[]; mode: string; unverified?: boolean; qualityGates?: { passed: boolean; tests: { success: boolean; output: string }; typeCheck: { success: boolean; output: string; errorCount?: number }; build: { success: boolean; output: string } } | null }> {
   const filesChanged: string[] = []
   const maxIterations = options?.maxIterations || 5
   let lastOutput = ""
+  let lastErrorFeedback: ErrorFeedback | undefined = undefined
+  let lastQualityResult: QualityGateResult | undefined = undefined
 
   try {
     // Read existing files in the project to understand context
     const projectContext = await gatherProjectContext(repoPath)
 
+    // CHECK: Is this a research/inquiry task?
+    // Research tasks produce markdown documents, not code
+    if (isResearchOrInquiryTask(packet)) {
+      emit("start", "Research/Inquiry Task Detected", "Generating analysis document...")
+
+      const researchPrompt = buildResearchPrompt(packet, projectContext)
+
+      const response = await generateWithLocalLLM(
+        RESEARCH_SYSTEM_PROMPT,
+        researchPrompt,
+        {
+          temperature: 0.7, // Higher creativity for research
+          max_tokens: 8192,
+          preferredServer: options?.preferredServer
+        }
+      )
+
+      if (response.error) {
+        emit("error", "Research generation failed", response.error)
+        return {
+          success: false,
+          output: `Research generation failed: ${response.error}`,
+          filesChanged: [],
+          mode: "local",
+          qualityGates: null
+        }
+      }
+
+      emit("thinking", `Processing research response from ${response.server}...`, response.model)
+
+      // Parse for document output
+      const docOutput = parseDocumentOutput(response.content)
+
+      if (docOutput) {
+        // Generate proper filename from packet title if using fallback path
+        let docPath = docOutput.path
+        if (docPath === ".claudia/docs/response.md") {
+          const docSlug = generateDocumentSlug(packet.title)
+          docPath = `.claudia/docs/${docSlug}.md`
+        }
+
+        // Ensure the .claudia/docs directory exists
+        const fullDocPath = path.join(repoPath, docPath)
+        await fs.mkdir(path.dirname(fullDocPath), { recursive: true })
+
+        // Add header with packet info
+        const docContent = `---
+title: "${packet.title}"
+type: ${packet.type}
+generated: ${new Date().toISOString()}
+packet_id: ${packet.id}
+---
+
+${docOutput.content}
+`
+
+        await fs.writeFile(fullDocPath, docContent, "utf-8")
+        filesChanged.push(docPath)
+
+        emit("file_change", `Created research document: ${docPath}`, undefined, {
+          files: [docPath]
+        })
+
+        emit("complete", "Research document generated successfully", docPath)
+
+        return {
+          success: true,
+          output: `Research complete. Document saved to: ${docPath}\n\n${response.content.substring(0, 500)}...`,
+          filesChanged,
+          mode: "local",
+          // Research tasks don't need quality gates - just document generation
+          qualityGates: {
+            passed: true,
+            tests: { success: true, output: "Skipped - research task" },
+            typeCheck: { success: true, output: "Skipped - research task" },
+            build: { success: true, output: "Skipped - research task" }
+          }
+        }
+      } else {
+        // Even if parsing failed, save the raw response as a document
+        const docSlug = generateDocumentSlug(packet.title)
+        const docPath = `.claudia/docs/${docSlug}.md`
+        const fullDocPath = path.join(repoPath, docPath)
+        await fs.mkdir(path.dirname(fullDocPath), { recursive: true })
+
+        const docContent = `---
+title: "${packet.title}"
+type: ${packet.type}
+generated: ${new Date().toISOString()}
+packet_id: ${packet.id}
+---
+
+# ${packet.title}
+
+${response.content}
+`
+        await fs.writeFile(fullDocPath, docContent, "utf-8")
+        filesChanged.push(docPath)
+
+        emit("file_change", `Created research document: ${docPath}`, undefined, {
+          files: [docPath]
+        })
+
+        emit("complete", "Research document generated", docPath)
+
+        return {
+          success: true,
+          output: `Research complete. Document saved to: ${docPath}`,
+          filesChanged,
+          mode: "local",
+          qualityGates: {
+            passed: true,
+            tests: { success: true, output: "Skipped - research task" },
+            typeCheck: { success: true, output: "Skipped - research task" },
+            build: { success: true, output: "Skipped - research task" }
+          }
+        }
+      }
+    }
+
+    // STANDARD CODING TASK FLOW (continues from here if not research)
+
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
-      emit("iteration", `Iteration ${iteration}/${maxIterations}`, "Analyzing and generating code...", {
+      const isFixIteration = !!lastErrorFeedback
+
+      emit("iteration", `Iteration ${iteration}/${maxIterations}`,
+        isFixIteration ? "🔧 FIX MODE: Correcting errors from previous iteration..." : "Analyzing and generating code...", {
         iteration,
         progress: Math.round((iteration / maxIterations) * 80)
       })
 
       // Build the LM Studio prompt with structured output format
-      const lmPrompt = buildLMStudioPrompt(packet, projectContext, iteration, lastOutput)
+      // Pass error feedback if quality gates failed in previous iteration
+      const lmPrompt = buildLMStudioPrompt(packet, projectContext, iteration, lastOutput, lastErrorFeedback)
 
       // Generate with local LLM
       const response = await generateWithLocalLLM(
         LMSTUDIO_SYSTEM_PROMPT,
         lmPrompt,
         {
-          temperature: 0.3, // Lower for more consistent code
+          temperature: isFixIteration ? 0.1 : 0.3, // Even lower temp for fix iterations
           max_tokens: 8192, // Large for full file contents
           preferredServer: options?.preferredServer
         }
@@ -825,6 +1140,37 @@ async function executeWithLMStudio(
         if (response.content.toLowerCase().includes("complete") ||
             response.content.toLowerCase().includes("all tasks done") ||
             response.content.toLowerCase().includes("no further changes")) {
+          // LLM thinks done - verify with quality gates before accepting
+          if (!options?.skipQualityGates && filesChanged.length > 0) {
+            emit("thinking", "LM Studio indicates complete - verifying with quality gates...", "")
+
+            // Install deps first if needed
+            const installResult = await installDependenciesIfNeeded(repoPath, filesChanged, emit)
+            if (installResult.success) {
+              const qualityResult = await runQualityGates(repoPath, emit)
+              if (qualityResult.passed) {
+                emit("complete", "LM Studio task complete - all quality gates passed", `After ${iteration} iterations`)
+                return {
+                  success: true,
+                  output: `Completed with LM Studio. ${filesChanged.length} files modified.\n\nQuality Gates: ALL PASSED`,
+                  filesChanged,
+                  mode: "local",
+                  qualityGates: {
+                    passed: true,
+                    tests: qualityResult.tests,
+                    typeCheck: qualityResult.typeCheck,
+                    build: qualityResult.build
+                  }
+                }
+              } else {
+                // Quality gates failed but LLM thought it was done - build feedback and continue
+                emit("thinking", "LLM indicated complete but quality gates failed", "Will attempt to fix errors...")
+                lastErrorFeedback = await buildErrorFeedback(repoPath, qualityResult)
+                lastQualityResult = qualityResult
+                continue
+              }
+            }
+          }
           emit("complete", "LM Studio indicates task complete", `After ${iteration} iterations`)
           break
         }
@@ -840,7 +1186,10 @@ async function executeWithLMStudio(
             // Ensure directory exists
             await fs.mkdir(path.dirname(fullPath), { recursive: true })
             await fs.writeFile(fullPath, op.content, "utf-8")
-            filesChanged.push(op.path)
+            // Track unique files changed
+            if (!filesChanged.includes(op.path)) {
+              filesChanged.push(op.path)
+            }
             emit("file_change", `${op.operation === "create" ? "Created" : "Updated"}: ${op.path}`, undefined, {
               files: [op.path]
             })
@@ -854,57 +1203,128 @@ async function executeWithLMStudio(
       }
 
       lastOutput = response.content
+
+      // Run quality gates WITHIN the iteration if not skipping
+      // This enables the error feedback loop
+      if (!options?.skipQualityGates && filesChanged.length > 0) {
+        emit("thinking", `Running quality gates after iteration ${iteration}...`, "Checking Tests, TypeScript, Build")
+
+        // Install dependencies if package.json was created/modified
+        const installResult = await installDependenciesIfNeeded(repoPath, filesChanged, emit)
+        if (!installResult.success) {
+          emit("error", "Dependency installation failed", installResult.output)
+          lastErrorFeedback = {
+            buildErrors: { errorOutput: `Dependency installation failed:\n${installResult.output}` }
+          }
+          continue // Try again in next iteration
+        }
+
+        const qualityResult = await runQualityGates(repoPath, emit)
+        lastQualityResult = qualityResult
+
+        if (qualityResult.passed) {
+          // Quality gates passed! Create commit and return success
+          emit("complete", "All quality gates passed!", `Completed in ${iteration} iteration(s)`)
+
+          if (options?.createCommit) {
+            emit("thinking", "Creating commit...", `${filesChanged.length} files changed - All quality gates passed`)
+            await createGitCommit(repoPath, packet.title, filesChanged)
+          }
+
+          return {
+            success: true,
+            output: `Completed with LM Studio. ${filesChanged.length} files modified.\n\nQuality Gates: ALL PASSED\n- Tests: PASSED\n- TypeScript: PASSED\n- Build: PASSED`,
+            filesChanged,
+            mode: "local",
+            qualityGates: {
+              passed: true,
+              tests: qualityResult.tests,
+              typeCheck: qualityResult.typeCheck,
+              build: qualityResult.build
+            }
+          }
+        } else {
+          // Quality gates failed - build error feedback for next iteration
+          emit("thinking", `Quality gates failed (iteration ${iteration})`, "Will attempt to fix errors in next iteration...")
+          lastErrorFeedback = await buildErrorFeedback(repoPath, qualityResult)
+          // Continue to next iteration with error feedback
+        }
+      }
     }
 
-    // MANDATORY QUALITY GATES - No code is "complete" without passing these
-    if (filesChanged.length > 0) {
-      // Install dependencies if package.json was created/modified (required for TypeScript compilation)
-      const installResult = await installDependenciesIfNeeded(repoPath, filesChanged, emit)
-      if (!installResult.success) {
-        return {
-          success: false,
-          output: `DEPENDENCY INSTALLATION FAILED - Cannot run quality gates.\n\n${installResult.output}\n\nFiles changed: ${filesChanged.join(", ")}`,
-          filesChanged,
-          mode: "local"
-        }
-      }
+    // Check if quality gates should be skipped - only runs if loop completed without early return
+    if (filesChanged.length > 0 && options?.skipQualityGates) {
+      emit("thinking", "SKIPPING quality gates (user requested)", "WARNING: Code is NOT verified!")
 
-      emit("thinking", "Running MANDATORY quality gates...", "Tests, TypeScript, and Build must all pass")
-
-      const qualityResult = await runQualityGates(repoPath, emit)
-
-      if (!qualityResult.passed) {
-        // Quality gates failed - return failure with gate details
-        return {
-          success: false,
-          output: `QUALITY GATES FAILED - Code is NOT production-ready.\n\n${qualityResult.summary}\n\nFiles changed: ${filesChanged.join(", ")}`,
-          filesChanged,
-          mode: "local",
-          qualityGates: {
-            passed: false,
-            tests: qualityResult.tests,
-            typeCheck: qualityResult.typeCheck,
-            build: qualityResult.build
-          }
-        }
-      }
-
-      // Only create commit if ALL quality gates passed
+      // Create commit even without quality gates if requested
       if (options?.createCommit) {
-        emit("thinking", "Creating commit...", `${filesChanged.length} files changed - All quality gates passed`)
-        await createGitCommit(repoPath, packet.title, filesChanged)
+        emit("thinking", "Creating commit...", `${filesChanged.length} files changed - UNVERIFIED`)
+        await createGitCommit(repoPath, packet.title + " (UNVERIFIED)", filesChanged)
       }
 
       return {
         success: true,
-        output: `Completed with LM Studio. ${filesChanged.length} files modified.\n\nQuality Gates: ALL PASSED\n- Tests: PASSED\n- TypeScript: PASSED\n- Build: PASSED`,
+        output: `Completed with LM Studio. ${filesChanged.length} files modified.\n\n=== WARNING: QUALITY GATES SKIPPED ===\nCode was NOT verified. Tests, TypeScript, and Build checks were skipped at user request.\nUse this code at your own risk.`,
+        filesChanged,
+        mode: "local",
+        unverified: true,
+        qualityGates: null
+      }
+    }
+
+    // If we reached here with files changed, it means max iterations were exhausted without passing quality gates
+    if (filesChanged.length > 0 && lastQualityResult && !lastQualityResult.passed) {
+      emit("error", `Max iterations (${maxIterations}) reached - quality gates still failing`, lastQualityResult.summary.substring(0, 500))
+      return {
+        success: false,
+        output: `MAX ITERATIONS REACHED - Quality gates still failing after ${maxIterations} attempts.\n\n${lastQualityResult.summary}\n\nFiles changed: ${filesChanged.join(", ")}\n\nThe LLM was unable to fix all errors. Manual intervention may be required.`,
         filesChanged,
         mode: "local",
         qualityGates: {
-          passed: true,
-          tests: qualityResult.tests,
-          typeCheck: qualityResult.typeCheck,
-          build: qualityResult.build
+          passed: false,
+          tests: lastQualityResult.tests,
+          typeCheck: lastQualityResult.typeCheck,
+          build: lastQualityResult.build
+        }
+      }
+    }
+
+    // If we get here with files but no quality result, run quality gates one final time
+    // (This handles edge cases where the loop exited early)
+    if (filesChanged.length > 0 && !lastQualityResult) {
+      emit("thinking", "Running final quality gates check...", "")
+      const installResult = await installDependenciesIfNeeded(repoPath, filesChanged, emit)
+      if (installResult.success) {
+        const finalQualityResult = await runQualityGates(repoPath, emit)
+        if (finalQualityResult.passed) {
+          if (options?.createCommit) {
+            await createGitCommit(repoPath, packet.title, filesChanged)
+          }
+          return {
+            success: true,
+            output: `Completed with LM Studio. ${filesChanged.length} files modified.\n\nQuality Gates: ALL PASSED`,
+            filesChanged,
+            mode: "local",
+            qualityGates: {
+              passed: true,
+              tests: finalQualityResult.tests,
+              typeCheck: finalQualityResult.typeCheck,
+              build: finalQualityResult.build
+            }
+          }
+        } else {
+          return {
+            success: false,
+            output: `QUALITY GATES FAILED.\n\n${finalQualityResult.summary}\n\nFiles changed: ${filesChanged.join(", ")}`,
+            filesChanged,
+            mode: "local",
+            qualityGates: {
+              passed: false,
+              tests: finalQualityResult.tests,
+              typeCheck: finalQualityResult.typeCheck,
+              build: finalQualityResult.build
+            }
+          }
         }
       }
     }
@@ -952,14 +1372,174 @@ Rules:
 If the task is complete and no more changes needed, say "COMPLETE - all tasks done"
 `
 
+// System prompt for research/inquiry/non-coding tasks
+const RESEARCH_SYSTEM_PROMPT = `You are Claudia, an expert analyst and advisor. You provide thorough, well-researched responses.
+
+When given a research task, inquiry, or non-coding request, provide a comprehensive response in markdown format.
+
+Output your response in this EXACT format:
+
+===DOCUMENT: .claudia/docs/{appropriate-filename}.md===
+---CONTENT---
+# [Title based on the task]
+
+[Your comprehensive response here, using proper markdown formatting]
+
+## Key Findings
+- [Finding 1]
+- [Finding 2]
+
+## Recommendations
+- [Recommendation 1]
+- [Recommendation 2]
+
+## Summary
+[Brief summary of your analysis/findings]
+
+---
+*Generated by Claudia on [date]*
+---END---
+
+Guidelines:
+1. Be thorough and well-organized
+2. Use proper markdown formatting (headers, lists, tables, code blocks)
+3. Cite sources or reasoning when making claims
+4. Provide actionable recommendations when appropriate
+5. Include relevant examples or case studies
+6. Structure content for easy reading
+7. Be direct and practical, not vague or overly academic
+8. If the task involves comparison, use tables
+9. If the task involves steps/processes, use numbered lists
+10. Always end with a clear summary or conclusion
+
+For business/strategy tasks: Focus on practical implications and ROI
+For research tasks: Focus on findings, evidence, and implications
+For advisory tasks: Focus on pros/cons and clear recommendations
+`
+
+/**
+ * Detect if a packet is a research/inquiry/non-coding task
+ * These tasks should output markdown documents instead of code
+ */
+function isResearchOrInquiryTask(packet: ExecutionRequest["packet"]): boolean {
+  // Explicit research type
+  if (packet.type === "research" || packet.type === "docs" || packet.type === "analysis") {
+    return true
+  }
+
+  // Check title and description for research/inquiry indicators
+  const text = `${packet.title} ${packet.description}`.toLowerCase()
+
+  // Research/inquiry keywords
+  const researchKeywords = [
+    "research", "investigate", "analyze", "analyse", "review", "evaluate",
+    "assess", "compare", "study", "explore", "understand", "learn about",
+    "find out", "look into", "recommend", "advise", "suggest", "strategy",
+    "planning", "plan for", "how to", "what is", "what are", "why", "when should",
+    "best practice", "pros and cons", "options for", "alternatives",
+    "feasibility", "market", "competitive", "analysis", "report"
+  ]
+
+  // Coding keywords - if these are present, it's likely a coding task
+  const codingKeywords = [
+    "implement", "create component", "build feature", "fix bug", "refactor",
+    "add endpoint", "write function", "create class", "add method",
+    "update code", "modify", "change the", "add to", "remove from",
+    "integrate", "connect", "wire up", "hook up", "api endpoint",
+    "database", "schema", "migration", "test for", "unit test"
+  ]
+
+  // Check for research indicators
+  const hasResearchKeywords = researchKeywords.some(kw => text.includes(kw))
+  const hasCodingKeywords = codingKeywords.some(kw => text.includes(kw))
+
+  // If it has research keywords and no coding keywords, it's a research task
+  if (hasResearchKeywords && !hasCodingKeywords) {
+    return true
+  }
+
+  // Check tasks for research nature
+  const taskTexts = packet.tasks.map(t => t.description.toLowerCase()).join(" ")
+  const tasksAreResearch = researchKeywords.some(kw => taskTexts.includes(kw))
+  const tasksAreCoding = codingKeywords.some(kw => taskTexts.includes(kw))
+
+  if (tasksAreResearch && !tasksAreCoding) {
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Parse document output from research task response
+ */
+interface DocumentOutput {
+  path: string
+  content: string
+}
+
+function parseDocumentOutput(response: string): DocumentOutput | null {
+  // Pattern: ===DOCUMENT: path/to/file.md===\n---CONTENT---\n...\n---END---
+  const docPattern = /===DOCUMENT:\s*(.+?)===\s*\n---CONTENT---\n([\s\S]*?)(?:---END---|$)/i
+
+  const match = docPattern.exec(response)
+  if (match) {
+    return {
+      path: match[1].trim(),
+      content: match[2].trim()
+    }
+  }
+
+  // Fallback: if response is just markdown without our format, wrap it
+  if (response.includes("#") && !response.includes("===FILE:")) {
+    return {
+      path: ".claudia/docs/response.md",
+      content: response.trim()
+    }
+  }
+
+  return null
+}
+
+/**
+ * Generate a slug from packet title for document filename
+ */
+function generateDocumentSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .substring(0, 50)
+}
+
+/**
+ * Error feedback context for retry prompts
+ */
+interface ErrorFeedback {
+  typeErrors?: {
+    errorOutput: string
+    errorCount: number
+    tsconfigContent?: string
+    failingFiles?: Array<{ path: string; content: string }>
+  }
+  testErrors?: {
+    errorOutput: string
+  }
+  buildErrors?: {
+    errorOutput: string
+  }
+}
+
 /**
  * Build the prompt for LM Studio execution
+ * Includes detailed error feedback when quality gates fail
  */
 function buildLMStudioPrompt(
   packet: ExecutionRequest["packet"],
   projectContext: string,
   iteration: number,
-  previousOutput: string
+  previousOutput: string,
+  errorFeedback?: ErrorFeedback
 ): string {
   const taskList = packet.tasks.map((t, i) => `${i + 1}. ${t.description}`).join("\n")
   const criteria = packet.acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join("\n")
@@ -979,7 +1559,83 @@ ${criteria}
 ${projectContext}
 `
 
-  if (iteration > 1 && previousOutput) {
+  // Add error feedback if this is a retry after quality gate failure
+  if (iteration > 1 && errorFeedback) {
+    prompt += `
+
+## ⚠️ QUALITY GATE ERRORS - FIX THESE FIRST!
+
+The previous iteration failed quality gates. You MUST fix these errors before proceeding.
+`
+
+    if (errorFeedback.typeErrors && errorFeedback.typeErrors.errorCount > 0) {
+      prompt += `
+### TypeScript Compilation Errors (${errorFeedback.typeErrors.errorCount} errors)
+
+\`\`\`
+${errorFeedback.typeErrors.errorOutput.substring(0, 3000)}
+\`\`\`
+`
+
+      // Include tsconfig so the model understands the rules
+      if (errorFeedback.typeErrors.tsconfigContent) {
+        prompt += `
+### tsconfig.json (MUST follow these rules)
+
+\`\`\`json
+${errorFeedback.typeErrors.tsconfigContent}
+\`\`\`
+
+IMPORTANT TypeScript rules to follow:
+- If "verbatimModuleSyntax": true, you MUST use \`import type { ... }\` for type-only imports
+- If "erasableSyntaxOnly": true, you CANNOT use \`enum\` - use \`const\` objects instead
+- If "strict": true, all variables must have proper types, no implicit any
+- If "noUnusedLocals": true, remove any unused imports/variables
+`
+      }
+
+      // Include content of failing files
+      if (errorFeedback.typeErrors.failingFiles && errorFeedback.typeErrors.failingFiles.length > 0) {
+        prompt += `
+### Files with errors (current content)
+
+`
+        for (const file of errorFeedback.typeErrors.failingFiles.slice(0, 3)) {
+          prompt += `#### ${file.path}
+\`\`\`typescript
+${file.content.substring(0, 2000)}
+\`\`\`
+
+`
+        }
+      }
+    }
+
+    if (errorFeedback.testErrors) {
+      prompt += `
+### Test Failures
+
+\`\`\`
+${errorFeedback.testErrors.errorOutput.substring(0, 2000)}
+\`\`\`
+`
+    }
+
+    if (errorFeedback.buildErrors) {
+      prompt += `
+### Build Errors
+
+\`\`\`
+${errorFeedback.buildErrors.errorOutput.substring(0, 2000)}
+\`\`\`
+`
+    }
+
+    prompt += `
+FIX ALL THE ABOVE ERRORS. Output corrected files using the ===FILE=== format.
+Do NOT add new features until all errors are fixed.
+`
+  } else if (iteration > 1 && previousOutput) {
     prompt += `
 
 ## Previous Iteration Output
@@ -995,6 +1651,46 @@ Start implementing. Output file operations using the ===FILE=== format.
   }
 
   return prompt
+}
+
+/**
+ * Build the prompt for research/inquiry tasks
+ * These tasks produce markdown documents instead of code
+ */
+function buildResearchPrompt(
+  packet: ExecutionRequest["packet"],
+  projectContext: string
+): string {
+  const taskList = packet.tasks.map((t, i) => `${i + 1}. ${t.description}`).join("\n")
+  const criteria = packet.acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join("\n")
+  const docSlug = generateDocumentSlug(packet.title)
+
+  return `# Research Task: ${packet.title}
+
+## Description
+${packet.description}
+
+## Tasks to Complete
+${taskList}
+
+## What We're Looking For
+${criteria}
+
+## Project Context
+${projectContext}
+
+## Output Instructions
+Provide your response as a markdown document. Use the filename: .claudia/docs/${docSlug}.md
+
+Remember to:
+- Be thorough and well-organized
+- Use proper markdown formatting
+- Include actionable recommendations
+- End with a clear summary
+- Add today's date to the footer
+
+Start your research response now.
+`
 }
 
 /**
@@ -1176,34 +1872,91 @@ async function installDependenciesIfNeeded(
     emit("thinking", "package.json changed, installing dependencies...", "Running npm install --legacy-peer-deps")
   }
 
-  try {
-    // Run npm install with legacy-peer-deps to handle dependency conflicts
-    const { stdout, stderr } = await execAsync("npm install --legacy-peer-deps", {
-      cwd: repoPath,
-      timeout: 300000, // 5 minutes for npm install
-      env: {
-        ...process.env,
-        // Ensure npm can find node
-        PATH: process.env.PATH
-      }
-    })
-
-    const output = stdout + (stderr ? `\n${stderr}` : "")
-    emit("thinking", "Dependencies installed successfully", `npm install completed`)
-
-    return { success: true, output }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "npm install failed"
-    const stdout = (error as { stdout?: string }).stdout || ""
-    const stderr = (error as { stderr?: string }).stderr || ""
-    const fullOutput = `${stdout}\n${stderr}\n${errorMessage}`
-
-    emit("error", "Failed to install dependencies", errorMessage.substring(0, 500))
-
-    return {
-      success: false,
-      output: `npm install failed:\n${fullOutput}`
+  // Helper to detect and format user-friendly error messages
+  const getUserFriendlyError = (output: string): string => {
+    if (output.includes("No matching version found")) {
+      return "The AI specified a package version that doesn't exist. This is a code generation issue. The generated package.json contains invalid version specifications."
     }
+    if (output.includes("ERESOLVE")) {
+      return "Package dependency conflict. The generated code has incompatible dependencies. The AI may have specified packages with conflicting peer dependencies."
+    }
+    if (output.includes("MODULE_NOT_FOUND") || output.includes("Cannot find module")) {
+      return "A required module is missing. The build configuration may be incorrect, or the AI referenced a package that isn't installed."
+    }
+    if (output.includes("npm ERR! code ENOENT")) {
+      return "A required file or directory was not found. The project structure may be incomplete."
+    }
+    if (output.includes("npm ERR! code E404")) {
+      return "A package was not found in the npm registry. The AI may have referenced a non-existent package name."
+    }
+    if (output.includes("EACCES") || output.includes("permission denied")) {
+      return "Permission denied. There may be a file system permission issue in the project directory."
+    }
+    return ""
+  }
+
+  // Try installation with different strategies
+  const installStrategies = [
+    { name: "npm install --legacy-peer-deps", cmd: "npm install --legacy-peer-deps" },
+    { name: "npm install", cmd: "npm install" },
+    { name: "npm install --force", cmd: "npm install --force" }
+  ]
+
+  let lastError = ""
+  let lastOutput = ""
+
+  for (const strategy of installStrategies) {
+    try {
+      emit("thinking", `Trying: ${strategy.name}...`, "Installing dependencies")
+
+      const { stdout, stderr } = await execAsync(strategy.cmd, {
+        cwd: repoPath,
+        timeout: 300000, // 5 minutes for npm install
+        env: {
+          ...process.env,
+          PATH: process.env.PATH
+        }
+      })
+
+      const output = stdout + (stderr ? `\n${stderr}` : "")
+      emit("thinking", "Dependencies installed successfully", `${strategy.name} completed`)
+
+      return { success: true, output }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "npm install failed"
+      const stdout = (error as { stdout?: string }).stdout || ""
+      const stderr = (error as { stderr?: string }).stderr || ""
+      lastOutput = `${stdout}\n${stderr}\n${errorMessage}`
+      lastError = errorMessage
+
+      // Check if we should try the next strategy
+      const shouldRetry = lastOutput.includes("ERESOLVE") ||
+                          lastOutput.includes("peer dep") ||
+                          lastOutput.includes("Could not resolve dependency")
+
+      if (!shouldRetry && strategy !== installStrategies[installStrategies.length - 1]) {
+        // If it's not a dependency resolution issue and not the last strategy, try the next one
+        emit("thinking", `${strategy.name} failed, trying alternative...`, errorMessage.substring(0, 200))
+        continue
+      } else if (shouldRetry && strategy !== installStrategies[installStrategies.length - 1]) {
+        // Dependency conflict, try next strategy
+        emit("thinking", `${strategy.name} had dependency conflicts, trying alternative...`, errorMessage.substring(0, 200))
+        continue
+      }
+    }
+  }
+
+  // All strategies failed
+  const friendlyError = getUserFriendlyError(lastOutput)
+  const errorDetail = friendlyError
+    ? `${friendlyError}\n\nTechnical details:\n${lastError.substring(0, 500)}`
+    : lastError.substring(0, 500)
+
+  emit("error", "Failed to install dependencies", errorDetail)
+
+  return {
+    success: false,
+    output: `npm install failed after trying multiple strategies:\n\n${friendlyError || "See technical details below."}\n\nFull output:\n${lastOutput}`
   }
 }
 
@@ -1311,6 +2064,17 @@ async function runTypeCheck(repoPath: string): Promise<{ success: boolean; outpu
     const stderr = (error as { stderr?: string }).stderr || ""
     const fullOutput = `${stdout}\n${stderr}\n${errorOutput}`
 
+    // Check if the error is "No inputs were found in config file" - this means
+    // tsconfig.json exists but there are no .ts/.tsx files to check
+    if (fullOutput.includes("error TS18003") || fullOutput.includes("No inputs were found in config file")) {
+      return {
+        success: true,
+        output: "No TypeScript files found - skipping type check",
+        errorCount: 0,
+        skipped: true
+      }
+    }
+
     // Count TypeScript errors (lines starting with path:line:col - error TS)
     const errorMatches = fullOutput.match(/error TS\d+/g)
     const errorCount = errorMatches ? errorMatches.length : 1
@@ -1385,6 +2149,81 @@ interface QualityGateResult {
   summary: string
   skippedCount: number
   validatedCount: number
+}
+
+/**
+ * Build error feedback context from quality gate results
+ * This provides detailed context to help the LLM fix the errors
+ */
+async function buildErrorFeedback(
+  repoPath: string,
+  qualityResult: QualityGateResult
+): Promise<ErrorFeedback> {
+  const feedback: ErrorFeedback = {}
+
+  // Build TypeScript error feedback with tsconfig and failing file contents
+  if (!qualityResult.typeCheck.success && !qualityResult.typeCheck.skipped) {
+    feedback.typeErrors = {
+      errorOutput: qualityResult.typeCheck.output,
+      errorCount: qualityResult.typeCheck.errorCount
+    }
+
+    // Read tsconfig.json to include in feedback
+    try {
+      const tsconfigPath = path.join(repoPath, "tsconfig.json")
+      const tsconfigContent = await fs.readFile(tsconfigPath, "utf-8")
+      feedback.typeErrors.tsconfigContent = tsconfigContent
+
+      // Also check for tsconfig.app.json which may have stricter settings
+      try {
+        const tsconfigAppPath = path.join(repoPath, "tsconfig.app.json")
+        const tsconfigAppContent = await fs.readFile(tsconfigAppPath, "utf-8")
+        feedback.typeErrors.tsconfigContent += `\n\n// tsconfig.app.json (may override above)\n${tsconfigAppContent}`
+      } catch {
+        // No tsconfig.app.json
+      }
+    } catch {
+      // No tsconfig.json
+    }
+
+    // Extract failing file paths from TypeScript error output
+    // Format: src/file.ts(10,5): error TS2345: ...
+    const filePathRegex = /^([^(\s]+\.tsx?)\(/gm
+    const failingFilePaths = new Set<string>()
+    let match
+    while ((match = filePathRegex.exec(qualityResult.typeCheck.output)) !== null) {
+      failingFilePaths.add(match[1])
+    }
+
+    // Read content of failing files (up to 3)
+    const failingFiles: Array<{ path: string; content: string }> = []
+    for (const filePath of Array.from(failingFilePaths).slice(0, 3)) {
+      try {
+        const fullPath = path.join(repoPath, filePath)
+        const content = await fs.readFile(fullPath, "utf-8")
+        failingFiles.push({ path: filePath, content })
+      } catch {
+        // File doesn't exist or can't be read
+      }
+    }
+    feedback.typeErrors.failingFiles = failingFiles
+  }
+
+  // Build test error feedback
+  if (!qualityResult.tests.success && !qualityResult.tests.skipped) {
+    feedback.testErrors = {
+      errorOutput: qualityResult.tests.output
+    }
+  }
+
+  // Build build error feedback
+  if (!qualityResult.build.success && !qualityResult.build.skipped) {
+    feedback.buildErrors = {
+      errorOutput: qualityResult.build.output
+    }
+  }
+
+  return feedback
 }
 
 /**
@@ -1580,25 +2419,39 @@ async function executeRemotely(
 
   // Build Claude Code command with print mode for non-interactive execution
   const maxTurns = options?.maxIterations || 10
-  const claudeCmd = `claude --print --dangerously-skip-permissions --max-turns ${maxTurns}`
+  const selectedModel = options?.selectedModel
+
+  // Build the Claude CLI command with optional model flag
+  let claudeCmd = `claude --print --dangerously-skip-permissions --max-turns ${maxTurns}`
+  if (selectedModel) {
+    claudeCmd += ` --model ${selectedModel}`
+  }
 
   // SSH command to run on remote
   // Use heredoc style to avoid shell escaping issues with complex prompts
-  const sshCmd = `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST} "cd ${repoPath} && echo '${escapedPrompt}' | ${claudeCmd}"`
+  // IMPORTANT: We explicitly unset ANTHROPIC_API_KEY on the remote so the CLI uses Max subscription
+  const sshCmd = `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST} "cd ${repoPath} && unset ANTHROPIC_API_KEY && echo '${escapedPrompt}' | ${claudeCmd}"`
 
   console.log("[executeRemotely] Starting SSH execution to", SSH_HOST)
   console.log("[executeRemotely] Repo path:", repoPath)
   console.log("[executeRemotely] Max turns:", maxTurns)
+  console.log("[executeRemotely] Selected model:", selectedModel || "default")
+
+  // Build environment for SSH command
+  // Remove ANTHROPIC_API_KEY from local env as well (though the remote unset is more important)
+  const sshEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    // Ensure SSH key path is expanded
+    HOME: process.env.HOME,
+    // UNSET API key so CLI uses Max subscription, not API credits
+    ANTHROPIC_API_KEY: undefined
+  }
 
   try {
     const { stdout, stderr } = await execAsync(sshCmd, {
       maxBuffer: 50 * 1024 * 1024, // 50MB buffer for large outputs
       timeout: EXECUTION_TIMEOUT_MS,
-      env: {
-        ...process.env,
-        // Ensure SSH key path is expanded
-        HOME: process.env.HOME
-      }
+      env: sshEnv
     })
 
     // Combine stdout and stderr for complete output
@@ -1657,6 +2510,7 @@ async function executeRemotely(
 
 /**
  * Execute locally (when Claude Code is installed on this machine)
+ * Uses --output-format stream-json for real-time streaming output
  */
 async function executeLocally(
   prompt: string,
@@ -1664,50 +2518,128 @@ async function executeLocally(
   options: ExecutionRequest["options"]
 ): Promise<{ success: boolean; output: string; filesChanged: string[] }> {
   const maxTurns = options?.maxIterations || 10
+  const selectedModel = options?.selectedModel
 
   console.log("[executeLocally] Starting local execution")
   console.log("[executeLocally] Repo path:", repoPath)
   console.log("[executeLocally] Max turns:", maxTurns)
+  console.log("[executeLocally] Selected model:", selectedModel || "default")
 
   return new Promise((resolve) => {
+    // Use --print with --output-format stream-json for real-time updates
+    // This outputs JSON objects as they happen, enabling better progress tracking
+    // Note: --verbose is required when using --print with --output-format stream-json
     const args = [
       "--print",
+      "--verbose",
       "--dangerously-skip-permissions",
-      "--max-turns", String(maxTurns)
+      "--max-turns", String(maxTurns),
+      "--output-format", "stream-json"
     ]
+
+    // Add model flag if a specific model is selected (e.g., claude-sonnet-4-20250514, claude-opus-4-20250514)
+    if (selectedModel) {
+      args.push("--model", selectedModel)
+    }
 
     console.log("[executeLocally] Spawning: claude", args.join(" "))
 
+    // Build environment for Claude CLI
+    // IMPORTANT: We explicitly UNSET ANTHROPIC_API_KEY so the CLI uses the Max subscription
+    // instead of consuming API credits. The user has a Max subscription configured in the CLI.
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      // Ensure Claude can find necessary tools
+      PATH: process.env.PATH,
+      // Force color output for better readability
+      FORCE_COLOR: "1",
+      // Ensure proper encoding
+      LANG: "en_US.UTF-8",
+      LC_ALL: "en_US.UTF-8",
+      // UNSET API key so CLI uses Max subscription, not API credits
+      ANTHROPIC_API_KEY: undefined
+    }
+
     const child = spawn("claude", args, {
       cwd: repoPath,
-      env: {
-        ...process.env,
-        // Ensure Claude can find necessary tools
-        PATH: process.env.PATH
-      },
+      env: childEnv,
       stdio: ["pipe", "pipe", "pipe"]
     })
 
     let stdout = ""
     let stderr = ""
+    const filesChanged: string[] = []
+    let lastProgressMessage = ""
 
     // Write the prompt to stdin
     child.stdin.write(prompt)
     child.stdin.end()
 
-    // Collect stdout
+    // Process stdout - parse stream-json output
     child.stdout.on("data", (data: Buffer) => {
       const chunk = data.toString()
       stdout += chunk
-      // Log progress for debugging
-      if (chunk.includes("Thinking") || chunk.includes("Editing") || chunk.includes("Creating")) {
-        console.log("[executeLocally] Progress:", chunk.substring(0, 100))
+
+      // Parse streaming JSON output line by line
+      const lines = chunk.split("\n").filter(line => line.trim())
+      for (const line of lines) {
+        try {
+          const jsonLine = JSON.parse(line)
+
+          // Handle different message types from Claude Code stream-json format
+          if (jsonLine.type === "assistant" && jsonLine.message?.content) {
+            // Assistant is thinking/responding
+            const content = Array.isArray(jsonLine.message.content)
+              ? jsonLine.message.content.map((c: { text?: string }) => c.text || "").join("")
+              : jsonLine.message.content
+            if (content) {
+              lastProgressMessage = content.substring(0, 200)
+              console.log("[executeLocally] Assistant:", lastProgressMessage)
+            }
+          } else if (jsonLine.type === "content_block_delta" && jsonLine.delta?.text) {
+            // Streaming text delta
+            lastProgressMessage = jsonLine.delta.text.substring(0, 200)
+          } else if (jsonLine.type === "tool_use" || jsonLine.type === "tool_result") {
+            // Tool usage - extract file operations
+            const toolName = jsonLine.name || jsonLine.tool_name
+            const toolInput = jsonLine.input || jsonLine.tool_input || {}
+
+            console.log("[executeLocally] Tool:", toolName, toolInput.file_path || toolInput.path || "")
+
+            // Track file changes from tool usage
+            if (toolName === "Write" || toolName === "Edit") {
+              const filePath = toolInput.file_path || toolInput.path
+              if (filePath && !filesChanged.includes(filePath)) {
+                filesChanged.push(filePath)
+                console.log("[executeLocally] File changed:", filePath)
+              }
+            }
+          } else if (jsonLine.type === "result") {
+            // Final result
+            console.log("[executeLocally] Result received")
+          } else if (jsonLine.type === "system" || jsonLine.type === "error") {
+            // System message or error
+            console.log("[executeLocally] System/Error:", jsonLine.message || jsonLine.error || JSON.stringify(jsonLine))
+          }
+        } catch {
+          // Not JSON or partial JSON - could be plain text output
+          // Log progress if it looks like a status update
+          if (chunk.includes("Thinking") || chunk.includes("Editing") || chunk.includes("Creating") ||
+              chunk.includes("Reading") || chunk.includes("Writing") || chunk.includes("Searching")) {
+            console.log("[executeLocally] Progress:", chunk.substring(0, 100))
+          }
+        }
       }
     })
 
     // Collect stderr
     child.stderr.on("data", (data: Buffer) => {
-      stderr += data.toString()
+      const chunk = data.toString()
+      stderr += chunk
+      // Log stderr for debugging
+      if (chunk.trim()) {
+        console.log("[executeLocally] stderr:", chunk.substring(0, 200))
+      }
     })
 
     // Handle timeout
@@ -1724,8 +2656,49 @@ async function executeLocally(
     // Handle completion
     child.on("close", (code) => {
       clearTimeout(timeoutId)
-      const fullOutput = stdout + (stderr ? `\n[stderr]: ${stderr}` : "")
-      const filesChanged = parseFilesChanged(fullOutput)
+
+      // Also parse the full output for any files we might have missed
+      const additionalFiles = parseFilesChanged(stdout)
+      for (const file of additionalFiles) {
+        if (!filesChanged.includes(file)) {
+          filesChanged.push(file)
+        }
+      }
+
+      // Build human-readable output from the stream-json data
+      let humanOutput = ""
+      try {
+        // Try to extract text content from stream-json for human-readable output
+        const lines = stdout.split("\n").filter(line => line.trim())
+        const textParts: string[] = []
+
+        for (const line of lines) {
+          try {
+            const json = JSON.parse(line)
+            if (json.type === "assistant" && json.message?.content) {
+              const content = Array.isArray(json.message.content)
+                ? json.message.content.map((c: { type?: string; text?: string }) => c.type === "text" ? c.text : "").join("")
+                : json.message.content
+              if (content) textParts.push(content)
+            } else if (json.type === "content_block_delta" && json.delta?.text) {
+              textParts.push(json.delta.text)
+            } else if (json.type === "result" && json.result) {
+              textParts.push(`\n=== Result ===\n${JSON.stringify(json.result, null, 2)}`)
+            }
+          } catch {
+            // Not JSON, include as-is if non-empty
+            if (line.trim() && !line.startsWith("{")) {
+              textParts.push(line)
+            }
+          }
+        }
+
+        humanOutput = textParts.join("") || stdout
+      } catch {
+        humanOutput = stdout
+      }
+
+      const fullOutput = humanOutput + (stderr ? `\n[stderr]: ${stderr}` : "")
 
       console.log("[executeLocally] Process exited with code:", code)
       console.log("[executeLocally] Files changed:", filesChanged.length)
@@ -1885,15 +2858,16 @@ export async function GET() {
 
   const lmStudioAvailable = lmStudioServer !== null
 
-  // Determine recommended mode priority: turbo > n8n > local
-  // Claude Code (turbo) is preferred for higher quality execution
+  // Determine recommended mode priority: local > n8n > turbo
+  // LOCAL mode is preferred (free, no API costs)
+  // Claude Code (turbo) should only be used if explicitly configured
   let recommendedMode: ExecutionMode | "none" = "none"
-  if (claudeLocalAvailable || claudeRemoteAvailable) {
-    recommendedMode = "turbo"
+  if (lmStudioAvailable) {
+    recommendedMode = "local"
   } else if (n8nAvailable) {
     recommendedMode = "n8n"
-  } else if (lmStudioAvailable) {
-    recommendedMode = "local"
+  } else if (claudeLocalAvailable || claudeRemoteAvailable) {
+    recommendedMode = "turbo"
   }
 
   return NextResponse.json({

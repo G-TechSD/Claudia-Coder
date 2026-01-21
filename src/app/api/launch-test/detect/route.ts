@@ -25,18 +25,39 @@ interface ProjectTypeConfig {
 
 // Order matters! More specific types should come before generic ones
 const PROJECT_TYPES: Record<string, ProjectTypeConfig> = {
+  // Mobile / Cross-platform (check first - very specific)
   flutter: {
     name: "Flutter",
     identifyingFiles: ["pubspec.yaml"],
     packageJsonDeps: [],
     fallbackFiles: []
   },
+
+  // Desktop Apps (Electron/Tauri)
+  desktop: {
+    name: "Desktop App",
+    identifyingFiles: ["electron.config.js", "tauri.conf.json", "electron-builder.json"],
+    packageJsonDeps: ["electron", "@tauri-apps/cli"],
+    fallbackFiles: []
+  },
+
+  // Systems / Compiled
   rust: {
     name: "Rust",
     identifyingFiles: ["Cargo.toml"],
     packageJsonDeps: [],
     fallbackFiles: []
   },
+
+  // n8n Workflows
+  n8n: {
+    name: "n8n Workflows",
+    identifyingFiles: [".n8n", "n8n-config.json"],
+    packageJsonDeps: ["n8n"],
+    fallbackFiles: []
+  },
+
+  // Web Frameworks - JavaScript/TypeScript (order matters!)
   nextjs: {
     name: "Next.js",
     identifyingFiles: ["next.config.js", "next.config.mjs", "next.config.ts"],
@@ -67,6 +88,16 @@ const PROJECT_TYPES: Record<string, ProjectTypeConfig> = {
     packageJsonDeps: ["react"], // Checked AFTER nextjs
     fallbackFiles: ["src/App.tsx", "src/App.jsx", "src/App.js"]
   },
+
+  // PHP / Traditional Web
+  php: {
+    name: "PHP / MySQL",
+    identifyingFiles: ["composer.json", "composer.lock"],
+    packageJsonDeps: [],
+    fallbackFiles: ["index.php", "wp-config.php", "config.php"]
+  },
+
+  // Python Frameworks
   django: {
     name: "Django",
     identifyingFiles: ["manage.py"],
@@ -85,17 +116,29 @@ const PROJECT_TYPES: Record<string, ProjectTypeConfig> = {
     packageJsonDeps: [],
     fallbackFiles: [] // Detected via requirements.txt content
   },
+
+  // Generic Node.js
   node: {
     name: "Node.js",
     identifyingFiles: [],
     packageJsonDeps: ["express", "fastify", "koa", "hapi"],
     fallbackFiles: ["server.js", "app.js", "index.js"]
   },
+
+  // Generic Python
   python: {
     name: "Python",
     identifyingFiles: [],
     packageJsonDeps: [],
     fallbackFiles: ["main.py", "app.py", "requirements.txt"]
+  },
+
+  // Static HTML (check last - very generic)
+  html: {
+    name: "Static HTML",
+    identifyingFiles: [],
+    packageJsonDeps: [],
+    fallbackFiles: ["index.html", "index.htm", "public/index.html", "public/index.htm", "dist/index.html"]
   }
 }
 
@@ -127,6 +170,42 @@ async function readRequirementsTxt(repoPath: string): Promise<string | null> {
   }
 }
 
+/**
+ * Find the FastAPI app module path by looking for main.py or app.py
+ * Returns the module path for uvicorn (e.g., "main:app" or "src.main:app")
+ */
+async function findFastAPIModule(repoPath: string): Promise<string> {
+  // Common locations for FastAPI apps, in order of preference
+  const searchPaths = [
+    { file: "main.py", module: "main:app" },
+    { file: "app.py", module: "app:app" },
+    { file: "src/main.py", module: "src.main:app" },
+    { file: "src/app.py", module: "src.app:app" },
+    { file: "app/main.py", module: "app.main:app" },
+    { file: "api/main.py", module: "api.main:app" },
+  ]
+
+  for (const { file, module } of searchPaths) {
+    const filePath = path.join(repoPath, file)
+    if (await fileExists(filePath)) {
+      // Also check if the file contains a FastAPI app
+      try {
+        const content = await fs.readFile(filePath, "utf-8")
+        if (content.includes("FastAPI") || content.includes("app =") || content.includes("app=")) {
+          console.log(`[detect] Found FastAPI app at ${file} -> ${module}`)
+          return module
+        }
+      } catch {
+        // File exists but couldn't read, still return the module
+        return module
+      }
+    }
+  }
+
+  // Default fallback
+  return "main:app"
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json()
   const { repoPath } = body
@@ -135,24 +214,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "repoPath required" }, { status: 400 })
   }
 
+  // Expand ~ to home directory
+  const expandedPath = repoPath.replace(/^~/, process.env.HOME || require("os").homedir())
+
   try {
     // First, check if the directory exists
-    const dirExists = await fileExists(repoPath)
+    const dirExists = await fileExists(expandedPath)
     if (!dirExists) {
-      console.log(`[detect] Directory does not exist: ${repoPath}`)
+      console.log(`[detect] Directory does not exist: ${expandedPath}`)
       return NextResponse.json({
         projectType: null,
-        error: `Directory not found: ${repoPath}`,
+        error: `Directory not found: ${expandedPath}`,
         suggestion: "Set the working directory or local repo path in project settings"
       })
     }
 
-    console.log(`[detect] Scanning directory: ${repoPath}`)
+    console.log(`[detect] Scanning directory: ${expandedPath}`)
 
     // Phase 1: Check for identifying files (most reliable)
     for (const [typeName, config] of Object.entries(PROJECT_TYPES)) {
       for (const file of config.identifyingFiles) {
-        const filePath = path.join(repoPath, file)
+        const filePath = path.join(expandedPath, file)
         if (await fileExists(filePath)) {
           console.log(`[detect] Found ${file} -> ${typeName}`)
           return NextResponse.json({
@@ -164,7 +246,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Phase 2: Check package.json dependencies (order matters!)
-    const packageJson = await readPackageJson(repoPath)
+    const packageJson = await readPackageJson(expandedPath)
     if (packageJson) {
       const deps = packageJson.dependencies as Record<string, string> | undefined
       const devDeps = packageJson.devDependencies as Record<string, string> | undefined
@@ -194,7 +276,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Phase 3: Check requirements.txt for Python frameworks
-    const requirements = await readRequirementsTxt(repoPath)
+    const requirements = await readRequirementsTxt(expandedPath)
     if (requirements) {
       const reqLower = requirements.toLowerCase()
 
@@ -207,10 +289,15 @@ export async function POST(request: NextRequest) {
       }
 
       if (reqLower.includes("fastapi")) {
-        console.log(`[detect] Found fastapi in requirements.txt -> fastapi`)
+        // Find the correct module path for the FastAPI app
+        const modulePath = await findFastAPIModule(expandedPath)
+        const suggestedCommand = `uvicorn ${modulePath} --host 0.0.0.0 --port 8000 --reload`
+        console.log(`[detect] Found fastapi in requirements.txt -> fastapi (module: ${modulePath})`)
         return NextResponse.json({
           projectType: "fastapi",
-          detectedBy: "requirements.txt:fastapi"
+          detectedBy: "requirements.txt:fastapi",
+          modulePath,
+          suggestedCommand
         })
       }
 
@@ -233,7 +320,7 @@ export async function POST(request: NextRequest) {
     // Phase 4: Check fallback files
     for (const [typeName, config] of Object.entries(PROJECT_TYPES)) {
       for (const file of config.fallbackFiles) {
-        const filePath = path.join(repoPath, file)
+        const filePath = path.join(expandedPath, file)
         if (await fileExists(filePath)) {
           console.log(`[detect] Found fallback ${file} -> ${typeName}`)
           return NextResponse.json({
@@ -246,7 +333,7 @@ export async function POST(request: NextRequest) {
 
     // List files for debugging
     try {
-      const files = await fs.readdir(repoPath)
+      const files = await fs.readdir(expandedPath)
       console.log(`[detect] No project type detected. Files in directory:`, files.slice(0, 20))
     } catch {
       // Ignore

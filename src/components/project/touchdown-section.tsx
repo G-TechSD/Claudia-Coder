@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils"
 interface TouchdownSectionProps {
   projectId: string
   projectName: string
+  projectDescription?: string
   workingDirectory?: string
   packets: Array<{
     id: string
@@ -75,6 +76,7 @@ interface TouchdownResult {
 export function TouchdownSection({
   projectId,
   projectName,
+  projectDescription,
   workingDirectory,
   packets,
   onTouchdownComplete,
@@ -113,6 +115,12 @@ export function TouchdownSection({
           runQualityGates,
           generateAnalysis,
           executeRefinements,
+          // Pass project info since server can't access localStorage
+          project: {
+            id: projectId,
+            name: projectName,
+            description: projectDescription,
+          },
         }),
       })
 

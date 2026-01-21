@@ -998,6 +998,543 @@ export function getPacketFilename(packet: WorkPacket, index: number): string {
   return `PKT-${paddedIndex}-${slug}.md`
 }
 
+// ============ Brain Dumps Generator ============
+
+/**
+ * Brain dump data structure for generation
+ * Matches the BrainDump type from types.ts
+ */
+interface BrainDumpForGeneration {
+  id: string
+  projectId: string
+  resourceId: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  transcription?: {
+    text: string
+    method: string
+    duration: number
+    wordCount: number
+    confidence?: number
+    transcribedAt: string
+  }
+  processedContent?: {
+    summary: string
+    structuredMarkdown: string
+    sections: Array<{
+      id: string
+      title: string
+      content: string
+      type: string
+      approved: boolean
+    }>
+    actionItems: Array<{
+      id: string
+      description: string
+      priority: string
+      category: string
+      approved: boolean
+    }>
+    ideas: string[]
+    decisions: Array<{
+      id: string
+      description: string
+      rationale: string
+      approved: boolean
+    }>
+    questions: string[]
+    rawInsights: string[]
+    processedAt: string
+    processedBy: string
+  }
+  reviewNotes?: string
+  approvedSections?: string[]
+}
+
+/**
+ * Generate BRAIN_DUMPS.md content from brain dump data
+ *
+ * Contains all transcribed brain dumps and processed insights
+ * for Claude Code to reference during development.
+ */
+export function generateBrainDumpsMarkdown(
+  brainDumps: BrainDumpForGeneration[],
+  project: Project
+): string {
+  const lines: string[] = []
+
+  // Frontmatter
+  lines.push("---")
+  lines.push(`title: "Brain Dumps: ${project.name}"`)
+  lines.push(`project_id: "${project.id}"`)
+  lines.push(`total_dumps: ${brainDumps.length}`)
+  lines.push(`generated: "${new Date().toISOString()}"`)
+  lines.push("---")
+  lines.push("")
+
+  // Title
+  lines.push("# Brain Dumps")
+  lines.push("")
+  lines.push(`This document contains all brain dump recordings and their processed insights for **${project.name}**.`)
+  lines.push("")
+
+  if (brainDumps.length === 0) {
+    lines.push("*No brain dumps recorded yet.*")
+    lines.push("")
+    return lines.join("\n")
+  }
+
+  // Summary
+  lines.push("## Summary")
+  lines.push("")
+  lines.push(`| Metric | Value |`)
+  lines.push(`|--------|-------|`)
+  lines.push(`| Total Brain Dumps | ${brainDumps.length} |`)
+  lines.push(`| Completed | ${brainDumps.filter(d => d.status === "completed").length} |`)
+  lines.push(`| In Review | ${brainDumps.filter(d => d.status === "review").length} |`)
+  lines.push("")
+
+  // Each brain dump
+  brainDumps.forEach((dump, index) => {
+    lines.push(`## Brain Dump ${index + 1}`)
+    lines.push("")
+    lines.push(`**ID:** ${dump.id}`)
+    lines.push(`**Status:** ${dump.status}`)
+    lines.push(`**Created:** ${formatDate(dump.createdAt)}`)
+    lines.push("")
+
+    // Transcription
+    if (dump.transcription) {
+      lines.push("### Transcription")
+      lines.push("")
+      lines.push(`> Duration: ${Math.round(dump.transcription.duration / 60)} minutes | Words: ${dump.transcription.wordCount}`)
+      lines.push("")
+      lines.push("```")
+      lines.push(dump.transcription.text)
+      lines.push("```")
+      lines.push("")
+    }
+
+    // Processed content
+    if (dump.processedContent) {
+      const pc = dump.processedContent
+
+      // Summary
+      if (pc.summary) {
+        lines.push("### Summary")
+        lines.push("")
+        lines.push(pc.summary)
+        lines.push("")
+      }
+
+      // Structured content
+      if (pc.structuredMarkdown) {
+        lines.push("### Structured Content")
+        lines.push("")
+        lines.push(pc.structuredMarkdown)
+        lines.push("")
+      }
+
+      // Action Items
+      if (pc.actionItems && pc.actionItems.length > 0) {
+        lines.push("### Action Items")
+        lines.push("")
+        pc.actionItems.forEach(item => {
+          const checkbox = item.approved ? "[x]" : "[ ]"
+          const priority = item.priority === "high" ? "(!)" : ""
+          lines.push(`- ${checkbox} ${priority} ${item.description} *(${item.category})*`)
+        })
+        lines.push("")
+      }
+
+      // Ideas
+      if (pc.ideas && pc.ideas.length > 0) {
+        lines.push("### Ideas")
+        lines.push("")
+        pc.ideas.forEach(idea => {
+          lines.push(`- ${idea}`)
+        })
+        lines.push("")
+      }
+
+      // Decisions
+      if (pc.decisions && pc.decisions.length > 0) {
+        lines.push("### Decisions")
+        lines.push("")
+        pc.decisions.forEach(decision => {
+          const checkbox = decision.approved ? "[x]" : "[ ]"
+          lines.push(`- ${checkbox} **${decision.description}**`)
+          lines.push(`  - Rationale: ${decision.rationale}`)
+        })
+        lines.push("")
+      }
+
+      // Questions
+      if (pc.questions && pc.questions.length > 0) {
+        lines.push("### Open Questions")
+        lines.push("")
+        pc.questions.forEach(q => {
+          lines.push(`- ${q}`)
+        })
+        lines.push("")
+      }
+
+      // Raw insights
+      if (pc.rawInsights && pc.rawInsights.length > 0) {
+        lines.push("### Raw Insights")
+        lines.push("")
+        pc.rawInsights.forEach(insight => {
+          lines.push(`- ${insight}`)
+        })
+        lines.push("")
+      }
+    }
+
+    // Review notes
+    if (dump.reviewNotes) {
+      lines.push("### Review Notes")
+      lines.push("")
+      lines.push(dump.reviewNotes)
+      lines.push("")
+    }
+
+    lines.push("---")
+    lines.push("")
+  })
+
+  // Footer
+  lines.push(`*Generated by Claudia Coder on ${formatDate()}*`)
+
+  return lines.join("\n")
+}
+
+// ============ Interviews Generator ============
+
+/**
+ * Interview session data structure for generation
+ * Matches the InterviewSession type from types.ts
+ */
+interface InterviewForGeneration {
+  id: string
+  type: string
+  status: string
+  targetType?: string
+  targetId?: string
+  targetTitle?: string
+  targetContext?: Record<string, unknown>
+  messages: Array<{
+    id: string
+    role: "assistant" | "user"
+    content: string
+    timestamp: string
+    transcribedFrom?: string
+    skipped?: boolean
+    followUpRequested?: boolean
+  }>
+  summary?: string
+  keyPoints?: string[]
+  suggestedActions?: string[]
+  extractedData?: Record<string, unknown>
+  createdAt: string
+  completedAt?: string
+}
+
+/**
+ * Generate INTERVIEWS.md content from interview data
+ *
+ * Contains all interview sessions (creation interview and contextual interviews)
+ * for Claude Code to reference during development.
+ */
+export function generateInterviewsMarkdown(
+  creationInterview: InterviewForGeneration | undefined,
+  contextualInterviews: InterviewForGeneration[],
+  project: Project
+): string {
+  const lines: string[] = []
+
+  // Frontmatter
+  lines.push("---")
+  lines.push(`title: "Interviews: ${project.name}"`)
+  lines.push(`project_id: "${project.id}"`)
+  lines.push(`has_creation_interview: ${!!creationInterview}`)
+  lines.push(`contextual_interviews: ${contextualInterviews.length}`)
+  lines.push(`generated: "${new Date().toISOString()}"`)
+  lines.push("---")
+  lines.push("")
+
+  // Title
+  lines.push("# Project Interviews")
+  lines.push("")
+  lines.push(`This document contains interview sessions for **${project.name}**. These capture the user's vision, requirements, and contextual feedback.`)
+  lines.push("")
+
+  // Creation Interview
+  lines.push("## Creation Interview")
+  lines.push("")
+
+  if (creationInterview) {
+    lines.push("The creation interview captures the initial vision and requirements for this project.")
+    lines.push("")
+    lines.push(`**Status:** ${creationInterview.status}`)
+    lines.push(`**Created:** ${formatDate(creationInterview.createdAt)}`)
+    if (creationInterview.completedAt) {
+      lines.push(`**Completed:** ${formatDate(creationInterview.completedAt)}`)
+    }
+    lines.push("")
+
+    // Summary
+    if (creationInterview.summary) {
+      lines.push("### Summary")
+      lines.push("")
+      lines.push(creationInterview.summary)
+      lines.push("")
+    }
+
+    // Key Points
+    if (creationInterview.keyPoints && creationInterview.keyPoints.length > 0) {
+      lines.push("### Key Points")
+      lines.push("")
+      creationInterview.keyPoints.forEach(point => {
+        lines.push(`- ${point}`)
+      })
+      lines.push("")
+    }
+
+    // Suggested Actions
+    if (creationInterview.suggestedActions && creationInterview.suggestedActions.length > 0) {
+      lines.push("### Suggested Actions")
+      lines.push("")
+      creationInterview.suggestedActions.forEach(action => {
+        lines.push(`- ${action}`)
+      })
+      lines.push("")
+    }
+
+    // Full Conversation
+    lines.push("### Full Conversation")
+    lines.push("")
+    creationInterview.messages.forEach(msg => {
+      const role = msg.role === "assistant" ? "**Claudia:**" : "**User:**"
+      const source = msg.transcribedFrom === "voice" ? " *(voice)*" : ""
+      lines.push(`${role}${source}`)
+      lines.push("")
+      lines.push(msg.content)
+      lines.push("")
+    })
+  } else {
+    lines.push("*No creation interview recorded.*")
+    lines.push("")
+  }
+
+  // Contextual Interviews
+  lines.push("## Contextual Interviews")
+  lines.push("")
+
+  if (contextualInterviews.length === 0) {
+    lines.push("*No contextual interviews recorded yet.*")
+    lines.push("")
+  } else {
+    lines.push(`There are ${contextualInterviews.length} contextual interview(s) providing additional context.`)
+    lines.push("")
+
+    contextualInterviews.forEach((interview, index) => {
+      lines.push(`### Interview ${index + 1}: ${interview.targetTitle || interview.targetType || "General"}`)
+      lines.push("")
+      lines.push(`**Type:** ${interview.targetType || "N/A"}`)
+      lines.push(`**Status:** ${interview.status}`)
+      lines.push(`**Created:** ${formatDate(interview.createdAt)}`)
+      lines.push("")
+
+      // Summary
+      if (interview.summary) {
+        lines.push("#### Summary")
+        lines.push("")
+        lines.push(interview.summary)
+        lines.push("")
+      }
+
+      // Key Points
+      if (interview.keyPoints && interview.keyPoints.length > 0) {
+        lines.push("#### Key Points")
+        lines.push("")
+        interview.keyPoints.forEach(point => {
+          lines.push(`- ${point}`)
+        })
+        lines.push("")
+      }
+
+      // Conversation
+      lines.push("#### Conversation")
+      lines.push("")
+      interview.messages.forEach(msg => {
+        const role = msg.role === "assistant" ? "**Claudia:**" : "**User:**"
+        lines.push(`${role}`)
+        lines.push("")
+        lines.push(msg.content)
+        lines.push("")
+      })
+
+      lines.push("---")
+      lines.push("")
+    })
+  }
+
+  // Footer
+  lines.push(`*Generated by Claudia Coder on ${formatDate()}*`)
+
+  return lines.join("\n")
+}
+
+// ============ Resources Generator ============
+
+/**
+ * Resource data structure for generation
+ * Matches the ProjectResource type from types.ts
+ */
+interface ResourceForGeneration {
+  id: string
+  projectId: string
+  name: string
+  type: string
+  mimeType: string
+  size: number
+  createdAt: string
+  updatedAt: string
+  storage: string
+  filePath?: string
+  indexedDbKey?: string
+  description?: string
+  tags: string[]
+  transcription?: {
+    text: string
+    method: string
+    duration: number
+    wordCount: number
+  }
+}
+
+/**
+ * Generate RESOURCES.md content from resource data
+ *
+ * An index of all user-uploaded resources with descriptions
+ * for Claude Code to reference during development.
+ */
+export function generateResourcesMarkdown(
+  resources: ResourceForGeneration[],
+  project: Project
+): string {
+  const lines: string[] = []
+
+  // Frontmatter
+  lines.push("---")
+  lines.push(`title: "Resources: ${project.name}"`)
+  lines.push(`project_id: "${project.id}"`)
+  lines.push(`total_resources: ${resources.length}`)
+  lines.push(`generated: "${new Date().toISOString()}"`)
+  lines.push("---")
+  lines.push("")
+
+  // Title
+  lines.push("# Project Resources")
+  lines.push("")
+  lines.push(`This document indexes all resources uploaded for **${project.name}**. Resources include documents, images, audio files, and other reference materials.`)
+  lines.push("")
+
+  if (resources.length === 0) {
+    lines.push("*No resources uploaded yet.*")
+    lines.push("")
+    return lines.join("\n")
+  }
+
+  // Summary by type
+  lines.push("## Summary")
+  lines.push("")
+  const byType: Record<string, number> = {}
+  let totalSize = 0
+  resources.forEach(r => {
+    byType[r.type] = (byType[r.type] || 0) + 1
+    totalSize += r.size
+  })
+
+  lines.push("| Type | Count |")
+  lines.push("|------|-------|")
+  Object.entries(byType).forEach(([type, count]) => {
+    lines.push(`| ${type} | ${count} |`)
+  })
+  lines.push(`| **Total** | **${resources.length}** |`)
+  lines.push("")
+  lines.push(`**Total Size:** ${formatFileSize(totalSize)}`)
+  lines.push("")
+
+  // Group resources by type
+  const grouped: Record<string, ResourceForGeneration[]> = {}
+  resources.forEach(r => {
+    if (!grouped[r.type]) grouped[r.type] = []
+    grouped[r.type].push(r)
+  })
+
+  // Resources by type
+  Object.entries(grouped).forEach(([type, typeResources]) => {
+    lines.push(`## ${type.charAt(0).toUpperCase() + type.slice(1)} Resources`)
+    lines.push("")
+
+    typeResources.forEach(resource => {
+      lines.push(`### ${resource.name}`)
+      lines.push("")
+      lines.push(`- **ID:** ${resource.id}`)
+      lines.push(`- **Type:** ${resource.mimeType}`)
+      lines.push(`- **Size:** ${formatFileSize(resource.size)}`)
+      lines.push(`- **Added:** ${formatDate(resource.createdAt)}`)
+
+      if (resource.filePath) {
+        lines.push(`- **Location:** \`resources/${resource.name}\``)
+      }
+
+      if (resource.tags && resource.tags.length > 0) {
+        lines.push(`- **Tags:** ${resource.tags.map(t => `\`${t}\``).join(", ")}`)
+      }
+
+      if (resource.description) {
+        lines.push("")
+        lines.push(`> ${resource.description}`)
+      }
+
+      // For audio with transcription
+      if (resource.transcription) {
+        lines.push("")
+        lines.push("**Transcription:**")
+        lines.push("")
+        lines.push("```")
+        lines.push(resource.transcription.text)
+        lines.push("```")
+      }
+
+      lines.push("")
+    })
+  })
+
+  // Footer
+  lines.push("---")
+  lines.push("")
+  lines.push("**Note:** Actual resource files are stored in the `resources/` directory.")
+  lines.push("")
+  lines.push(`*Generated by Claudia Coder on ${formatDate()}*`)
+
+  return lines.join("\n")
+}
+
+/**
+ * Format file size for display
+ */
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "0 B"
+  const k = 1024
+  const sizes = ["B", "KB", "MB", "GB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
+}
+
 /**
  * Generate the .claudia/config.json as a string
  */
@@ -1007,4 +1544,343 @@ export function generateConfigJSON(
 ): string {
   const config = generateClaudiaConfig(project, buildPlan, buildPlan.packets || [])
   return JSON.stringify(config, null, 2)
+}
+
+// ============ Touchdown Document ============
+
+export interface TouchdownContext {
+  // Only the minimal project info needed for touchdown (avoids needing full Project type from localStorage)
+  project: {
+    id: string
+    name: string
+    description?: string
+  }
+  buildPlan?: BuildPlan
+  packets: WorkPacket[]
+  runHistory?: {
+    totalRuns: number
+    successfulRuns: number
+    failedRuns: number
+    lastRunAt?: string
+  }
+  qualityGates?: {
+    tests: { passed: boolean; output?: string }
+    typeCheck: { passed: boolean; output?: string }
+    build: { passed: boolean; output?: string }
+  }
+  codebaseAnalysis?: {
+    filesCreated: number
+    filesModified: number
+    linesOfCode: number
+    testCoverage?: number
+    errors?: string[]
+    warnings?: string[]
+  }
+}
+
+/**
+ * Generate TOUCHDOWN.md - The completion/refinement document
+ *
+ * Touchdown is the counterpart to Kickoff:
+ * - Kickoff plans the work
+ * - Touchdown reviews, refines, and completes the work
+ *
+ * This document guides the AI through:
+ * 1. Reviewing completed work packets
+ * 2. Analyzing the codebase for issues
+ * 3. Fixing any errors found
+ * 4. Refining code with obvious additions
+ * 5. Final quality checks
+ */
+export function generateTouchdownMarkdown(context: TouchdownContext): string {
+  const { project, buildPlan, packets, runHistory, qualityGates, codebaseAnalysis } = context
+  const completedPackets = packets.filter(p => p.status === "completed")
+  const incompletePackets = packets.filter(p => p.status !== "completed")
+  const now = new Date().toISOString()
+
+  const lines: string[] = [
+    `# TOUCHDOWN: ${project.name}`,
+    "",
+    `> Project completion and refinement document`,
+    `> Generated: ${formatDate(now)}`,
+    "",
+    "---",
+    "",
+    "## Overview",
+    "",
+    "This document guides the final review and refinement phase. The primary work packets",
+    "have been executed. Now it's time to:",
+    "",
+    "1. **Review** - Verify all acceptance criteria are met",
+    "2. **Analyze** - Check the codebase for issues and gaps",
+    "3. **Fix** - Address any errors or failing tests",
+    "4. **Refine** - Add obvious improvements and polish",
+    "5. **Verify** - Run final quality gates",
+    "",
+    "---",
+    "",
+    "## Work Summary",
+    "",
+    `- **Total Packets:** ${packets.length}`,
+    `- **Completed:** ${completedPackets.length}`,
+    `- **Failed/Incomplete:** ${incompletePackets.length}`,
+  ]
+
+  if (runHistory) {
+    lines.push(
+      `- **Total Runs:** ${runHistory.totalRuns}`,
+      `- **Successful Runs:** ${runHistory.successfulRuns}`,
+      `- **Failed Runs:** ${runHistory.failedRuns}`,
+    )
+    if (runHistory.lastRunAt) {
+      lines.push(`- **Last Run:** ${formatDate(runHistory.lastRunAt)}`)
+    }
+  }
+
+  lines.push("")
+
+  // Completed packets summary
+  if (completedPackets.length > 0) {
+    lines.push(
+      "### Completed Work",
+      "",
+      "| Packet | Type | Priority | Tasks |",
+      "|--------|------|----------|-------|",
+    )
+    for (const packet of completedPackets) {
+      const tasksCompleted = packet.tasks.filter(t => t.completed).length
+      lines.push(
+        `| ${packet.title} | ${packet.type} | ${packet.priority} | ${tasksCompleted}/${packet.tasks.length} |`
+      )
+    }
+    lines.push("")
+  }
+
+  // Failed/incomplete packets
+  if (incompletePackets.length > 0) {
+    lines.push(
+      "### ⚠️ Incomplete Work (Needs Attention)",
+      "",
+    )
+    for (const packet of incompletePackets) {
+      const incompleteTasks = packet.tasks.filter(t => !t.completed)
+      lines.push(
+        `#### ${packet.title}`,
+        "",
+        "**Incomplete Tasks:**",
+        ...incompleteTasks.map(t => `- [ ] ${t.description}`),
+        "",
+        "**Acceptance Criteria Still Needed:**",
+        ...packet.acceptanceCriteria.map(c => `- ${c}`),
+        "",
+      )
+    }
+  }
+
+  // Quality Gates Status
+  lines.push(
+    "---",
+    "",
+    "## Quality Gates Status",
+    "",
+  )
+
+  if (qualityGates) {
+    lines.push(
+      `- **Tests:** ${qualityGates.tests.passed ? "✅ Passing" : "❌ Failing"}`,
+      `- **TypeScript:** ${qualityGates.typeCheck.passed ? "✅ Passing" : "❌ Failing"}`,
+      `- **Build:** ${qualityGates.build.passed ? "✅ Passing" : "❌ Failing"}`,
+      "",
+    )
+
+    // Show any errors
+    if (!qualityGates.tests.passed && qualityGates.tests.output) {
+      lines.push(
+        "### Test Failures",
+        "```",
+        qualityGates.tests.output.slice(0, 2000),
+        "```",
+        "",
+      )
+    }
+    if (!qualityGates.typeCheck.passed && qualityGates.typeCheck.output) {
+      lines.push(
+        "### TypeScript Errors",
+        "```",
+        qualityGates.typeCheck.output.slice(0, 2000),
+        "```",
+        "",
+      )
+    }
+    if (!qualityGates.build.passed && qualityGates.build.output) {
+      lines.push(
+        "### Build Errors",
+        "```",
+        qualityGates.build.output.slice(0, 2000),
+        "```",
+        "",
+      )
+    }
+  } else {
+    lines.push(
+      "Quality gates have not been run yet. Please verify:",
+      "",
+      "```bash",
+      "# Run tests",
+      "npm test",
+      "",
+      "# Check TypeScript",
+      "npx tsc --noEmit",
+      "",
+      "# Build project",
+      "npm run build",
+      "```",
+      "",
+    )
+  }
+
+  // Codebase Analysis
+  if (codebaseAnalysis) {
+    lines.push(
+      "---",
+      "",
+      "## Codebase Analysis",
+      "",
+      `- **Files Created:** ${codebaseAnalysis.filesCreated}`,
+      `- **Files Modified:** ${codebaseAnalysis.filesModified}`,
+      `- **Lines of Code:** ${codebaseAnalysis.linesOfCode}`,
+    )
+    if (codebaseAnalysis.testCoverage !== undefined) {
+      lines.push(`- **Test Coverage:** ${codebaseAnalysis.testCoverage}%`)
+    }
+    lines.push("")
+
+    if (codebaseAnalysis.errors && codebaseAnalysis.errors.length > 0) {
+      lines.push(
+        "### ❌ Errors Found",
+        "",
+        ...codebaseAnalysis.errors.map(e => `- ${e}`),
+        "",
+      )
+    }
+
+    if (codebaseAnalysis.warnings && codebaseAnalysis.warnings.length > 0) {
+      lines.push(
+        "### ⚠️ Warnings",
+        "",
+        ...codebaseAnalysis.warnings.map(w => `- ${w}`),
+        "",
+      )
+    }
+  }
+
+  // Touchdown Tasks
+  lines.push(
+    "---",
+    "",
+    "## Touchdown Tasks",
+    "",
+    "Complete the following tasks to finish this project:",
+    "",
+    "### 1. Fix All Errors",
+    "",
+    "- [ ] Resolve all TypeScript errors",
+    "- [ ] Fix all failing tests",
+    "- [ ] Ensure build completes successfully",
+    "",
+    "### 2. Code Review & Refinement",
+    "",
+    "- [ ] Review all new code for obvious improvements",
+    "- [ ] Add missing error handling",
+    "- [ ] Improve code documentation where unclear",
+    "- [ ] Optimize any obviously inefficient code",
+    "",
+    "### 3. Missing Features Check",
+    "",
+    "Review the original objectives and ensure nothing is missing:",
+    "",
+  )
+
+  if (buildPlan?.spec?.objectives) {
+    for (const obj of buildPlan.spec.objectives) {
+      lines.push(`- [ ] ${obj}`)
+    }
+  } else {
+    lines.push("- [ ] Verify all planned features are implemented")
+  }
+
+  lines.push(
+    "",
+    "### 4. Final Quality Verification",
+    "",
+    "- [ ] All tests passing",
+    "- [ ] No TypeScript errors",
+    "- [ ] Build succeeds",
+    "- [ ] Manual testing completed",
+    "- [ ] Code is production-ready",
+    "",
+    "---",
+    "",
+    "## AI Instructions",
+    "",
+    "When executing the touchdown phase:",
+    "",
+    "1. **Start by running quality gates** to understand current state",
+    "2. **Fix issues in order:** errors → warnings → improvements",
+    "3. **Test after each fix** to ensure no regressions",
+    "4. **Document any significant changes** made",
+    "5. **Run final verification** before marking complete",
+    "",
+    "The goal is to leave the codebase in a polished, production-ready state.",
+    "",
+    "---",
+    "",
+    `*Generated by Claudia Coder - ${formatDate(now)}*`,
+  )
+
+  return lines.join("\n")
+}
+
+/**
+ * Generate a prompt for AI-powered touchdown analysis
+ *
+ * This prompt asks the AI to analyze the codebase and suggest improvements
+ */
+export function generateTouchdownAnalysisPrompt(context: TouchdownContext): string {
+  const { project, buildPlan, packets } = context
+  const completedPackets = packets.filter(p => p.status === "completed")
+
+  return `You are reviewing a codebase after the initial development phase is complete.
+
+PROJECT: ${project.name}
+DESCRIPTION: ${project.description}
+
+COMPLETED WORK:
+${completedPackets.map(p => `- ${p.title}: ${p.description}`).join("\n")}
+
+ORIGINAL OBJECTIVES:
+${buildPlan?.spec?.objectives?.map(o => `- ${o}`).join("\n") || "Not specified"}
+
+Your task is to:
+
+1. **Analyze the codebase** for:
+   - Code quality issues
+   - Missing error handling
+   - Performance concerns
+   - Security vulnerabilities
+   - Missing features based on objectives
+
+2. **Identify improvements** that are:
+   - Obvious additions that were missed
+   - Code that needs refactoring
+   - Documentation that should be added
+   - Tests that should be written
+
+3. **Create an action plan** to:
+   - Fix any issues found
+   - Implement missing features
+   - Polish the codebase
+
+Be specific and actionable. Focus on high-impact improvements.
+Format your response as a structured analysis with clear sections.`
 }

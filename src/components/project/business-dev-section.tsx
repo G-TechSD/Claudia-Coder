@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils"
 import { BusinessDevEditor } from "./business-dev-editor"
 import { BusinessBrainDump } from "@/components/business/business-brain-dump"
 import { PriorArtSection } from "./prior-art-section"
+import { BusinessDevChat } from "./business-dev-chat"
 
 // Types for Business Development data
 export interface BusinessDevFeature {
@@ -186,7 +187,7 @@ export function BusinessDevSection({
   }
 
   // Download executive summary
-  const downloadSummary = async (format: "pdf" | "md") => {
+  const downloadSummary = async (format: "pdf" | "md", section?: string) => {
     if (!businessData) return
 
     setIsDownloading(true)
@@ -198,7 +199,8 @@ export function BusinessDevSection({
           projectId,
           projectName,
           data: businessData,
-          format
+          format,
+          section // Optional: "executive", "market", "monetization", "proforma", "risks"
         })
       })
 
@@ -207,7 +209,8 @@ export function BusinessDevSection({
         const url = URL.createObjectURL(blob)
         const a = document.createElement("a")
         a.href = url
-        a.download = `${projectName.replace(/\s+/g, "-")}-executive-summary.${format}`
+        const sectionSuffix = section ? `-${section}` : ""
+        a.download = `${projectName.replace(/\s+/g, "-")}${sectionSuffix}-business-dev.${format}`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
@@ -220,6 +223,57 @@ export function BusinessDevSection({
       setError(err instanceof Error ? err.message : "Failed to download")
     } finally {
       setIsDownloading(false)
+    }
+  }
+
+  // Handle chat callback - update business data
+  const handleBusinessDataUpdate = (updatedData: BusinessDevData) => {
+    setBusinessData(updatedData)
+    saveBusinessDevData(projectId, updatedData)
+  }
+
+  // Handle chat callback - create work packet
+  const handleCreatePacket = async (packet: {
+    title: string
+    description: string
+    type: string
+    priority: string
+    tasks: Array<{ description: string }>
+    acceptanceCriteria: string[]
+  }) => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/packets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: packet.title,
+          description: packet.description,
+          type: packet.type,
+          priority: packet.priority,
+          tasks: packet.tasks.map((t, i) => ({
+            id: `task-${Date.now()}-${i}`,
+            description: t.description,
+            completed: false,
+            order: i
+          })),
+          acceptanceCriteria: packet.acceptanceCriteria,
+          status: "pending",
+          metadata: {
+            source: "business-dev-chat",
+            createdAt: new Date().toISOString()
+          }
+        })
+      })
+
+      if (response.ok) {
+        // Could show a toast notification here
+        console.log("[BusinessDev] Created packet from chat:", packet.title)
+      } else {
+        const data = await response.json()
+        setError(data.error || "Failed to create packet")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create packet")
     }
   }
 
@@ -336,19 +390,58 @@ export function BusinessDevSection({
               </CardDescription>
             </div>
           </div>
-          <Button variant="ghost" size="icon">
-            {isExpanded ? (
-              <ChevronUp className="h-5 w-5" />
-            ) : (
-              <ChevronDown className="h-5 w-5" />
+          <div className="flex items-center gap-2">
+            {/* Download All Buttons */}
+            {businessData && (
+              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadSummary("md")}
+                  disabled={isDownloading}
+                  className="gap-1 h-7 px-2"
+                  title="Download all as Markdown"
+                >
+                  <Download className="h-3 w-3" />
+                  <span className="text-xs">MD</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadSummary("pdf")}
+                  disabled={isDownloading}
+                  className="gap-1 h-7 px-2"
+                  title="Download all as PDF"
+                >
+                  <FileText className="h-3 w-3" />
+                  <span className="text-xs">PDF</span>
+                </Button>
+              </div>
             )}
-          </Button>
+            <Button variant="ghost" size="icon">
+              {isExpanded ? (
+                <ChevronUp className="h-5 w-5" />
+              ) : (
+                <ChevronDown className="h-5 w-5" />
+              )}
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
       {/* Collapsible Content */}
       {isExpanded && (
         <CardContent className="space-y-6">
+          {/* Business Coach Chat */}
+          <BusinessDevChat
+            projectId={projectId}
+            projectName={projectName}
+            projectDescription={projectDescription}
+            businessData={businessData}
+            onBusinessDataUpdate={handleBusinessDataUpdate}
+            onCreatePacket={handleCreatePacket}
+          />
+
           {/* Tabs for Brain Dump vs Analysis */}
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "analysis" | "brain-dump" | "prior-art")}>
             <TabsList className="grid w-full grid-cols-3">
@@ -501,13 +594,26 @@ export function BusinessDevSection({
                     <FileText className="h-4 w-4 text-purple-500" />
                     Executive Summary
                   </h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditingSection("executive")}
-                  >
-                    <Edit2 className="h-3 w-3" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => downloadSummary("md", "executive")}
+                      disabled={isDownloading}
+                      className="h-6 px-1"
+                      title="Download as Markdown"
+                    >
+                      <Download className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingSection("executive")}
+                      className="h-6 px-1"
+                    >
+                      <Edit2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
                 <Card className="bg-gradient-to-br from-purple-500/5 to-blue-500/5 border-purple-500/20">
                   <CardContent className="p-4">
@@ -581,13 +687,26 @@ export function BusinessDevSection({
                     <PieChart className="h-4 w-4 text-green-500" />
                     Market Analysis
                   </h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditingSection("market")}
-                  >
-                    <Edit2 className="h-3 w-3" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => downloadSummary("md", "market")}
+                      disabled={isDownloading}
+                      className="h-6 px-1"
+                      title="Download as Markdown"
+                    >
+                      <Download className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingSection("market")}
+                      className="h-6 px-1"
+                    >
+                      <Edit2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
                 <Card>
                   <CardContent className="p-4">
@@ -624,13 +743,26 @@ export function BusinessDevSection({
                     <DollarSign className="h-4 w-4 text-yellow-500" />
                     Monetization Strategy
                   </h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditingSection("monetization")}
-                  >
-                    <Edit2 className="h-3 w-3" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => downloadSummary("md", "monetization")}
+                      disabled={isDownloading}
+                      className="h-6 px-1"
+                      title="Download as Markdown"
+                    >
+                      <Download className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingSection("monetization")}
+                      className="h-6 px-1"
+                    >
+                      <Edit2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {businessData.revenueStreams.map((stream, index) => (
@@ -660,13 +792,26 @@ export function BusinessDevSection({
                     <BarChart3 className="h-4 w-4 text-cyan-500" />
                     ProForma Financial Summary
                   </h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditingSection("proforma")}
-                  >
-                    <Edit2 className="h-3 w-3" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => downloadSummary("md", "proforma")}
+                      disabled={isDownloading}
+                      className="h-6 px-1"
+                      title="Download as Markdown"
+                    >
+                      <Download className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingSection("proforma")}
+                      className="h-6 px-1"
+                    >
+                      <Edit2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
                 <Card>
                   <CardContent className="p-4">

@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
       return unauthorizedResponse()
     }
 
-    const { projectName, data, format } = await request.json()
+    const { projectName, data, format, section } = await request.json()
 
     if (!projectName || !data) {
       return NextResponse.json(
@@ -220,25 +220,31 @@ export async function POST(request: NextRequest) {
 
     const businessData = data as LegacyBusinessDevData
 
-    // Generate Markdown content
-    const markdownContent = generateLegacyMarkdown(projectName, businessData)
+    // Generate Markdown content (full or section-specific)
+    const markdownContent = section
+      ? generateSectionMarkdown(projectName, businessData, section)
+      : generateLegacyMarkdown(projectName, businessData)
+
+    const sectionSuffix = section ? `-${section}` : ""
 
     if (format === "md" || format === "markdown") {
       return new NextResponse(markdownContent, {
         headers: {
           "Content-Type": "text/markdown",
-          "Content-Disposition": `attachment; filename="${projectName.replace(/\s+/g, "-")}-business-plan.md"`
+          "Content-Disposition": `attachment; filename="${projectName.replace(/\s+/g, "-")}${sectionSuffix}-business-plan.md"`
         }
       })
     }
 
     if (format === "pdf" || format === "html") {
-      const htmlContent = generateLegacyHtmlForPdf(projectName, businessData)
+      const htmlContent = section
+        ? generateSectionHtml(projectName, businessData, section)
+        : generateLegacyHtmlForPdf(projectName, businessData)
 
       return new NextResponse(htmlContent, {
         headers: {
           "Content-Type": "text/html",
-          "Content-Disposition": `attachment; filename="${projectName.replace(/\s+/g, "-")}-business-plan.html"`
+          "Content-Disposition": `attachment; filename="${projectName.replace(/\s+/g, "-")}${sectionSuffix}-business-plan.html"`
         }
       })
     }
@@ -631,6 +637,257 @@ function formatPriority(priority: string): string {
 
 function capitalizeFirst(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1)
+}
+
+// ============ Section-Specific Export Functions ============
+
+type ExportSection = "executive" | "market" | "monetization" | "proforma" | "risks" | "features"
+
+function generateSectionMarkdown(projectName: string, data: LegacyBusinessDevData, section: string): string {
+  const generatedDate = data.generatedAt ? new Date(data.generatedAt).toLocaleDateString() : new Date().toLocaleDateString()
+
+  const header = `# ${projectName} - ${getSectionTitle(section)}
+
+*Generated: ${generatedDate}*
+${data.generatedBy ? `*Model: ${data.generatedBy}*` : ""}
+
+---
+
+`
+
+  switch (section as ExportSection) {
+    case "executive":
+      return header + `## Executive Summary
+
+${data.executiveSummary}
+
+## Value Proposition
+
+${data.valueProposition}
+
+## Target Market
+
+${data.targetMarket}
+
+## Competitive Advantage
+
+${data.competitiveAdvantage}
+`
+
+    case "features":
+      return header + `## Key Features
+
+| Feature | Description | Priority | Status | Est. Value |
+|---------|-------------|----------|--------|------------|
+${data.features.map(f => `| ${f.name} | ${f.description} | ${f.priority} | ${f.status} | ${f.estimatedValue || "-"} |`).join("\n")}
+`
+
+    case "market":
+      return header + `## Market Analysis
+
+### Market Segments
+
+| Segment | Share | Description |
+|---------|-------|-------------|
+${data.marketSegments.map(s => `| ${s.name} | ${s.percentage}% | ${s.description || "-"} |`).join("\n")}
+`
+
+    case "monetization":
+      return header + `## Monetization Strategy
+
+### Revenue Streams
+
+| Stream | Description | Est. Revenue | Timeframe | Confidence |
+|--------|-------------|--------------|-----------|------------|
+${data.revenueStreams.map(r => `| ${r.name} | ${r.description} | ${r.estimatedRevenue} | ${r.timeframe} | ${r.confidence} |`).join("\n")}
+`
+
+    case "proforma":
+      return header + `## Financial Projections (Pro Forma)
+
+### Revenue
+
+| Category | Year 1 | Year 2 | Year 3 |
+|----------|--------|--------|--------|
+${data.proForma.revenue.map(r => `| ${r.category} | ${formatCurrency(r.year1)} | ${formatCurrency(r.year2)} | ${formatCurrency(r.year3)} |`).join("\n")}
+| **Total** | **${formatCurrency(data.proForma.revenue.reduce((s, r) => s + r.year1, 0))}** | **${formatCurrency(data.proForma.revenue.reduce((s, r) => s + r.year2, 0))}** | **${formatCurrency(data.proForma.revenue.reduce((s, r) => s + r.year3, 0))}** |
+
+### Expenses
+
+| Category | Year 1 | Year 2 | Year 3 |
+|----------|--------|--------|--------|
+${data.proForma.expenses.map(e => `| ${e.category} | ${formatCurrency(e.year1)} | ${formatCurrency(e.year2)} | ${formatCurrency(e.year3)} |`).join("\n")}
+| **Total** | **${formatCurrency(data.proForma.expenses.reduce((s, e) => s + e.year1, 0))}** | **${formatCurrency(data.proForma.expenses.reduce((s, e) => s + e.year2, 0))}** | **${formatCurrency(data.proForma.expenses.reduce((s, e) => s + e.year3, 0))}** |
+
+### Summary
+
+| Metric | Year 1 | Year 2 | Year 3 |
+|--------|--------|--------|--------|
+| Net Profit | ${formatCurrency(data.proForma.summary.year1Profit)} | ${formatCurrency(data.proForma.summary.year2Profit)} | ${formatCurrency(data.proForma.summary.year3Profit)} |
+
+**Break-Even Point:** Month ${data.proForma.summary.breakEvenMonth}
+`
+
+    case "risks":
+      return header + `## Risk Assessment
+
+${data.risks.map(r => `- ${r}`).join("\n")}
+
+---
+
+## Growth Opportunities
+
+${data.opportunities.map(o => `- ${o}`).join("\n")}
+`
+
+    default:
+      return header + "Section not found"
+  }
+}
+
+function getSectionTitle(section: string): string {
+  const titles: Record<string, string> = {
+    executive: "Executive Summary",
+    features: "Key Features",
+    market: "Market Analysis",
+    monetization: "Monetization Strategy",
+    proforma: "Financial Projections",
+    risks: "Risk & Opportunities Analysis"
+  }
+  return titles[section] || section
+}
+
+function generateSectionHtml(projectName: string, data: LegacyBusinessDevData, section: string): string {
+  const generatedDate = data.generatedAt ? new Date(data.generatedAt).toLocaleDateString() : new Date().toLocaleDateString()
+
+  const baseStyles = `
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1a1a1a; padding: 40px; max-width: 900px; margin: 0 auto; background: #fff; }
+    h1 { font-size: 28px; color: #111; margin-bottom: 8px; border-bottom: 3px solid #8B5CF6; padding-bottom: 12px; }
+    h2 { font-size: 20px; color: #333; margin-top: 32px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #e5e5e5; }
+    h3 { font-size: 16px; color: #444; margin-top: 20px; margin-bottom: 12px; }
+    p { margin-bottom: 12px; color: #444; }
+    .meta { color: #666; font-size: 14px; margin-bottom: 24px; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+    th, td { padding: 10px 12px; text-align: left; border: 1px solid #e5e5e5; }
+    th { background: #f5f5f5; font-weight: 600; }
+    tr:nth-child(even) { background: #fafafa; }
+    .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 20px 0; }
+    .summary-card { background: #f8f8f8; padding: 16px; border-radius: 8px; text-align: center; }
+    .summary-card .label { font-size: 12px; color: #666; margin-bottom: 4px; }
+    .summary-card .value { font-size: 18px; font-weight: 600; color: #333; }
+    .summary-card .value.positive { color: #10B981; }
+    .summary-card .value.negative { color: #EF4444; }
+    ul { margin: 12px 0; padding-left: 24px; }
+    li { margin-bottom: 8px; color: #444; }
+    .risk { color: #EF4444; }
+    .opportunity { color: #10B981; }
+    .section { margin-bottom: 32px; }
+    .highlight-box { background: linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%); color: white; padding: 24px; border-radius: 12px; margin: 24px 0; }
+    .highlight-box h3 { color: white; margin-top: 0; }
+    .highlight-box p { color: rgba(255,255,255,0.9); margin-bottom: 0; }
+    .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e5e5; font-size: 12px; color: #666; text-align: center; }
+    @media print { body { padding: 0; } .section { page-break-inside: avoid; } }
+  `
+
+  let content = ""
+
+  switch (section as ExportSection) {
+    case "executive":
+      content = `
+        <div class="section"><h2>Executive Summary</h2><p>${data.executiveSummary.replace(/\n/g, "</p><p>")}</p></div>
+        <div class="highlight-box"><h3>Value Proposition</h3><p>${data.valueProposition}</p></div>
+        <div class="section"><h2>Target Market</h2><p>${data.targetMarket}</p></div>
+        <div class="section"><h2>Competitive Advantage</h2><p>${data.competitiveAdvantage}</p></div>
+      `
+      break
+
+    case "features":
+      content = `
+        <div class="section">
+          <h2>Key Features</h2>
+          <table>
+            <thead><tr><th>Feature</th><th>Description</th><th>Priority</th><th>Status</th><th>Est. Value</th></tr></thead>
+            <tbody>${data.features.map(f => `<tr><td><strong>${f.name}</strong></td><td>${f.description}</td><td>${f.priority}</td><td>${f.status}</td><td>${f.estimatedValue || "-"}</td></tr>`).join("")}</tbody>
+          </table>
+        </div>
+      `
+      break
+
+    case "market":
+      content = `
+        <div class="section">
+          <h2>Market Analysis</h2>
+          <table>
+            <thead><tr><th>Segment</th><th>Share</th><th>Description</th></tr></thead>
+            <tbody>${data.marketSegments.map(s => `<tr><td><strong>${s.name}</strong></td><td>${s.percentage}%</td><td>${s.description || "-"}</td></tr>`).join("")}</tbody>
+          </table>
+        </div>
+      `
+      break
+
+    case "monetization":
+      content = `
+        <div class="section">
+          <h2>Monetization Strategy</h2>
+          <table>
+            <thead><tr><th>Stream</th><th>Description</th><th>Est. Revenue</th><th>Timeframe</th><th>Confidence</th></tr></thead>
+            <tbody>${data.revenueStreams.map(r => `<tr><td><strong>${r.name}</strong></td><td>${r.description}</td><td>${r.estimatedRevenue}</td><td>${r.timeframe}</td><td>${r.confidence}</td></tr>`).join("")}</tbody>
+          </table>
+        </div>
+      `
+      break
+
+    case "proforma":
+      content = `
+        <div class="section">
+          <h2>Financial Projections</h2>
+          <div class="summary-cards">
+            <div class="summary-card"><div class="label">Year 1</div><div class="value ${data.proForma.summary.year1Profit >= 0 ? 'positive' : 'negative'}">${formatCurrency(data.proForma.summary.year1Profit)}</div></div>
+            <div class="summary-card"><div class="label">Year 2</div><div class="value ${data.proForma.summary.year2Profit >= 0 ? 'positive' : 'negative'}">${formatCurrency(data.proForma.summary.year2Profit)}</div></div>
+            <div class="summary-card"><div class="label">Year 3</div><div class="value ${data.proForma.summary.year3Profit >= 0 ? 'positive' : 'negative'}">${formatCurrency(data.proForma.summary.year3Profit)}</div></div>
+            <div class="summary-card"><div class="label">Break Even</div><div class="value">Month ${data.proForma.summary.breakEvenMonth}</div></div>
+          </div>
+          <h3>Revenue</h3>
+          <table>
+            <thead><tr><th>Category</th><th>Year 1</th><th>Year 2</th><th>Year 3</th></tr></thead>
+            <tbody>${data.proForma.revenue.map(r => `<tr><td>${r.category}</td><td>${formatCurrency(r.year1)}</td><td>${formatCurrency(r.year2)}</td><td>${formatCurrency(r.year3)}</td></tr>`).join("")}</tbody>
+          </table>
+          <h3>Expenses</h3>
+          <table>
+            <thead><tr><th>Category</th><th>Year 1</th><th>Year 2</th><th>Year 3</th></tr></thead>
+            <tbody>${data.proForma.expenses.map(e => `<tr><td>${e.category}</td><td>${formatCurrency(e.year1)}</td><td>${formatCurrency(e.year2)}</td><td>${formatCurrency(e.year3)}</td></tr>`).join("")}</tbody>
+          </table>
+        </div>
+      `
+      break
+
+    case "risks":
+      content = `
+        <div class="section"><h2>Risk Assessment</h2><ul>${data.risks.map(r => `<li class="risk">${r}</li>`).join("")}</ul></div>
+        <div class="section"><h2>Growth Opportunities</h2><ul>${data.opportunities.map(o => `<li class="opportunity">${o}</li>`).join("")}</ul></div>
+      `
+      break
+
+    default:
+      content = "<p>Section not found</p>"
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${projectName} - ${getSectionTitle(section)}</title>
+  <style>${baseStyles}</style>
+</head>
+<body>
+  <h1>${projectName}</h1>
+  <p class="meta">${getSectionTitle(section)} - Generated: ${generatedDate}</p>
+  ${content}
+  <div class="footer"><p>Generated by Claudia Coder Business Development Analysis</p></div>
+</body>
+</html>`
 }
 
 // ============ Legacy Format Functions ============

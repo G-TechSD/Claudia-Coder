@@ -12,9 +12,18 @@ import { spawn, ChildProcess, exec } from "child_process"
 import { promisify } from "util"
 import * as fs from "fs/promises"
 import * as path from "path"
+import * as os from "os"
 import { validatePort, getSuggestedPorts } from "@/lib/execution/port-config"
 
 const execAsync = promisify(exec)
+
+/**
+ * Expand ~ to the user's home directory
+ */
+function expandPath(p: string): string {
+  if (!p) return p
+  return p.replace(/^~/, os.homedir())
+}
 
 async function directoryExists(dirPath: string): Promise<boolean> {
   try {
@@ -76,6 +85,10 @@ async function checkProjectFiles(repoPath: string, projectType?: string): Promis
   const rustFiles = ["Cargo.toml"]
   // Flutter project files
   const flutterFiles = ["pubspec.yaml"]
+  // Static HTML project files (check multiple common locations)
+  const htmlFiles = ["index.html", "index.htm", "public/index.html", "public/index.htm", "dist/index.html"]
+  // PHP project files
+  const phpFiles = ["index.php", "composer.json"]
 
   // Check based on project type if specified
   if (projectType) {
@@ -115,12 +128,31 @@ async function checkProjectFiles(repoPath: string, projectType?: string): Promis
           projectTypeDetected = projectType
         }
       }
+    } else if (projectType === "html") {
+      // Static HTML - check multiple locations
+      for (const file of htmlFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = "html"
+        }
+      }
+    } else if (projectType === "php") {
+      for (const file of phpFiles) {
+        const filePath = path.join(repoPath, file)
+        checkedFiles.push(file)
+        if (await fileExists(filePath)) {
+          foundFiles.push(file)
+          projectTypeDetected = projectType
+        }
+      }
     }
   }
 
   // If no project type specified or no files found, check all common files
   if (!projectType || foundFiles.length === 0) {
-    const allFiles = [...nodeFiles, ...pythonFiles, ...rustFiles, ...flutterFiles]
+    const allFiles = [...nodeFiles, ...pythonFiles, ...rustFiles, ...flutterFiles, ...htmlFiles, ...phpFiles]
     for (const file of allFiles) {
       if (!checkedFiles.includes(file)) {
         const filePath = path.join(repoPath, file)
@@ -133,6 +165,8 @@ async function checkProjectFiles(repoPath: string, projectType?: string): Promis
             else if (pythonFiles.includes(file)) projectTypeDetected = "python"
             else if (rustFiles.includes(file)) projectTypeDetected = "rust"
             else if (flutterFiles.includes(file)) projectTypeDetected = "flutter"
+            else if (htmlFiles.includes(file)) projectTypeDetected = "html"
+            else if (phpFiles.includes(file)) projectTypeDetected = "php"
           }
         }
       }
@@ -397,7 +431,9 @@ if (!global.launchTestProcesses) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
-  const { projectId, repoPath, projectType, command, port } = body
+  const { projectId, projectType, command, port } = body
+  // Expand ~ to home directory for the repoPath
+  const repoPath = body.repoPath ? expandPath(body.repoPath) : null
 
   if (!projectId || !repoPath || !command || !port) {
     return NextResponse.json(
@@ -458,6 +494,10 @@ export async function POST(request: NextRequest) {
           expectedFiles = "Cargo.toml"
         } else if (projectType === "flutter") {
           expectedFiles = "pubspec.yaml"
+        } else if (projectType === "html") {
+          expectedFiles = "index.html (in root, public/, or dist/)"
+        } else if (projectType === "php") {
+          expectedFiles = "index.php or composer.json"
         }
       }
 

@@ -1397,6 +1397,7 @@ export default function ProjectDetailPage() {
         <TouchdownSection
           projectId={project.id}
           projectName={project.name}
+          projectDescription={project.description}
           workingDirectory={getEffectiveWorkingDirectory(project)}
           packets={packets.map(p => ({
             id: p.id,
