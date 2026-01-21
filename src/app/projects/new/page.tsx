@@ -9,6 +9,13 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { InterviewPanel } from "@/components/interview/interview-panel"
 import { VoiceInput } from "@/components/voice/voice-input"
 import { createProject, updateProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
@@ -220,9 +227,10 @@ function NewProjectContent() {
   const [linearSearch, setLinearSearch] = useState("")
   const [linearLoading, setLinearLoading] = useState(false)
   const [linearError, setLinearError] = useState("")
-  const [selectedLinearProjectIds, setSelectedLinearProjectIds] = useState<Set<string>>(new Set())
+  const [selectedLinearProjectId, setSelectedLinearProjectId] = useState<string | null>(null)
   const [linearImportData, setLinearImportData] = useState<LinearImportData | null>(null)
   const [isImporting, setIsImporting] = useState(false)
+  const [importCategory, setImportCategory] = useState<string>("auto") // "auto" uses keyword detection, others override
 
   // Auto-generate build plan state
   const [autoGenerateBuildPlan, setAutoGenerateBuildPlan] = useState(() => {
@@ -374,34 +382,13 @@ function NewProjectContent() {
     }
   }
 
-  const toggleLinearProject = (projectId: string) => {
-    setSelectedLinearProjectIds(prev => {
-      const next = new Set(prev)
-      if (next.has(projectId)) {
-        next.delete(projectId)
-      } else {
-        next.add(projectId)
-      }
-      return next
-    })
-  }
-
-  const selectAllLinearProjects = () => {
-    const filteredProjects = linearSearch
-      ? linearProjects.filter(p =>
-          p.name.toLowerCase().includes(linearSearch.toLowerCase()) ||
-          p.description?.toLowerCase().includes(linearSearch.toLowerCase())
-        )
-      : linearProjects
-    setSelectedLinearProjectIds(new Set(filteredProjects.map(p => p.id)))
-  }
-
-  const deselectAllLinearProjects = () => {
-    setSelectedLinearProjectIds(new Set())
+  const selectLinearProject = (projectId: string) => {
+    // Single select - toggle off if already selected
+    setSelectedLinearProjectId(prev => prev === projectId ? null : projectId)
   }
 
   const handleLinearImport = async () => {
-    if (selectedLinearProjectIds.size === 0) return
+    if (!selectedLinearProjectId) return
 
     setIsImporting(true)
     setLinearError("")
@@ -411,11 +398,12 @@ function NewProjectContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          projectIds: Array.from(selectedLinearProjectIds),
+          projectId: selectedLinearProjectId,
           syncComments: true,       // Always import comments for full context
           extractNuance: true,      // Extract key decisions/requirements from comments
           generateVision: true,     // Generate vision packets for game/creative projects
-          saveToMarkdown: false     // Don't save markdown yet - we'll do it after project creation
+          saveToMarkdown: false,    // Don't save markdown yet - we'll do it after project creation
+          explicitCategory: importCategory !== "auto" ? importCategory : undefined // Override keyword detection if set
         })
       })
 
@@ -1723,15 +1711,12 @@ function NewProjectContent() {
         )
       : linearProjects
 
-    const allFilteredSelected = filteredProjects.length > 0 && filteredProjects.every(p => selectedLinearProjectIds.has(p.id))
-    const someSelected = selectedLinearProjectIds.size > 0
-
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => {
             setMode("choose")
-            setSelectedLinearProjectIds(new Set())
+            setSelectedLinearProjectId(null)
             setLinearImportData(null)
           }}>
             <ArrowLeft className="h-4 w-4" />
@@ -1739,7 +1724,7 @@ function NewProjectContent() {
           <div>
             <h1 className="text-2xl font-semibold">Import from Linear</h1>
             <p className="text-sm text-muted-foreground">
-              Select projects to import with all their issues
+              Select a project to import with all its issues
             </p>
           </div>
         </div>
@@ -1764,31 +1749,20 @@ function NewProjectContent() {
                   className="pl-9"
                 />
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex gap-2">
+              {selectedLinearProjectId && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">
+                    1 project selected
+                  </span>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    onClick={selectAllLinearProjects}
-                    disabled={allFilteredSelected || filteredProjects.length === 0}
+                    onClick={() => setSelectedLinearProjectId(null)}
                   >
-                    Select All
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={deselectAllLinearProjects}
-                    disabled={!someSelected}
-                  >
-                    Deselect All
+                    Clear
                   </Button>
                 </div>
-                {someSelected && (
-                  <Badge variant="secondary">
-                    {selectedLinearProjectIds.size} selected
-                  </Badge>
-                )}
-              </div>
+              )}
             </CardHeader>
             <CardContent>
               {linearLoading ? (
@@ -1803,7 +1777,7 @@ function NewProjectContent() {
                 <ScrollArea className="h-[400px]">
                   <div className="space-y-2">
                     {filteredProjects.map((project) => {
-                      const isSelected = selectedLinearProjectIds.has(project.id)
+                      const isSelected = selectedLinearProjectId === project.id
                       return (
                         <div
                           key={project.id}
@@ -1811,14 +1785,14 @@ function NewProjectContent() {
                             "p-4 rounded-lg border cursor-pointer transition-colors",
                             isSelected ? "border-primary bg-primary/5" : "hover:border-primary/50"
                           )}
-                          onClick={() => toggleLinearProject(project.id)}
+                          onClick={() => selectLinearProject(project.id)}
                         >
                           <div className="flex items-center gap-3">
                             <div className={cn(
-                              "h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0",
-                              isSelected ? "bg-primary border-primary" : "border-muted-foreground/30"
+                              "h-5 w-5 rounded-full border-2 flex items-center justify-center flex-shrink-0",
+                              isSelected ? "border-primary" : "border-muted-foreground/30"
                             )}>
-                              {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+                              {isSelected && <div className="h-2.5 w-2.5 rounded-full bg-primary" />}
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="font-medium truncate">{project.name}</p>
@@ -1852,11 +1826,41 @@ function NewProjectContent() {
                 </ScrollArea>
               )}
             </CardContent>
-            <div className="px-6 pb-6">
+            <div className="px-6 pb-6 space-y-4">
+              {/* Project Category Selector - determines if game/creative detection runs */}
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">Project Type</Label>
+                <Select value={importCategory} onValueChange={setImportCategory}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select project type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto-detect from content</SelectItem>
+                    <SelectItem value="game">Game (enables game dev kickoff)</SelectItem>
+                    <SelectItem value="vr">VR/AR Experience</SelectItem>
+                    <SelectItem value="creative">Creative Project</SelectItem>
+                    <SelectItem value="interactive">Interactive Experience</SelectItem>
+                    <SelectItem value="web">Web Application</SelectItem>
+                    <SelectItem value="mobile">Mobile App</SelectItem>
+                    <SelectItem value="desktop">Desktop Application</SelectItem>
+                    <SelectItem value="api">API/Backend Service</SelectItem>
+                    <SelectItem value="tool">Developer Tool</SelectItem>
+                    <SelectItem value="standard">Standard Software</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {importCategory === "auto"
+                    ? "Will analyze content to detect if this is a game/creative project"
+                    : importCategory === "game" || importCategory === "vr" || importCategory === "creative" || importCategory === "interactive"
+                      ? "Will generate game dev kickoff with vision and implementation packets"
+                      : "Standard project workflow without game-specific features"}
+                </p>
+              </div>
+
               <Button
                 className="w-full"
                 onClick={handleLinearImport}
-                disabled={selectedLinearProjectIds.size === 0 || isImporting}
+                disabled={!selectedLinearProjectId || isImporting}
               >
                 {isImporting ? (
                   <>
@@ -1866,7 +1870,7 @@ function NewProjectContent() {
                 ) : (
                   <>
                     <Download className="mr-2 h-4 w-4" />
-                    Import {selectedLinearProjectIds.size} Project{selectedLinearProjectIds.size !== 1 ? "s" : ""}
+                    Import Project
                   </>
                 )}
               </Button>
