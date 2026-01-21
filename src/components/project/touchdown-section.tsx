@@ -140,27 +140,27 @@ export function TouchdownSection({
   }
 
   return (
-    <Card className="border-2 border-amber-500/30 bg-gradient-to-br from-amber-500/5 via-orange-500/5 to-transparent relative overflow-hidden">
+    <Card className="border-2 border-sky-500/30 bg-gradient-to-br from-sky-500/5 via-blue-500/5 to-transparent relative overflow-hidden">
       {/* Decorative runway/landing strip */}
-      <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
-      <div className="absolute bottom-2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-500/20 to-transparent" />
+      <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-sky-500/30 to-transparent" />
+      <div className="absolute bottom-2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-sky-500/20 to-transparent" />
 
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {/* Football transforming to jet touchdown visual */}
-            <div className="p-3 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 relative">
+            <div className="p-3 rounded-xl bg-gradient-to-br from-sky-500/20 to-blue-500/20 border border-sky-500/30 relative">
               <div className="flex items-center gap-1">
                 <span className="text-2xl opacity-50">🏈</span>
-                <span className="text-amber-400 text-xs">→</span>
+                <span className="text-sky-400 text-xs">→</span>
                 <span className="text-2xl">✈️</span>
               </div>
               {/* Landing effect */}
-              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-amber-500/50 rounded-full blur-sm" />
+              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-sky-500/50 rounded-full blur-sm" />
             </div>
             <div>
               <CardTitle className="text-xl flex items-center gap-2">
-                <span className="text-amber-400">🏈</span> Touchdown!
+                <span className="text-sky-400">🏈</span> Touchdown!
                 {result?.allGatesPassing && (
                   <Badge variant="outline" className="bg-green-500/10 text-green-400 border-green-500/30">
                     All Passing
@@ -196,7 +196,7 @@ export function TouchdownSection({
             <div className="text-xs text-muted-foreground">Completed</div>
           </div>
           <div className="p-3 rounded-lg bg-gray-900/50 border border-gray-800">
-            <div className="text-2xl font-bold text-amber-400">{packets.length - completedPackets.length}</div>
+            <div className="text-2xl font-bold text-sky-400">{packets.length - completedPackets.length}</div>
             <div className="text-xs text-muted-foreground">Remaining</div>
           </div>
         </div>
@@ -288,7 +288,7 @@ export function TouchdownSection({
                 />
               </div>
               <div className="flex items-center justify-between">
-                <Label htmlFor="execute" className="text-xs text-amber-400">Execute Refinements</Label>
+                <Label htmlFor="execute" className="text-xs text-sky-400">Execute Refinements</Label>
                 <Switch
                   id="execute"
                   checked={executeRefinements}
@@ -299,7 +299,7 @@ export function TouchdownSection({
           </div>
 
           {executeRefinements && (
-            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-400">
+            <div className="p-3 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sm text-sky-400">
               <AlertTriangle className="h-4 w-4 inline mr-2" />
               Execute Refinements will make changes to your codebase. Use with caution.
             </div>
@@ -319,7 +319,7 @@ export function TouchdownSection({
           <Button
             onClick={handleRunTouchdown}
             disabled={isRunning || !workingDirectory}
-            className="flex-1 bg-amber-600 hover:bg-amber-500 text-white"
+            className="flex-1 bg-sky-600 hover:bg-sky-500 text-white"
           >
             {isRunning ? (
               <>
