@@ -60,6 +60,7 @@ interface ResourceListProps {
   onTranscribe?: (resource: ProjectResource) => void
   onPacketCreate?: (transcription: TranscriptionData, resource: ProjectResource) => void
   onMarkdownPacketsCreated?: (packets: ProposedPacket[]) => void
+  refreshTrigger?: number  // Increment to trigger refresh of resource list
   className?: string
 }
 
@@ -91,6 +92,7 @@ export function ResourceList({
   onTranscribe,
   onPacketCreate,
   onMarkdownPacketsCreated,
+  refreshTrigger = 0,
   className
 }: ResourceListProps) {
   const router = useRouter()
@@ -129,7 +131,7 @@ export function ResourceList({
 
   useEffect(() => {
     loadResources()
-  }, [projectId])
+  }, [projectId, refreshTrigger])
 
   function loadResources() {
     const loaded = getResourcesForProject(projectId)

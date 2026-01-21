@@ -170,6 +170,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
   const [resourceCount, setResourceCount] = useState(0)
+  const [resourceRefreshTrigger, setResourceRefreshTrigger] = useState(0)
   const [brainDumpCount, setBrainDumpCount] = useState(0)
   const [isRecordingBrainDump, setIsRecordingBrainDump] = useState(false)
   const [repoBrowserOpen, setRepoBrowserOpen] = useState(false)
@@ -876,6 +877,8 @@ export default function ProjectDetailPage() {
     if (!projectId) return
     const resources = getResourcesForProject(projectId)
     setResourceCount(resources.length)
+    // Also trigger ResourceList to refresh
+    setResourceRefreshTrigger(prev => prev + 1)
   }
 
   const refreshBrainDumpCount = () => {
@@ -2511,6 +2514,7 @@ export default function ProjectDetailPage() {
               projectId={project.id}
               projectName={project.name}
               projectDescription={project.description}
+              refreshTrigger={resourceRefreshTrigger}
               onPacketCreate={(transcription, resource) => {
                 console.log("Packet created from transcription:", resource.name)
                 // Refresh packets list
