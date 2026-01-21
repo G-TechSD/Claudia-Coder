@@ -299,6 +299,12 @@ export function BuildPlanEditor({
     sourceResourceId: string
   } | null>(null)
 
+  // Track if we should auto-generate after kickoff is loaded
+  const [pendingKickoffGeneration, setPendingKickoffGeneration] = useState(false)
+
+  // Ref to prevent StrictMode double-processing
+  const kickoffProcessedRef = useRef<string | null>(null)
+
   // Check for kickoff content in sessionStorage on mount or when kickoffTrigger changes
   useEffect(() => {
     try {
@@ -308,6 +314,14 @@ export function BuildPlanEditor({
         const data = JSON.parse(stored)
         // Only use if it matches this project
         if (data.projectId === projectId) {
+          // Prevent double-processing in StrictMode
+          const contentKey = `${data.sourceResourceId}-${kickoffTrigger}`
+          if (kickoffProcessedRef.current === contentKey) {
+            console.log(`[build-plan-editor] Kickoff content already processed, skipping`)
+            return
+          }
+          kickoffProcessedRef.current = contentKey
+
           console.log(`[build-plan-editor] Loading kickoff content from: ${data.sourceName}`)
           setKickoffContent({
             content: data.content,
@@ -316,6 +330,8 @@ export function BuildPlanEditor({
           })
           // Clear it so it doesn't persist
           sessionStorage.removeItem("claudia_kickoff_content")
+          // Trigger auto-generation
+          setPendingKickoffGeneration(true)
         } else {
           console.log(`[build-plan-editor] Kickoff content projectId mismatch: ${data.projectId} !== ${projectId}`)
         }
@@ -324,6 +340,18 @@ export function BuildPlanEditor({
       console.error("Failed to read kickoff content from sessionStorage:", err)
     }
   }, [projectId, kickoffTrigger])
+
+  // Auto-generate when kickoff content is loaded and provider is ready
+  useEffect(() => {
+    if (pendingKickoffGeneration && selectedProvider && kickoffContent && !isGenerating && !isLoadingProviders) {
+      console.log(`[build-plan-editor] Auto-triggering generation for kickoff from: ${kickoffContent.sourceName}`)
+      setPendingKickoffGeneration(false)
+      // Small delay to ensure state is settled
+      setTimeout(() => {
+        generateBuildPlan()
+      }, 100)
+    }
+  }, [pendingKickoffGeneration, selectedProvider, kickoffContent, isGenerating, isLoadingProviders])
 
   // Auto-save timer
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
