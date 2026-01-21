@@ -40,7 +40,7 @@ const RESERVED_PORTS: Record<number, string> = {
 }
 
 // Alternative ports to suggest when default is reserved
-const ALTERNATIVE_PORTS = [3001, 8080, 5000, 5173, 4000, 4200, 8000, 9000]
+const ALTERNATIVE_PORTS = [3001, 9000, 5000, 5173, 4000, 4200, 8000, 9001, 9002]  // Avoid 8080 (often nginx)
 
 function isPortReserved(port: number): { reserved: boolean; usedBy?: string } {
   const usedBy = RESERVED_PORTS[port]
@@ -58,7 +58,7 @@ function getSafeDefaultPort(requestedPort: number): number {
   const { reserved } = isPortReserved(requestedPort)
   if (reserved) {
     const suggestions = getSuggestedPorts(requestedPort)
-    return suggestions[0] || 8080
+    return suggestions[0] || 9000
   }
   return requestedPort
 }
@@ -125,10 +125,10 @@ const PROJECT_TYPES = {
   // Static Sites
   html: {
     name: "Static HTML",
-    runCommand: "npx serve -l tcp://0.0.0.0:8080",
-    devCommand: "npx live-server --host=0.0.0.0 --port=8080",
+    runCommand: "npx serve -l tcp://0.0.0.0:9000",
+    devCommand: "npx live-server --host=0.0.0.0 --port=9000",
     buildCommand: "echo 'No build needed for static HTML'",
-    defaultPort: 8080,
+    defaultPort: 9000,  // 8080 often used by nginx
     icon: "html",
     supportsHttps: false
   },
@@ -136,10 +136,10 @@ const PROJECT_TYPES = {
   // PHP / Traditional Web
   php: {
     name: "PHP / MySQL",
-    runCommand: "php -S 0.0.0.0:8080",
-    devCommand: "php -S 0.0.0.0:8080",
+    runCommand: "php -S 0.0.0.0:9000",
+    devCommand: "php -S 0.0.0.0:9000",
     buildCommand: "composer install",
-    defaultPort: 8080,
+    defaultPort: 9000,  // 8080 often used by nginx
     icon: "php",
     supportsHttps: false
   },
@@ -185,10 +185,10 @@ const PROJECT_TYPES = {
   // Mobile / Cross-platform
   flutter: {
     name: "Flutter Web",
-    runCommand: "flutter run -d chrome --web-port=8080",
-    devCommand: "flutter run -d chrome --web-port=8080",
+    runCommand: "flutter run -d chrome --web-port=9000",
+    devCommand: "flutter run -d chrome --web-port=9000",
     buildCommand: "flutter build web",
-    defaultPort: 8080,
+    defaultPort: 9000,  // 8080 often used by nginx
     icon: "mobile",
     supportsHttps: false
   },
@@ -199,7 +199,7 @@ const PROJECT_TYPES = {
     runCommand: "cargo run",
     devCommand: "cargo watch -x run",
     buildCommand: "cargo build --release",
-    defaultPort: 8080,
+    defaultPort: 9000,  // 8080 often used by nginx
     icon: "rust",
     supportsHttps: false
   },
