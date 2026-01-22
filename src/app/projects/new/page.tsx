@@ -2519,13 +2519,16 @@ ${p.description}
           </div>
         </div>
 
-        {/* What we understood */}
-        <Card>
+        {/* What we understood and what's missing */}
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Here's what we understood</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Check className="h-5 w-5 text-green-500" />
+              What we understood
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">{ideationReport.summary}</p>
+            <p className="text-sm">{ideationReport.summary}</p>
             {ideationReport.keyPoints.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {ideationReport.keyPoints.slice(0, 4).map((point, i) => (
@@ -2534,6 +2537,43 @@ ${p.description}
                   </Badge>
                 ))}
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* What's missing */}
+        <Card className="border-orange-500/30 bg-orange-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-orange-500" />
+              What we need to build effective software
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {ideationReport.questions && ideationReport.questions.length > 0 ? (
+              <ul className="space-y-2">
+                {ideationReport.questions.map((question, i) => (
+                  <li key={i} className="text-sm flex items-start gap-2">
+                    <span className="text-orange-500 font-medium">{i + 1}.</span>
+                    {question}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="text-orange-500 font-medium">•</span>
+                  What specific features do you need?
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-orange-500 font-medium">•</span>
+                  Who are the target users?
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-orange-500 font-medium">•</span>
+                  What problem does this solve?
+                </li>
+              </ul>
             )}
           </CardContent>
         </Card>
