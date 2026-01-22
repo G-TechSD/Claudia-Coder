@@ -106,7 +106,7 @@ export function SetupGuide() {
           : "Connect LM Studio or Ollama for free, local AI",
         icon: <Server className="h-4 w-4" />,
         isComplete: localServerOnline,
-        href: "/settings/providers",
+        href: "/settings/api-keys",
         action: "Configure"
       },
       {
@@ -117,7 +117,7 @@ export function SetupGuide() {
           : "Add Anthropic, OpenAI, or Google for powerful models",
         icon: <Cloud className="h-4 w-4" />,
         isComplete: hasCloudProvider,
-        href: "/settings/providers",
+        href: "/settings/api-keys",
         action: "Add Key"
       },
       {
@@ -128,7 +128,7 @@ export function SetupGuide() {
           : "Choose your default AI for new projects",
         icon: <Zap className="h-4 w-4" />,
         isComplete: hasDefaultModel,
-        href: "/settings/providers",
+        href: "/settings/api-keys",
         action: "Select"
       },
       // Services section
@@ -363,7 +363,7 @@ export function SetupGuide() {
               </Button>
             ) : (
               <Button variant="outline" size="sm" asChild>
-                <a href="/settings/providers">
+                <a href="/settings/api-keys">
                   <Settings className="h-4 w-4 mr-2" />
                   Open Settings
                 </a>

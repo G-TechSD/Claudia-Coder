@@ -24,6 +24,7 @@ import { VoiceInput } from "@/components/voice/voice-input"
 import { createProject, updateProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
 import { savePackets, saveBuildPlan, type BuildPlan, type WorkPacket, type PacketSummary } from "@/lib/ai/build-plan"
 import { BuildPlanReview } from "@/components/project/build-plan-review"
+import { IdeasExplorer } from "@/components/project/ideas-explorer"
 import { UIFrameworkSelector, UIType, FrameworkOption, getFrameworksForType, detectUITypeFromDescription } from "@/components/project/ui-framework-selector"
 import { createGitLabRepo, setGitLabToken, validateGitLabToken, listGitLabProjects } from "@/lib/gitlab/api"
 import { getUserGitLabToken } from "@/lib/data/user-gitlab"
@@ -61,7 +62,9 @@ import {
   Rocket,
   DollarSign,
   Mic,
-  Lightbulb
+  Lightbulb,
+  Pencil,
+  FileText
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -2497,7 +2500,7 @@ ${p.description}
     )
   }
 
-  // Mode: Ideation Review - show understanding and suggested research packets
+  // Mode: Clarification - help user provide more info before building
   if (mode === "ideation_review" && ideationReport) {
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -2508,101 +2511,191 @@ ${p.description}
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
               <Lightbulb className="h-6 w-6 text-yellow-500" />
-              Ideas Project Detected
+              Let's Clarify Before Building
             </h1>
             <p className="text-sm text-muted-foreground">
-              This looks like exploration/research rather than building software
+              We need a bit more detail to build great software. Choose how you'd like to fill in the blanks.
             </p>
           </div>
         </div>
 
-        {/* Understanding Report */}
+        {/* What we understood */}
         <Card>
-          <CardHeader>
-            <CardTitle>{ideationReport.title}</CardTitle>
-            <CardDescription>Here's what I understood from your input</CardDescription>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Here's what we understood</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="p-4 bg-muted rounded-lg">
-              <p className="text-sm whitespace-pre-wrap">{ideationReport.summary}</p>
-            </div>
-
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">{ideationReport.summary}</p>
             {ideationReport.keyPoints.length > 0 && (
-              <div>
-                <Label className="text-xs text-muted-foreground uppercase">Key Points</Label>
-                <ul className="mt-2 space-y-1">
-                  {ideationReport.keyPoints.map((point, i) => (
-                    <li key={i} className="text-sm flex items-start gap-2">
-                      <Check className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                      {point}
-                    </li>
-                  ))}
-                </ul>
+              <div className="flex flex-wrap gap-2">
+                {ideationReport.keyPoints.slice(0, 4).map((point, i) => (
+                  <Badge key={i} variant="secondary" className="text-xs">
+                    {point.length > 40 ? point.slice(0, 40) + "..." : point}
+                  </Badge>
+                ))}
               </div>
             )}
-
-            {/* Feedback text area */}
-            <div>
-              <Label className="text-xs text-muted-foreground uppercase mb-2">
-                Anything to add or correct?
-              </Label>
-              <Textarea
-                value={ideationFeedback}
-                onChange={(e) => setIdeationFeedback(e.target.value)}
-                placeholder="Add context, corrections, or specific things you want explored..."
-                rows={3}
-                className="mt-1"
-              />
-            </div>
           </CardContent>
         </Card>
 
-        {/* Suggested Research Packets */}
+        {/* Clarification Options */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Suggested Research Tasks</CardTitle>
-            <CardDescription>These will generate markdown documents, not code</CardDescription>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Choose a way to add more detail</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {ideationReport.suggestedPackets.map((packet) => (
-              <div key={packet.id} className="p-3 border rounded-lg">
-                <div className="flex items-start gap-3">
-                  <Badge variant="outline" className="capitalize">
-                    {packet.type}
-                  </Badge>
-                  <div className="flex-1">
-                    <h4 className="font-medium text-sm">{packet.title}</h4>
-                    <p className="text-xs text-muted-foreground">{packet.description}</p>
-                  </div>
+          <CardContent className="grid gap-3">
+            {/* Option 1: Explore Ideas (Fractal) */}
+            <button
+              onClick={() => setMode("ideation")}
+              className="flex items-start gap-4 p-4 rounded-lg border hover:border-primary hover:bg-muted/50 transition-colors text-left"
+            >
+              <div className="p-2 rounded-lg bg-yellow-500/10">
+                <Lightbulb className="h-5 w-5 text-yellow-500" />
+              </div>
+              <div>
+                <h4 className="font-medium">Explore & Narrow Down</h4>
+                <p className="text-sm text-muted-foreground">
+                  Click on related concepts to help us understand what you want to build
+                </p>
+              </div>
+            </button>
+
+            {/* Option 2: Brain Dump */}
+            <button
+              onClick={() => {
+                setIdeationFeedback(quickDescription + "\n\n")
+                setMode("choose")
+                // Focus on the description input
+                setTimeout(() => {
+                  const textarea = document.querySelector("textarea")
+                  if (textarea) {
+                    textarea.focus()
+                    textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+                  }
+                }, 100)
+              }}
+              className="flex items-start gap-4 p-4 rounded-lg border hover:border-primary hover:bg-muted/50 transition-colors text-left"
+            >
+              <div className="p-2 rounded-lg bg-blue-500/10">
+                <FileText className="h-5 w-5 text-blue-500" />
+              </div>
+              <div>
+                <h4 className="font-medium">Brain Dump</h4>
+                <p className="text-sm text-muted-foreground">
+                  Write freely about what you want — features, goals, context, anything
+                </p>
+              </div>
+            </button>
+
+            {/* Option 3: Guided Interview */}
+            <button
+              onClick={() => {
+                // Store the current description and switch to interview mode
+                setQuickDescription(quickDescription + (ideationFeedback ? "\n" + ideationFeedback : ""))
+                setMode("interview")
+              }}
+              className="flex items-start gap-4 p-4 rounded-lg border hover:border-primary hover:bg-muted/50 transition-colors text-left"
+            >
+              <div className="p-2 rounded-lg bg-green-500/10">
+                <MessageSquare className="h-5 w-5 text-green-500" />
+              </div>
+              <div>
+                <h4 className="font-medium">Answer Questions</h4>
+                <p className="text-sm text-muted-foreground">
+                  We'll ask a few targeted questions to clarify your requirements
+                </p>
+              </div>
+            </button>
+
+            {/* Option 4: Quick Clarification */}
+            <div className="p-4 rounded-lg border space-y-3">
+              <div className="flex items-start gap-4">
+                <div className="p-2 rounded-lg bg-purple-500/10">
+                  <Pencil className="h-5 w-5 text-purple-500" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-medium">Quick Clarification</h4>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Add a sentence or two to clarify what you want
+                  </p>
+                  <Textarea
+                    value={ideationFeedback}
+                    onChange={(e) => setIdeationFeedback(e.target.value)}
+                    placeholder="e.g., 'I want a web app for tracking expenses with receipt photo uploads'"
+                    rows={2}
+                    className="text-sm"
+                  />
                 </div>
               </div>
-            ))}
+            </div>
           </CardContent>
         </Card>
 
         {/* Actions */}
         <div className="flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={() => {
+          <Button variant="outline" onClick={() => {
             setIdeationReport(null)
             setIdeationFeedback("")
             setMode("choose")
           }}>
-            <ThumbsDown className="mr-2 h-4 w-4" />
+            <ArrowLeft className="mr-2 h-4 w-4" />
             Start Over
           </Button>
           <Button
-            variant="outline"
-            onClick={() => {
-              // Switch to build mode instead
+            className="flex-1"
+            disabled={!ideationFeedback.trim()}
+            onClick={async () => {
+              // Combine original with clarification and try again
+              const enrichedDescription = quickDescription + "\n\nAdditional context: " + ideationFeedback.trim()
+              setQuickDescription(enrichedDescription)
               setIdeationReport(null)
-              handleFeelingLucky() // This will now go to build mode since we cleared ideation
+              setIdeationFeedback("")
+              // Go directly to plan generation, bypassing ideation detection
+              setIsGenerating(true)
+              try {
+                const response = await fetch("/api/llm/plan", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    description: enrichedDescription,
+                    allowPaidFallback: settings.allowPaidLLM
+                  })
+                })
+                if (response.ok) {
+                  const plan = await response.json()
+                  setGeneratedPlan(plan)
+                  setMode("quick")
+                } else {
+                  throw new Error("Failed to generate plan")
+                }
+              } catch {
+                // Fallback
+                const words = enrichedDescription.split(/\s+/)
+                const name = words.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ")
+                setGeneratedPlan({
+                  name: name || "New Project",
+                  description: enrichedDescription,
+                  features: ["Core functionality as described"],
+                  techStack: [],
+                  priority: "medium"
+                })
+                setMode("quick")
+              } finally {
+                setIsGenerating(false)
+              }
             }}
           >
-            Actually Build Code
-          </Button>
-          <Button className="flex-1" onClick={handleApproveIdeation}>
-            <ThumbsUp className="mr-2 h-4 w-4" />
-            Create Ideas Project
+            {isGenerating ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating plan...
+              </>
+            ) : (
+              <>
+                <Rocket className="mr-2 h-4 w-4" />
+                Continue with Clarification
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -2732,15 +2825,60 @@ ${p.description}
     )
   }
 
-  // Mode: Ideation - Brainstorming and ideas exploration
+  // Mode: Ideation - Explore and narrow ideas to clarify requirements
   if (mode === "ideation") {
     return (
-      <div className="h-[calc(100vh-4rem)]">
-        <InterviewPanel
-          type="ideation"
-          initialDescription={quickDescription.trim() || undefined}
-          onComplete={handleIdeationComplete}
-          onCancel={handleInterviewCancel}
+      <div className="p-6 max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => setMode("ideation_review")}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-semibold flex items-center gap-2">
+              <Lightbulb className="h-6 w-6 text-yellow-500" />
+              Explore & Clarify
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Select concepts that match what you want to build
+            </p>
+          </div>
+        </div>
+
+        <IdeasExplorer
+          projectId="clarification"
+          projectName="Clarification"
+          projectDescription={quickDescription}
+          initialContext={quickDescription}
+          onCreateProject={async (rec) => {
+            // Use the enriched description from the recommendation
+            const enrichedDescription = `${quickDescription}\n\nClarified requirements:\n${rec.description}\n\nKey features:\n${rec.keyFeatures.join("\n")}\n\nKey concepts: ${rec.selectionPath?.join(", ") || ""}`
+            setQuickDescription(enrichedDescription)
+            setIdeationReport(null)
+
+            // Auto-generate plan with enriched description
+            setIsGenerating(true)
+            try {
+              const response = await fetch("/api/llm/plan", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  description: enrichedDescription,
+                  allowPaidFallback: settings.allowPaidLLM
+                })
+              })
+              if (response.ok) {
+                const plan = await response.json()
+                setGeneratedPlan(plan)
+                setMode("quick")
+              } else {
+                setMode("choose")
+              }
+            } catch {
+              setMode("choose")
+            } finally {
+              setIsGenerating(false)
+            }
+          }}
         />
       </div>
     )

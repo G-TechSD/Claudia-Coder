@@ -81,7 +81,10 @@ import {
   MessageSquare,
   BookOpen,
   Rocket,
+  CloudUpload,
+  CloudDownload,
 } from "lucide-react"
+import { useProjectSync } from "@/hooks/useProjectSync"
 
 // Provider display names and colors
 const PROVIDER_INFO: Record<string, { name: string; color: string; icon: typeof Cloud }> = {
@@ -184,6 +187,74 @@ function SettingsPageContent() {
 
   // Launch & Test state
   const [defaultHost, setDefaultHost] = useState("")
+
+  // Project Sync
+  const { syncStatus, sync, forcePush, forcePull } = useProjectSync(userId)
+
+  // Project Recovery
+  const [recovering, setRecovering] = useState(false)
+  const [recoveryResult, setRecoveryResult] = useState<{ count: number; message: string } | null>(null)
+
+  const handleRecoverProjects = async () => {
+    setRecovering(true)
+    setRecoveryResult(null)
+    try {
+      // Fetch recoverable projects from disk
+      const response = await fetch("/api/projects/recover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      const result = await response.json()
+
+      if (result.success && result.projects?.length > 0) {
+        // Merge with existing projects in localStorage
+        const existing = JSON.parse(localStorage.getItem("claudia_projects") || "[]")
+        const existingIds = new Set(existing.map((p: { id: string }) => p.id))
+
+        // Add only projects that don't already exist
+        let addedCount = 0
+        for (const project of result.projects) {
+          if (!existingIds.has(project.id)) {
+            existing.push(project)
+            addedCount++
+          }
+        }
+
+        localStorage.setItem("claudia_projects", JSON.stringify(existing))
+
+        // Also update user-scoped storage
+        if (userId) {
+          localStorage.setItem(`claudia_user_${userId}_projects`, JSON.stringify(existing))
+        }
+
+        setRecoveryResult({
+          count: addedCount,
+          message: addedCount > 0
+            ? `Recovered ${addedCount} projects from disk!`
+            : `All ${result.projects.length} projects already exist.`
+        })
+
+        // Refresh data summary
+        setDataSummary(getDataSummary(userId))
+
+        // Dispatch event to refresh other components
+        window.dispatchEvent(new StorageEvent("storage", { key: "claudia_projects" }))
+      } else {
+        setRecoveryResult({
+          count: 0,
+          message: "No recoverable projects found on disk."
+        })
+      }
+    } catch (error) {
+      setRecoveryResult({
+        count: 0,
+        message: `Recovery failed: ${error instanceof Error ? error.message : "Unknown error"}`
+      })
+    } finally {
+      setRecovering(false)
+    }
+  }
 
   // Initialize from URL params
   useEffect(() => {
@@ -525,7 +596,7 @@ function SettingsPageContent() {
   }
 
   // Clear all data
-  const handleClearAllData = () => {
+  const handleClearAllData = async () => {
     if (confirmClear !== "DELETE ALL") return
     setClearingData(true)
 
@@ -539,6 +610,23 @@ function SettingsPageContent() {
     // Also clear legacy data
     const legacyResult = clearAllData({ keepToken: true })
     totalCleared += legacyResult.clearedKeys.length
+
+    // Also clear server-side synced data to prevent recovery
+    try {
+      await fetch("/api/projects/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projects: [],
+          interviews: [],
+          buildPlans: [],
+          packets: [],
+          clearAll: true
+        })
+      })
+    } catch (err) {
+      console.warn("Failed to clear server data:", err)
+    }
 
     setClearingData(false)
     setConfirmClear("")
@@ -1086,13 +1174,140 @@ function SettingsPageContent() {
                 </div>
               </div>
 
+              {/* Data Storage Location */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Data Storage</Label>
+                <div className="p-4 rounded-lg border bg-card">
+                  <div className="flex items-center gap-3 mb-3">
+                    <HardDrive className="h-5 w-5 text-blue-500" />
+                    <div>
+                      <p className="font-medium">Server Storage (Source of Truth)</p>
+                      <p className="text-xs text-muted-foreground">
+                        Projects are stored on the Claudia server, accessible from any device
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded bg-muted/50 font-mono text-xs mb-3">
+                    {syncStatus.serverDataDir || "~/.claudia-data/"}
+                  </div>
+
+                  <div className="flex items-center gap-3 mb-3">
+                    <Cloud className={cn(
+                      "h-5 w-5",
+                      syncStatus.status === "synced" ? "text-green-500" :
+                      syncStatus.status === "syncing" ? "text-yellow-500 animate-spin" :
+                      syncStatus.status === "error" ? "text-red-500" :
+                      "text-muted-foreground"
+                    )} />
+                    <div>
+                      <p className="font-medium text-sm">Sync Status</p>
+                      <p className="text-xs text-muted-foreground">
+                        {syncStatus.status === "synced" ? (
+                          <>Last synced: {new Date(syncStatus.lastSyncedAt!).toLocaleTimeString()}</>
+                        ) : syncStatus.status === "syncing" ? (
+                          "Syncing..."
+                        ) : syncStatus.status === "error" ? (
+                          <span className="text-red-500">{syncStatus.error}</span>
+                        ) : (
+                          "Not synced yet"
+                        )}
+                      </p>
+                    </div>
+                    <Badge variant={
+                      syncStatus.status === "synced" ? "success" :
+                      syncStatus.status === "syncing" ? "secondary" :
+                      syncStatus.status === "error" ? "destructive" :
+                      "outline"
+                    } className="ml-auto">
+                      {syncStatus.status === "synced" ? "Synced" :
+                       syncStatus.status === "syncing" ? "Syncing" :
+                       syncStatus.status === "error" ? "Error" : "Pending"}
+                    </Badge>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => sync({ forceRefresh: true })}
+                      disabled={syncStatus.status === "syncing"}
+                      className="gap-2"
+                    >
+                      <RefreshCw className={cn("h-4 w-4", syncStatus.status === "syncing" && "animate-spin")} />
+                      Sync Now
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={forcePush}
+                      disabled={syncStatus.status === "syncing"}
+                      className="gap-2"
+                      title="Push browser cache to server"
+                    >
+                      <CloudUpload className="h-4 w-4" />
+                      Push to Server
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={forcePull}
+                      disabled={syncStatus.status === "syncing"}
+                      className="gap-2"
+                      title="Load from server (refresh this browser)"
+                    >
+                      <CloudDownload className="h-4 w-4" />
+                      Pull from Server
+                    </Button>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Your projects are safely stored on the server at the path shown above.
+                    Browser cache is used for faster loading but server is the source of truth.
+                  </p>
+                </div>
+              </div>
+
+              {/* Project Recovery */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Project Recovery</Label>
+                <div className="p-4 rounded-lg border bg-card">
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Recover projects from disk by scanning ~/claudia-projects/ for .claudia/config.json files.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="default"
+                      onClick={handleRecoverProjects}
+                      disabled={recovering}
+                      className="gap-2"
+                    >
+                      {recovering ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <HardDrive className="h-4 w-4" />
+                      )}
+                      {recovering ? "Scanning..." : "Recover Projects from Disk"}
+                    </Button>
+                    {recoveryResult && (
+                      <span className={cn(
+                        "text-sm",
+                        recoveryResult.count > 0 ? "text-green-500" : "text-muted-foreground"
+                      )}>
+                        {recoveryResult.message}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Import/Export */}
               <div className="space-y-3">
-                <Label className="text-sm font-medium">Import & Export</Label>
+                <Label className="text-sm font-medium">Import & Export (Files)</Label>
                 <div className="flex gap-3">
                   <Button variant="outline" onClick={handleExportData} className="gap-2">
                     <DownloadIcon className="h-4 w-4" />
-                    Export Data
+                    Export to File
                   </Button>
                   <label>
                     <input
@@ -1104,7 +1319,7 @@ function SettingsPageContent() {
                     <Button variant="outline" asChild className="gap-2 cursor-pointer">
                       <span>
                         <Upload className="h-4 w-4" />
-                        Import Data
+                        Import from File
                       </span>
                     </Button>
                   </label>
