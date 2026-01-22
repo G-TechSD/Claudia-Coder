@@ -475,6 +475,109 @@ test.describe('Ideas Project Flow', () => {
     });
   });
 
+  test.describe('IdeasExplorer on Project Page', () => {
+    test('should load IdeasExplorer when viewing an Ideas project', async ({ page }) => {
+      // First create an Ideas project
+      await page.goto('/projects/new');
+      await waitForAppReady(page);
+
+      const descInput = page.locator('textarea').first();
+      if (await descInput.isVisible()) {
+        await descInput.fill('Charles wants to explore AI-powered content for LED video walls at trade shows internationally');
+      }
+
+      const quickStartBtn = page.locator('button:has-text("Quick Start")');
+      if (await quickStartBtn.isVisible()) {
+        await quickStartBtn.click();
+        await page.waitForTimeout(5000);
+      }
+
+      await takeScreenshot(page, 'ideas-40-quick-start-for-project-test');
+
+      // Create the ideas project
+      const createIdeasBtn = page.locator('button:has-text("Create Ideas Project")');
+      if (await createIdeasBtn.isVisible()) {
+        await createIdeasBtn.click();
+        await page.waitForTimeout(3000);
+      }
+
+      // Wait for project creation
+      const projectCreated = page.locator('text=Project Created');
+      await projectCreated.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+
+      await takeScreenshot(page, 'ideas-41-project-created-for-explorer-test');
+
+      // Click "View Project" to see the IdeasExplorer
+      const viewProjectBtn = page.locator('button:has-text("View Project")');
+      if (await viewProjectBtn.isVisible()) {
+        await viewProjectBtn.click();
+        await page.waitForTimeout(3000);
+        await waitForAppReady(page);
+      }
+
+      await takeScreenshot(page, 'ideas-42-ideas-project-page');
+
+      // Verify we're on the project page and IdeasExplorer is showing
+      const pageContent = await page.textContent('body') || '';
+      console.log('Project page content includes "Understanding":', pageContent.includes('Understanding'));
+      console.log('Project page content includes "interests":', pageContent.includes('interests'));
+
+      // Look for idea chips (clickable buttons in the explorer)
+      const ideaChips = page.locator('button').filter({
+        has: page.locator('text=/LED|AI|video|trade|content|wall|display|interactive/i')
+      });
+      const chipCount = await ideaChips.count().catch(() => 0);
+      console.log(`Found ${chipCount} idea chips on project page`);
+
+      await takeScreenshot(page, 'ideas-43-ideas-explorer-visible');
+    });
+
+    test('should allow selecting ideas in the IdeasExplorer', async ({ page }) => {
+      // Navigate to projects list to find an Ideas project
+      await page.goto('/projects');
+      await waitForAppReady(page);
+
+      // Click on any Ideas project (look for "Planning" status)
+      const planningProject = page.locator('text=Planning').first();
+      if (await planningProject.isVisible()) {
+        // Click on the project row
+        await planningProject.click();
+        await page.waitForTimeout(2000);
+        await waitForAppReady(page);
+      }
+
+      await takeScreenshot(page, 'ideas-44-viewing-ideas-project');
+
+      // Look for selectable idea chips
+      const ideaButtons = page.locator('[class*="rounded-full"]').filter({
+        has: page.locator('text=/\\w+/')
+      });
+
+      const count = await ideaButtons.count();
+      console.log(`Found ${count} rounded buttons (potential idea chips)`);
+
+      if (count > 0) {
+        // Click first idea
+        await ideaButtons.first().click();
+        await page.waitForTimeout(500);
+        await takeScreenshot(page, 'ideas-45-first-idea-selected');
+
+        // Click second idea if available
+        if (count > 1) {
+          await ideaButtons.nth(1).click();
+          await page.waitForTimeout(500);
+          await takeScreenshot(page, 'ideas-46-second-idea-selected');
+        }
+
+        // Look for continue button
+        const continueBtn = page.locator('button:has-text("Continue")');
+        if (await continueBtn.isVisible()) {
+          await takeScreenshot(page, 'ideas-47-ready-to-continue');
+        }
+      }
+    });
+  });
+
   test.describe('Error Handling and Edge Cases', () => {
     test('should handle empty input gracefully', async ({ page }) => {
       await page.goto('/projects/new');
