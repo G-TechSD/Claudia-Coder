@@ -512,27 +512,36 @@ export function IdeasExplorer({
               <div className="text-sm text-destructive mt-2 text-center">{error}</div>
             )}
 
-            {/* Continue button */}
-            {selectedInCurrentStage.size > 0 && (
-              <div className="flex items-center justify-between pt-4 border-t mt-4">
+            {/* Selection status and Continue button */}
+            <div className="flex items-center justify-between pt-4 border-t mt-4">
+              {selectedInCurrentStage.size === 0 ? (
                 <span className="text-sm text-muted-foreground">
-                  {selectedInCurrentStage.size} selected
+                  Click ideas above to select them
                 </span>
-                <Button onClick={proceedWithSelections} disabled={isGenerating}>
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Thinking...
-                    </>
-                  ) : (
-                    <>
-                      Continue
-                      <ChevronRight className="h-4 w-4 ml-1" />
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">{selectedInCurrentStage.size}</span> selected
+                  {selectedInCurrentStage.size >= 3 && " — good coverage!"}
+                </span>
+              )}
+              <Button
+                onClick={proceedWithSelections}
+                disabled={isGenerating || selectedInCurrentStage.size === 0}
+                variant={selectedInCurrentStage.size > 0 ? "default" : "outline"}
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Thinking...
+                  </>
+                ) : (
+                  <>
+                    Continue
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
