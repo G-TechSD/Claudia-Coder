@@ -470,22 +470,33 @@ export function IdeasExplorer({
             </div>
           </CardHeader>
           <CardContent>
-            {/* Ideas as clickable chips */}
-            <div className="flex flex-wrap items-center justify-center gap-3 py-4">
+            {/* Ideas as clickable chips - word cloud style */}
+            <div className="flex flex-wrap items-center justify-center gap-2 md:gap-3 py-4 px-2">
               {currentStage.ideas.map((idea, index) => {
                 const isSelected = selectedInCurrentStage.has(idea.id)
                 const isHighRelevance = idea.relevance === "high"
+
+                // Create size variations for visual hierarchy
+                const sizeClass = isHighRelevance
+                  ? index % 3 === 0 ? "text-lg px-5 py-2.5" : "text-base px-4 py-2"
+                  : index % 4 === 0 ? "text-base px-4 py-2" : "text-sm px-3 py-1.5"
+
+                // Subtle color variations for unselected chips
+                const colorClass = isSelected
+                  ? "bg-primary text-primary-foreground shadow-lg scale-105 ring-2 ring-primary/30"
+                  : isHighRelevance
+                    ? "bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20"
+                    : "bg-muted/50 text-foreground/80 hover:bg-muted hover:text-foreground"
 
                 return (
                   <button
                     key={idea.id}
                     onClick={() => toggleIdea(idea.id)}
                     className={cn(
-                      "px-4 py-2 rounded-full font-medium transition-all duration-200",
-                      isHighRelevance ? "text-base" : "text-sm",
-                      isSelected
-                        ? "bg-primary text-primary-foreground shadow-lg scale-110"
-                        : "bg-muted/50 text-foreground/80 hover:bg-muted hover:text-foreground"
+                      "rounded-full font-medium transition-all duration-200 ease-out",
+                      "hover:scale-105 active:scale-95",
+                      sizeClass,
+                      colorClass
                     )}
                     title={idea.description}
                   >
