@@ -56,7 +56,8 @@ import {
   ChevronRight,
   Settings,
   Rocket,
-  Activity
+  Activity,
+  Lightbulb
 } from "lucide-react"
 import {
   getProject,
@@ -91,6 +92,8 @@ import { RepoBrowser } from "@/components/project/repo-browser"
 import { BuildPlanEditor } from "@/components/project/build-plan-editor"
 import { ProjectTimeline } from "@/components/project/project-timeline"
 import { StartBuildHero } from "@/components/project/start-build-hero"
+import { IdeasModule } from "@/components/project/ideas-module"
+import { IdeasExplorer } from "@/components/project/ideas-explorer"
 import { getBuildPlanForProject } from "@/lib/data/build-plans"
 // FolderInitializer removed - no longer used
 import { BrainDumpList } from "@/components/brain-dump/brain-dump-list"
@@ -98,6 +101,7 @@ import { AudioRecorder } from "@/components/brain-dump/audio-recorder"
 import { ExecutionPanel, LaunchTestPanel, type ExecutionPanelRef, type RestoredSession } from "@/components/execution"
 import { useRunHistory, type RunHistorySummary } from "@/hooks/useActivityPersistence"
 import { ClaudeCodeTerminal } from "@/components/claude-code/terminal"
+import { InterviewPanel } from "@/components/interview/interview-panel"
 // ClaudiaSyncStatus removed - was only used in the standalone terminal section
 import { BusinessDevSection } from "@/components/project/business-dev-section"
 import { PriorArtSection } from "@/components/project/prior-art-section"
@@ -221,6 +225,7 @@ export default function ProjectDetailPage() {
   const [projectInterviews, setProjectInterviews] = useState<InterviewSession[]>([])
   const [combinedInsights, setCombinedInsights] = useState<CombinedInterviewInsights | null>(null)
   const [isRegeneratingBuildPlan, setIsRegeneratingBuildPlan] = useState(false)
+  const [showNewInterviewPanel, setShowNewInterviewPanel] = useState(false)
 
   // State for editing repo local path
   const [editingRepoId, setEditingRepoId] = useState<number | null>(null)
@@ -241,6 +246,9 @@ export default function ProjectDetailPage() {
   // Navigation state - now for sidebar sections
   const searchParams = useSearchParams()
   const [activeSection, setActiveSection] = useState("overview")
+
+  // Check if this is an ideas/research project (simplified UI)
+  const isIdeasProject = project?.category === "ideas" || project?.category === "research"
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [kickoffTrigger, setKickoffTrigger] = useState(0) // Incremented to trigger BuildPlanEditor remount
 
@@ -1002,10 +1010,24 @@ export default function ProjectDetailPage() {
 
   // Interview handlers
   const handleStartNewInterview = () => {
-    // TODO: Open interview modal/panel for new interview
-    console.log("Start new interview for project:", projectId)
-    // For now, we'd need to integrate with the InterviewPanel component
+    setShowNewInterviewPanel(true)
   }
+
+  const handleInterviewComplete = useCallback((session: InterviewSession) => {
+    setShowNewInterviewPanel(false)
+    // Add interview to project and refresh list
+    if (project) {
+      addInterviewToProject(project.id, session, user?.id)
+      const updatedInterviews = getInterviewsForProject(project.id, user?.id)
+      setProjectInterviews(updatedInterviews)
+      const updatedInsights = getCombinedInterviewInsights(project.id, user?.id)
+      setCombinedInsights(updatedInsights)
+    }
+  }, [project, user?.id])
+
+  const handleInterviewCancel = useCallback(() => {
+    setShowNewInterviewPanel(false)
+  }, [])
 
   const handleContinueInterview = (interview: InterviewSession) => {
     // TODO: Open interview panel with existing session to continue
@@ -1269,6 +1291,27 @@ export default function ProjectDetailPage() {
 
   const StatusIcon = statusConfig[project.status].icon
 
+  // Show interview panel if active
+  if (showNewInterviewPanel && project) {
+    return (
+      <div className="h-[calc(100vh-4rem)]">
+        <InterviewPanel
+          type="feature_discussion"
+          targetType="project"
+          targetId={project.id}
+          targetTitle={project.name}
+          targetContext={{
+            projectId: project.id,
+            projectName: project.name,
+            projectDescription: project.description,
+          }}
+          onComplete={handleInterviewComplete}
+          onCancel={handleInterviewCancel}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="p-6 space-y-6 min-h-0 overflow-auto bg-background">
       {/* Header */}
@@ -1471,8 +1514,8 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ==================== READY TO BUILD SECTION ==================== */}
-      {/* Only shows when there are packets ready to build OR execution is in progress */}
-      {(packets.some(p => p.status === "ready" || p.status === "pending" || p.status === "queued") || showExecutionInHero || packets.length === 0) && (
+      {/* Only shows for non-ideas projects when there are packets ready to build OR execution is in progress */}
+      {!isIdeasProject && (packets.some(p => p.status === "ready" || p.status === "pending" || p.status === "queued") || showExecutionInHero || packets.length === 0) && (
       <Card className="border-emerald-500/30 bg-emerald-500/5">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -1603,121 +1646,199 @@ export default function ProjectDetailPage() {
         {/* Sidebar Navigation */}
         <div className="w-48 flex-shrink-0">
           <div className="sticky top-6 space-y-1">
-            {/* Primary Actions */}
-            <button
-              onClick={() => setActiveSection("overview")}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                activeSection === "overview"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <FileText className="h-4 w-4" />
-              Overview
-            </button>
 
-            {/* Claude Code - PROMINENT */}
-            <button
-              onClick={() => setActiveSection("claude-code")}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors",
-                activeSection === "claude-code"
-                  ? "bg-purple-600 text-white"
-                  : "bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30"
-              )}
-            >
-              <Terminal className="h-4 w-4" />
-              Claude Code
-            </button>
+            {/* ========== IDEAS PROJECT SIDEBAR (Simplified) ========== */}
+            {isIdeasProject ? (
+              <>
+                {/* Overview */}
+                <button
+                  onClick={() => setActiveSection("overview")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "overview"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <FileText className="h-4 w-4" />
+                  Overview
+                </button>
 
-            <button
-              onClick={() => setActiveSection("models")}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                activeSection === "models"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Brain className="h-4 w-4" />
-              AI Models
-            </button>
+                {/* Ideas & Research - PROMINENT for ideas projects */}
+                <button
+                  onClick={() => setActiveSection("packets")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors",
+                    activeSection === "packets"
+                      ? "bg-yellow-600 text-white"
+                      : "bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 border border-yellow-500/30"
+                  )}
+                >
+                  <Lightbulb className="h-4 w-4" />
+                  Ideas & Research
+                  {packets.length > 0 && (
+                    <span className="ml-auto text-xs opacity-70">({packets.length})</span>
+                  )}
+                </button>
 
-            {/* Build Plan */}
-            <button
-              onClick={() => setActiveSection("build-plan")}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                activeSection === "build-plan"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <FileText className="h-4 w-4" />
-              Build Plan
-            </button>
+                {/* Divider */}
+                <div className="my-2 border-t border-border/50" />
 
-            {/* Work Packets */}
-            <button
-              onClick={() => setActiveSection("packets")}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                activeSection === "packets"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Package className="h-4 w-4" />
-              Work Packets
-              {packets.length > 0 && (
-                <span className="ml-auto text-xs opacity-70">({packets.length})</span>
-              )}
-            </button>
+                {/* Generated Docs */}
+                <button
+                  onClick={() => setActiveSection("docs")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "docs"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <BookOpen className="h-4 w-4" />
+                  Generated Docs
+                </button>
 
-            {/* Divider */}
-            <div className="my-2 border-t border-border/50" />
+                {/* Settings */}
+                <button
+                  onClick={() => setActiveSection("settings")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "settings"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Settings className="h-4 w-4" />
+                  Settings
+                </button>
 
-            {/* Secondary Navigation */}
-            <button
-              onClick={() => setActiveSection("repos")}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                activeSection === "repos"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <GitBranch className="h-4 w-4" />
-              Repos
-              {project.repos.length > 0 && (
-                <span className="ml-auto text-xs opacity-70">({project.repos.length})</span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveSection("files")}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                activeSection === "files"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <FolderOpen className="h-4 w-4" />
-              Files
-            </button>
-            <button
-              onClick={() => setActiveSection("docs")}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                activeSection === "docs"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <BookOpen className="h-4 w-4" />
-              Docs
-            </button>
+                {/* Divider */}
+                <div className="my-2 border-t border-border/50" />
+
+                {/* Hint to create coding project */}
+                <div className="p-3 bg-muted/50 rounded-lg text-xs text-muted-foreground">
+                  <Rocket className="h-4 w-4 mb-1 text-primary" />
+                  <p>Once you've explored your ideas, you can create a coding project from the best ones.</p>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* ========== REGULAR PROJECT SIDEBAR ========== */}
+                {/* Primary Actions */}
+                <button
+                  onClick={() => setActiveSection("overview")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "overview"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <FileText className="h-4 w-4" />
+                  Overview
+                </button>
+
+                {/* Claude Code - PROMINENT */}
+                <button
+                  onClick={() => setActiveSection("claude-code")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors",
+                    activeSection === "claude-code"
+                      ? "bg-purple-600 text-white"
+                      : "bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30"
+                  )}
+                >
+                  <Terminal className="h-4 w-4" />
+                  Claude Code
+                </button>
+
+                <button
+                  onClick={() => setActiveSection("models")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "models"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Brain className="h-4 w-4" />
+                  AI Models
+                </button>
+
+                {/* Build Plan */}
+                <button
+                  onClick={() => setActiveSection("build-plan")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "build-plan"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <FileText className="h-4 w-4" />
+                  Build Plan
+                </button>
+
+                {/* Work Packets */}
+                <button
+                  onClick={() => setActiveSection("packets")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "packets"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Package className="h-4 w-4" />
+                  Work Packets
+                  {packets.length > 0 && (
+                    <span className="ml-auto text-xs opacity-70">({packets.length})</span>
+                  )}
+                </button>
+
+                {/* Divider */}
+                <div className="my-2 border-t border-border/50" />
+
+                {/* Secondary Navigation */}
+                <button
+                  onClick={() => setActiveSection("repos")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "repos"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <GitBranch className="h-4 w-4" />
+                  Repos
+                  {project.repos.length > 0 && (
+                    <span className="ml-auto text-xs opacity-70">({project.repos.length})</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveSection("files")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "files"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  Files
+                </button>
+                <button
+                  onClick={() => setActiveSection("docs")}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    activeSection === "docs"
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <BookOpen className="h-4 w-4" />
+                  Docs
+                </button>
             <button
               onClick={() => setActiveSection("uploads")}
               className={cn(
@@ -1818,6 +1939,8 @@ export default function ProjectDetailPage() {
               <Settings className="h-4 w-4" />
               Settings
             </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1825,14 +1948,24 @@ export default function ProjectDetailPage() {
         <div className="flex-1 min-w-0 space-y-6">
           {/* Overview Section */}
           {activeSection === "overview" && (
-            <Card className="border rounded-lg">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-blue-500" />
-                  Overview
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <>
+            {/* Ideas Project: Fractal Ideation Explorer */}
+            {isIdeasProject ? (
+              <IdeasExplorer
+                projectId={project.id}
+                projectName={project.name}
+                projectDescription={project.description || ""}
+              />
+            ) : (
+              /* Regular Project Overview */
+              <Card className="border rounded-lg">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-blue-500" />
+                    Overview
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
             {/* Vision Display - Shows game/creative vision prominently */}
             <VisionDisplay projectId={project.id} />
 
@@ -1979,6 +2112,8 @@ export default function ProjectDetailPage() {
             )}
               </CardContent>
             </Card>
+            )}
+            </>
           )}
 
           {/* Claude Code Section - PROMINENT */}
@@ -2609,6 +2744,29 @@ export default function ProjectDetailPage() {
 
           {/* Work Packets Section */}
           {activeSection === "packets" && (
+            <>
+              {/* Ideas Module for ideas/research projects */}
+              {(project.category === "ideas" || project.category === "research") && (
+                <IdeasModule
+                  projectId={project.id}
+                  projectName={project.name}
+                  projectDescription={project.description}
+                  packets={packets}
+                  workingDirectory={getEffectiveWorkingDirectory(project)}
+                  onPacketUpdate={(packetId, updates) => {
+                    setPackets(prev => prev.map(p =>
+                      p.id === packetId ? { ...p, ...updates } : p
+                    ))
+                  }}
+                  onCreateCodingProject={(idea, description) => {
+                    // Navigate to new project page with idea context
+                    router.push(`/projects/new?idea=${encodeURIComponent(idea)}&context=${encodeURIComponent(description.slice(0, 500))}`)
+                  }}
+                  className="mb-4"
+                />
+              )}
+
+              {/* Regular Work Packets UI */}
             <Card className="border-purple-500/30 border rounded-lg">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -2987,6 +3145,7 @@ export default function ProjectDetailPage() {
                 )}
               </CardContent>
             </Card>
+            </>
           )}
 
           {/* Settings Section */}

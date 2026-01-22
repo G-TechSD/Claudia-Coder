@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -42,6 +42,7 @@ import {
   toggleProjectStar,
   getTrashedProjects
 } from "@/lib/data/projects"
+import { subscribeToStorageChanges, USER_STORAGE_KEYS } from "@/lib/data/user-storage"
 import { useStarredProjects } from "@/hooks/useStarredProjects"
 import { useAuth } from "@/components/auth/auth-provider"
 import type { Project, ProjectStatus, ProjectFilter } from "@/lib/data/types"
@@ -143,20 +144,59 @@ export default function ProjectsPage() {
   // Derive effective view mode (null becomes list for rendering, but we still show loading)
   const effectiveViewMode = viewMode ?? "list"
 
-  // Load projects
-  useEffect(() => {
-    if (userId) {
-      loadProjects()
-    }
-  }, [userId])
-
-  const loadProjects = () => {
+  const loadProjects = useCallback(() => {
     if (!userId) return
     setIsLoading(true)
     const allProjects = getAllProjects({ userId })
     setProjects(allProjects)
     setIsLoading(false)
-  }
+  }, [userId])
+
+  // Load projects from localStorage (primary storage)
+  useEffect(() => {
+    if (userId) {
+      loadProjects()
+    }
+  }, [userId, loadProjects])
+
+  // Subscribe to storage changes to refresh when projects are created/updated
+  useEffect(() => {
+    if (!userId) return
+
+    const unsubscribe = subscribeToStorageChanges(
+      userId,
+      USER_STORAGE_KEYS.PROJECTS,
+      () => {
+        // Refresh projects when storage changes
+        loadProjects()
+      }
+    )
+
+    return unsubscribe
+  }, [userId, loadProjects])
+
+  // Reload projects when page becomes visible or focused (handles navigation back)
+  useEffect(() => {
+    if (!userId) return
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadProjects()
+      }
+    }
+
+    const handleFocus = () => {
+      loadProjects()
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    window.addEventListener("focus", handleFocus)
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      window.removeEventListener("focus", handleFocus)
+    }
+  }, [userId, loadProjects])
 
   // Filter projects
   const filteredProjects = useMemo(() => {

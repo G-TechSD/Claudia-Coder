@@ -17,6 +17,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { InterviewPanel } from "@/components/interview/interview-panel"
+import { detectIdeationIntent } from "@/lib/interview/prompts"
+import { detectProjectType, generateQuickUnderstanding, type UnderstandingReport } from "@/lib/ai/ideation-detector"
+import { generateQuickIdeationPlan, ideationPacketsToWorkPackets, createIdeationBuildPlan } from "@/lib/ai/ideation-plan"
 import { VoiceInput } from "@/components/voice/voice-input"
 import { createProject, updateProject, linkRepoToProject, configureLinearSync } from "@/lib/data/projects"
 import { savePackets, saveBuildPlan, type BuildPlan, type WorkPacket, type PacketSummary } from "@/lib/ai/build-plan"
@@ -57,7 +60,8 @@ import {
   ShieldAlert,
   Rocket,
   DollarSign,
-  Mic
+  Mic,
+  Lightbulb
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -70,7 +74,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
-type Mode = "choose" | "quick" | "interview" | "linear" | "setup" | "complete" | "build_review" | "ui_selection"
+type Mode = "choose" | "quick" | "interview" | "ideation" | "ideation_review" | "linear" | "setup" | "complete" | "build_review" | "ui_selection"
 
 interface GeneratedPlan {
   name: string
@@ -184,6 +188,8 @@ function NewProjectContent() {
   const [quickDescription, setQuickDescription] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedPlan, setGeneratedPlan] = useState<GeneratedPlan | null>(null)
+  const [ideationReport, setIdeationReport] = useState<UnderstandingReport | null>(null)
+  const [ideationFeedback, setIdeationFeedback] = useState("")
   const [planError, setPlanError] = useState("")
   const [isVoiceMode, setIsVoiceMode] = useState(false)
 
@@ -288,6 +294,26 @@ function NewProjectContent() {
         // Pre-populate description with transcription
         setQuickDescription(recording.transcription)
       }
+    }
+  }, [searchParams])
+
+  // Handle "Create Project from Idea" flow
+  useEffect(() => {
+    const ideaName = searchParams.get("idea")
+    const ideaContext = searchParams.get("context")
+
+    if (ideaName) {
+      // Pre-populate with idea data and go straight to quick mode
+      setProjectName(ideaName)
+      if (ideaContext) {
+        // Create a prompt from the idea context
+        const prompt = `Build a project based on this idea:\n\n**${ideaName}**\n\n${decodeURIComponent(ideaContext)}`
+        setQuickDescription(prompt)
+      } else {
+        setQuickDescription(`Build: ${ideaName}`)
+      }
+      // Switch to quick mode automatically
+      setMode("quick")
     }
   }, [searchParams])
 
@@ -450,7 +476,7 @@ function NewProjectContent() {
       const project = createProject({
         name: projectName || linearImportData.projects[0]?.name || "Linear Import",
         description: projectDescription || linearImportData.projects[0]?.description || `Imported from Linear with ${linearImportData.summary.totalIssues} issues`,
-        status: "active",
+        status: "planning",
         priority: priority || "medium",
         repos: [],
         packetIds: [],
@@ -702,7 +728,7 @@ function NewProjectContent() {
       const project = createProject({
         name: projectName || linearImportData.projects[0]?.name || "Linear Import",
         description: projectDescription || linearImportData.projects[0]?.description || `Imported from Linear with ${linearImportData.summary.totalIssues} issues`,
-        status: "active",
+        status: "planning",
         priority: priority || "medium",
         repos: repos,
         packetIds: [],
@@ -785,13 +811,69 @@ function NewProjectContent() {
     }
   }
 
-  // Generate plan from quick description
+  // Generate plan from quick description - auto-detects ideation vs build
   const handleFeelingLucky = async () => {
     if (!quickDescription.trim()) return
 
     setIsGenerating(true)
     setPlanError("")
 
+    try {
+      // Use LLM-powered detection instead of code-based heuristics
+      const detectResponse = await fetch("/api/ideation/detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: quickDescription.trim(),
+          projectName: projectName || undefined
+        })
+      })
+
+      if (detectResponse.ok) {
+        const detection = await detectResponse.json()
+        console.log("[Quick Start] LLM Detection:", detection)
+
+        // If ideation detected with reasonable confidence, go to ideation flow
+        if (detection.type === "ideation" && detection.confidence >= 0.4) {
+          setIsGenerating(false)
+          // Use the LLM-generated understanding report
+          setIdeationReport({
+            title: detection.title,
+            summary: detection.summary,
+            keyPoints: detection.keyPoints || [],
+            questions: detection.questions || [],
+            suggestedPackets: detection.suggestedPackets || []
+          })
+          setMode("ideation_review")
+          return
+        }
+      } else {
+        // Fallback to code-based detection if API fails
+        const detection = detectProjectType(quickDescription.trim())
+        console.log("[Quick Start] Fallback Detection:", detection)
+
+        if (detection.type === "ideation" && detection.confidence >= 0.4) {
+          setIsGenerating(false)
+          const report = generateQuickUnderstanding(quickDescription.trim())
+          setIdeationReport(report)
+          setMode("ideation_review")
+          return
+        }
+      }
+    } catch (detectError) {
+      console.warn("Detection API failed, using fallback:", detectError)
+      // Fallback to code-based detection
+      const detection = detectProjectType(quickDescription.trim())
+      if (detection.type === "ideation" && detection.confidence >= 0.4) {
+        setIsGenerating(false)
+        const report = generateQuickUnderstanding(quickDescription.trim())
+        setIdeationReport(report)
+        setMode("ideation_review")
+        return
+      }
+    }
+
+    // Otherwise, continue with build plan generation
     try {
       const response = await fetch("/api/llm/plan", {
         method: "POST",
@@ -892,6 +974,111 @@ function NewProjectContent() {
 
     // Auto-save the project immediately
     await autoSaveQuickProject(generatedPlan)
+  }
+
+  // Create an Ideas project with research packets
+  const handleApproveIdeation = async () => {
+    if (!ideationReport || !user?.id) {
+      setSubmitError("You must be logged in to create a project")
+      return
+    }
+
+    setIsSubmitting(true)
+    setSubmitError("")
+
+    try {
+      // Generate a comprehensive ideation plan with better packets
+      const userInput = ideationReport.summary + (ideationFeedback ? `\n\nAdditional context: ${ideationFeedback}` : "")
+      const { plan: ideationPlan, packets: ideationPackets } = generateQuickIdeationPlan(
+        userInput,
+        ideationReport.title
+      )
+
+      // Create the ideas project
+      const project = createProject({
+        name: ideationPlan.title,
+        description: ideationPlan.summary.slice(0, 500),
+        status: "planning",
+        priority: "medium",
+        repos: [],
+        packetIds: [],
+        tags: ["ideas", "research"],
+        category: "ideas",
+        basePath: projectFolderPath.trim() || undefined
+      }, user.id)
+
+      // Convert ideation packets to work packets using the new converter
+      const workPackets = ideationPacketsToWorkPackets(ideationPackets, "ideation")
+
+      // Add user feedback to packet metadata
+      if (ideationFeedback) {
+        workPackets.forEach(p => {
+          if (p.metadata) {
+            p.metadata.userFeedback = ideationFeedback
+          }
+        })
+      }
+
+      // Create and save the ideation build plan
+      const buildPlan = createIdeationBuildPlan(project.id, ideationPlan.title, workPackets)
+      saveBuildPlan(project.id, buildPlan)
+
+      // Save the packets
+      savePackets(project.id, workPackets)
+
+      // Update project with packet IDs
+      updateProject(project.id, {
+        packetIds: workPackets.map(p => p.id)
+      }, user.id)
+
+      // Save understanding report as a doc
+      try {
+        const reportMarkdown = `# ${ideationPlan.title}
+
+## What We're Exploring
+
+${ideationPlan.summary}
+
+## Key Questions
+
+${ideationPlan.questions.map(q => `- ${q}`).join("\n")}
+
+${ideationFeedback ? `## Additional Context from User
+
+${ideationFeedback}` : ""}
+
+## Research Plan
+
+This exploration will go through ${workPackets.length} research tasks:
+
+${workPackets.map((p, i) => `### ${i + 1}. ${p.title}
+${p.description}
+
+**Expected Output:** ${p.acceptanceCriteria[1] || "Comprehensive markdown document"}
+`).join("\n")}
+
+---
+*Generated by Claudia Ideation Engine*
+`
+        await fetch(`/api/projects/${project.id}/docs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "exploration-plan.md",
+            content: reportMarkdown
+          })
+        })
+      } catch (err) {
+        console.warn("Failed to save exploration plan:", err)
+      }
+
+      setCreatedProject(project)
+      setMode("complete")
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to create ideas project")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleRejectPlan = () => {
@@ -1168,7 +1355,7 @@ function NewProjectContent() {
       const project = createProject({
         name: projectName,
         description: projectDescription,
-        status: "active", // Start as active since we have a plan
+        status: "planning", // Stay in planning until user starts the build
         priority,
         repos: initialRepos,
         packetIds: packets.map(p => p.id),
@@ -1233,6 +1420,139 @@ function NewProjectContent() {
     setMode("choose")
   }
 
+  // Handle ideation interview completion - creates an Ideas project with markdown deliverables
+  const handleIdeationComplete = async (session: InterviewSession) => {
+    if (!user?.id) {
+      setSubmitError("You must be logged in to create a project")
+      return
+    }
+
+    setIsSubmitting(true)
+    setSubmitError("")
+
+    try {
+      const extractedData = session.extractedData || {}
+      const name = (extractedData.name as string) || `Ideas: ${session.summary?.slice(0, 50) || "Brainstorming Session"}`
+      const description = session.summary || "Ideation and brainstorming session"
+
+      // Create an Ideas project (no code packets, just markdown deliverables)
+      const project = createProject({
+        name,
+        description,
+        status: "planning", // Stay in planning until user starts work
+        priority: "medium",
+        repos: [],
+        packetIds: [],
+        tags: ["ideas", "brainstorming"],
+        category: "ideas", // This is an ideas project, not code
+        creationInterview: session
+      }, user.id)
+
+      // Generate ideas markdown from the session
+      const ideasMarkdown = generateIdeasMarkdown(session)
+
+      // Save the ideas markdown to the project docs
+      try {
+        await fetch(`/api/projects/${project.id}/docs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "ideas.md",
+            content: ideasMarkdown
+          })
+        })
+      } catch (err) {
+        console.warn("Failed to save ideas markdown:", err)
+        // Non-fatal - project still created
+      }
+
+      setCreatedProject(project)
+      setMode("complete")
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to create ideas project")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Generate markdown document from ideation session
+  function generateIdeasMarkdown(session: InterviewSession): string {
+    const extractedData = session.extractedData || {}
+    const lines: string[] = []
+
+    lines.push(`# ${extractedData.name || "Ideas & Brainstorming"}`)
+    lines.push("")
+    lines.push(`*Generated: ${new Date().toLocaleDateString()}*`)
+    lines.push("")
+
+    // Problem/Opportunity Statement
+    lines.push("## Problem / Opportunity")
+    lines.push(session.summary || extractedData.description as string || "No summary available")
+    lines.push("")
+
+    // Ideas list
+    const ideas = extractedData.ideas as string[] || extractedData.features as string[] || []
+    if (ideas.length > 0) {
+      lines.push("## Ideas")
+      lines.push("")
+      ideas.forEach((idea, i) => {
+        lines.push(`### ${i + 1}. ${idea}`)
+        lines.push("")
+      })
+    }
+
+    // Goals
+    const goals = extractedData.goals as string[] || []
+    if (goals.length > 0) {
+      lines.push("## Goals")
+      goals.forEach(goal => {
+        lines.push(`- ${goal}`)
+      })
+      lines.push("")
+    }
+
+    // Constraints
+    const constraints = extractedData.constraints as string[] || []
+    if (constraints.length > 0) {
+      lines.push("## Constraints & Considerations")
+      constraints.forEach(constraint => {
+        lines.push(`- ${constraint}`)
+      })
+      lines.push("")
+    }
+
+    // Research topics
+    const researchTopics = extractedData.researchTopics as string[] || []
+    if (researchTopics.length > 0) {
+      lines.push("## Research Topics")
+      researchTopics.forEach(topic => {
+        lines.push(`- [ ] ${topic}`)
+      })
+      lines.push("")
+    }
+
+    // Next steps
+    lines.push("## Next Steps")
+    lines.push("")
+    lines.push("- [ ] Review and prioritize ideas")
+    lines.push("- [ ] Conduct research on top ideas")
+    lines.push("- [ ] Create coding project from selected idea (if applicable)")
+    lines.push("")
+
+    // Full conversation for reference
+    lines.push("---")
+    lines.push("")
+    lines.push("## Interview Transcript")
+    lines.push("")
+    session.messages.forEach(msg => {
+      const prefix = msg.role === "assistant" ? "**Claudia:**" : "**You:**"
+      lines.push(`${prefix} ${msg.content}`)
+      lines.push("")
+    })
+
+    return lines.join("\n")
+  }
+
   const handleTokenSave = async () => {
     if (!tokenInput.trim()) {
       setTokenError("Please enter a token")
@@ -1289,7 +1609,7 @@ function NewProjectContent() {
       const project = createProject({
         name: projectName,
         description: projectDescription,
-        status: linearImportData ? "active" : "planning",
+        status: "planning", // Stay in planning until user starts the build
         priority,
         repos: initialRepos,
         packetIds: [],
@@ -1593,7 +1913,14 @@ function NewProjectContent() {
                 size="lg"
                 variant="outline"
                 className="flex-1"
-                onClick={() => setMode("interview")}
+                onClick={() => {
+                  // Detect if this is an ideation/exploration request
+                  if (quickDescription.trim() && detectIdeationIntent(quickDescription.trim())) {
+                    setMode("ideation")
+                  } else {
+                    setMode("interview")
+                  }
+                }}
               >
                 <MessageSquare className="mr-2 h-5 w-5" />
                 Full Interview
@@ -1601,7 +1928,7 @@ function NewProjectContent() {
             </div>
 
             <p className="text-xs text-center text-muted-foreground">
-              <strong>Quick Start</strong> generates a plan instantly • <strong>Full Interview</strong> asks 10-20 questions for detail
+              <strong>Quick Start</strong> auto-detects if you need code or ideas • <strong>Full Interview</strong> asks detailed questions
             </p>
 
             {/* Auto-generate Build Plan Toggle */}
@@ -2170,6 +2497,118 @@ function NewProjectContent() {
     )
   }
 
+  // Mode: Ideation Review - show understanding and suggested research packets
+  if (mode === "ideation_review" && ideationReport) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => setMode("choose")}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-semibold flex items-center gap-2">
+              <Lightbulb className="h-6 w-6 text-yellow-500" />
+              Ideas Project Detected
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              This looks like exploration/research rather than building software
+            </p>
+          </div>
+        </div>
+
+        {/* Understanding Report */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{ideationReport.title}</CardTitle>
+            <CardDescription>Here's what I understood from your input</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="p-4 bg-muted rounded-lg">
+              <p className="text-sm whitespace-pre-wrap">{ideationReport.summary}</p>
+            </div>
+
+            {ideationReport.keyPoints.length > 0 && (
+              <div>
+                <Label className="text-xs text-muted-foreground uppercase">Key Points</Label>
+                <ul className="mt-2 space-y-1">
+                  {ideationReport.keyPoints.map((point, i) => (
+                    <li key={i} className="text-sm flex items-start gap-2">
+                      <Check className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Feedback text area */}
+            <div>
+              <Label className="text-xs text-muted-foreground uppercase mb-2">
+                Anything to add or correct?
+              </Label>
+              <Textarea
+                value={ideationFeedback}
+                onChange={(e) => setIdeationFeedback(e.target.value)}
+                placeholder="Add context, corrections, or specific things you want explored..."
+                rows={3}
+                className="mt-1"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Suggested Research Packets */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Suggested Research Tasks</CardTitle>
+            <CardDescription>These will generate markdown documents, not code</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {ideationReport.suggestedPackets.map((packet) => (
+              <div key={packet.id} className="p-3 border rounded-lg">
+                <div className="flex items-start gap-3">
+                  <Badge variant="outline" className="capitalize">
+                    {packet.type}
+                  </Badge>
+                  <div className="flex-1">
+                    <h4 className="font-medium text-sm">{packet.title}</h4>
+                    <p className="text-xs text-muted-foreground">{packet.description}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <Button variant="outline" className="flex-1" onClick={() => {
+            setIdeationReport(null)
+            setIdeationFeedback("")
+            setMode("choose")
+          }}>
+            <ThumbsDown className="mr-2 h-4 w-4" />
+            Start Over
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              // Switch to build mode instead
+              setIdeationReport(null)
+              handleFeelingLucky() // This will now go to build mode since we cleared ideation
+            }}
+          >
+            Actually Build Code
+          </Button>
+          <Button className="flex-1" onClick={handleApproveIdeation}>
+            <ThumbsUp className="mr-2 h-4 w-4" />
+            Create Ideas Project
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   // Mode: Quick - show generated plan for approval
   if (mode === "quick" && generatedPlan) {
     return (
@@ -2287,6 +2726,20 @@ function NewProjectContent() {
           type="project_creation"
           initialDescription={quickDescription.trim() || undefined}
           onComplete={handleInterviewComplete}
+          onCancel={handleInterviewCancel}
+        />
+      </div>
+    )
+  }
+
+  // Mode: Ideation - Brainstorming and ideas exploration
+  if (mode === "ideation") {
+    return (
+      <div className="h-[calc(100vh-4rem)]">
+        <InterviewPanel
+          type="ideation"
+          initialDescription={quickDescription.trim() || undefined}
+          onComplete={handleIdeationComplete}
           onCancel={handleInterviewCancel}
         />
       </div>
