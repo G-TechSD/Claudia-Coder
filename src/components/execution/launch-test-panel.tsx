@@ -310,6 +310,14 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
     runtime: string
     installHint: string
   } | null>(null)
+  const [runtimeInstallInfo, setRuntimeInstallInfo] = React.useState<{
+    canInstall: boolean
+    platform?: string
+    packageManager?: string
+    installCommand?: string
+  } | null>(null)
+  const [isInstallingRuntime, setIsInstallingRuntime] = React.useState(false)
+  const [runtimeInstallOutput, setRuntimeInstallOutput] = React.useState<string | null>(null)
   const [processId, setProcessId] = React.useState<string | null>(null)
   const [launchLogs, setLaunchLogs] = React.useState<string[]>([])
   const [portWarning, setPortWarning] = React.useState<string | null>(null)
@@ -388,6 +396,73 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
       setSuggestedPorts([])
     }
   }, [appPort])
+
+  // Fetch install info when runtime is missing
+  React.useEffect(() => {
+    if (runtimeMissing?.runtime) {
+      const runtimeKey = runtimeMissing.runtime.toLowerCase().replace(/[^a-z]/g, "")
+      fetch(`/api/launch-test/install-runtime?runtime=${runtimeKey}`)
+        .then(res => res.json())
+        .then(data => {
+          setRuntimeInstallInfo({
+            canInstall: data.canInstall,
+            platform: data.platform,
+            packageManager: data.packageManager,
+            installCommand: data.installCommand
+          })
+        })
+        .catch(() => {
+          setRuntimeInstallInfo({ canInstall: false })
+        })
+    } else {
+      setRuntimeInstallInfo(null)
+      setRuntimeInstallOutput(null)
+    }
+  }, [runtimeMissing])
+
+  // Handle runtime installation
+  const handleInstallRuntime = async () => {
+    if (!runtimeMissing?.runtime) return
+
+    const runtimeKey = runtimeMissing.runtime.toLowerCase().replace(/[^a-z]/g, "")
+    setIsInstallingRuntime(true)
+    setRuntimeInstallOutput(null)
+    addLog(`Installing ${runtimeMissing.runtime}...`)
+
+    try {
+      const response = await fetch("/api/launch-test/install-runtime", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runtime: runtimeKey })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        addLog(`${runtimeMissing.runtime} installed successfully!`)
+        if (data.verified) {
+          addLog(`Verified installation`)
+        }
+        setRuntimeInstallOutput(`Installed successfully on ${data.platform}`)
+        // Clear the error after a moment so user can retry
+        setTimeout(() => {
+          setRuntimeMissing(null)
+          setLaunchError(null)
+          setAppStatus("idle")
+          addLog("You can now try launching again")
+        }, 2000)
+      } else {
+        addLog(`Installation failed: ${data.error}`)
+        setRuntimeInstallOutput(`Failed: ${data.error}\n\n${data.stderr || data.output || ""}`)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Installation failed"
+      addLog(`Installation error: ${message}`)
+      setRuntimeInstallOutput(`Error: ${message}`)
+    } finally {
+      setIsInstallingRuntime(false)
+    }
+  }
 
   const addLog = (message: string) => {
     setLaunchLogs(prev => [...prev.slice(-50), `[${new Date().toLocaleTimeString()}] ${message}`])
@@ -1276,10 +1351,50 @@ export function LaunchTestPanel({ project, className }: LaunchTestPanelProps) {
                 <p className="text-xs text-purple-400/70 mt-1">
                   <span className="font-semibold">{runtimeMissing.runtime}</span> is required but not found in your PATH.
                 </p>
+
+                {/* Platform info */}
+                {runtimeInstallInfo?.platform && (
+                  <p className="text-xs text-purple-400/50 mt-1">
+                    Detected: {runtimeInstallInfo.platform} ({runtimeInstallInfo.packageManager})
+                  </p>
+                )}
+
+                {/* Install command */}
                 <div className="mt-3 p-2 rounded bg-gray-900/50 border border-gray-700/50">
-                  <p className="text-xs text-gray-300 font-mono">{runtimeMissing.installHint}</p>
+                  <p className="text-xs text-gray-300 font-mono">
+                    {runtimeInstallInfo?.installCommand || runtimeMissing.installHint}
+                  </p>
                 </div>
+
+                {/* Install output */}
+                {runtimeInstallOutput && (
+                  <div className="mt-2 p-2 rounded bg-gray-900/50 border border-gray-700/50 max-h-32 overflow-auto">
+                    <pre className="text-xs text-gray-400 whitespace-pre-wrap">{runtimeInstallOutput}</pre>
+                  </div>
+                )}
+
                 <div className="mt-3 flex gap-2">
+                  {/* Install button - only show if we can auto-install */}
+                  {runtimeInstallInfo?.canInstall && (
+                    <Button
+                      size="sm"
+                      className="h-8 px-3 text-xs bg-purple-600 hover:bg-purple-700 text-white"
+                      onClick={handleInstallRuntime}
+                      disabled={isInstallingRuntime}
+                    >
+                      {isInstallingRuntime ? (
+                        <>
+                          <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                          Installing...
+                        </>
+                      ) : (
+                        <>
+                          <Wrench className="h-3 w-3 mr-1.5" />
+                          Install {runtimeMissing.runtime}
+                        </>
+                      )}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
