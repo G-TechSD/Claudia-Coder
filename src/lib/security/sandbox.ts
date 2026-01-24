@@ -18,15 +18,21 @@ const HOME = os.homedir()
 // ============================================
 
 /**
+ * Paths that require explicit developer access
+ * Admins can access these when allowDeveloperPaths is true
+ */
+export const DEVELOPER_PATHS = [
+  // Claudia Admin/Coder source code - accessible to developers
+  path.join(HOME, "projects", "claudia-admin"),
+  path.join(HOME, "projects", "claudia-coder"),
+  path.join(HOME, "projects", "claudia"),
+]
+
+/**
  * Paths that can NEVER be accessed by Claude Code sessions
  * These paths are absolutely protected regardless of user role
  */
 export const PROTECTED_PATHS = [
-  // Claudia Admin/Coder source code
-  path.join(HOME, "projects", "claudia-admin"),
-  path.join(HOME, "projects", "claudia-coder"),
-  path.join(HOME, "projects", "claudia"),
-
   // System configuration and credentials
   path.join(HOME, ".ssh"),
   path.join(HOME, ".gnupg"),
@@ -46,8 +52,9 @@ export const PROTECTED_PATHS = [
   // Database and storage
   path.join(HOME, ".local", "share"),
 
-  // Other projects that should be isolated
-  path.join(HOME, "projects"),
+  // NOTE: ~/projects is NOT protected - users can access their own projects
+  // Developer paths (claudia-admin, claudia-coder) are handled separately
+  // via DEVELOPER_PATHS which requires admin access
 
   // System paths
   "/etc",
@@ -196,10 +203,43 @@ export function normalizePath(inputPath: string): string {
 }
 
 /**
- * Check if a path is protected and should never be accessed
+ * Check if a path is a developer path (Claudia source code)
+ * Developer paths can be accessed by admins with allowDeveloperPaths
  */
-export function isPathProtected(inputPath: string): boolean {
+export function isDeveloperPath(inputPath: string): boolean {
   const normalizedPath = normalizePath(inputPath)
+
+  for (const devPath of DEVELOPER_PATHS) {
+    const normalizedDev = normalizePath(devPath)
+    if (
+      normalizedPath === normalizedDev ||
+      normalizedPath.startsWith(normalizedDev + "/")
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Check if a path is protected and should never be accessed
+ * @param inputPath - The path to check
+ * @param options - Optional settings
+ * @param options.allowDeveloperPaths - If true, developer paths (Claudia source) are allowed
+ */
+export function isPathProtected(
+  inputPath: string,
+  options: { allowDeveloperPaths?: boolean } = {}
+): boolean {
+  const { allowDeveloperPaths = false } = options
+  const normalizedPath = normalizePath(inputPath)
+
+  // Check if this is a developer path
+  if (isDeveloperPath(normalizedPath)) {
+    // Allow if developer access is granted
+    return !allowDeveloperPaths
+  }
 
   // Check against protected paths
   for (const protectedPath of PROTECTED_PATHS) {
@@ -261,9 +301,10 @@ export function validateProjectPath(
   options: {
     requireInSandbox?: boolean  // If true, path MUST be in user sandbox
     allowProtectedPaths?: boolean  // If true, skip protected path check (admin only)
+    allowDeveloperPaths?: boolean  // If true, allow access to Claudia source code
   } = {}
 ): PathValidationResult {
-  const { requireInSandbox = true, allowProtectedPaths = false } = options
+  const { requireInSandbox = true, allowProtectedPaths = false, allowDeveloperPaths = false } = options
 
   try {
     const normalizedPath = normalizePath(inputPath)
@@ -278,7 +319,7 @@ export function validateProjectPath(
     }
 
     // Check if path is protected
-    if (!allowProtectedPaths && isPathProtected(normalizedPath)) {
+    if (!allowProtectedPaths && isPathProtected(normalizedPath, { allowDeveloperPaths })) {
       return {
         valid: false,
         error: "Access to this path is not allowed",
@@ -287,7 +328,9 @@ export function validateProjectPath(
     }
 
     // Check if path is in user sandbox (if required)
-    if (requireInSandbox && !isPathInUserSandbox(normalizedPath, userId)) {
+    // Skip sandbox check if this is a developer path and developer access is allowed
+    const skipSandboxCheck = allowDeveloperPaths && isDeveloperPath(normalizedPath)
+    if (requireInSandbox && !skipSandboxCheck && !isPathInUserSandbox(normalizedPath, userId)) {
       return {
         valid: false,
         error: "Path must be within your sandbox directory",
@@ -432,15 +475,18 @@ export function canAccessPath(
   userId: string,
   options: {
     isAdmin?: boolean
+    isDeveloper?: boolean  // Can access Claudia source code
     sessionId?: string
   } = {}
 ): { allowed: boolean; reason?: string } {
-  const { isAdmin = false, sessionId } = options
+  const { isAdmin = false, isDeveloper = false, sessionId } = options
 
   // Admins can access more paths but still not protected ones
+  // Developers (admins working on Claudia itself) can access Claudia source
   const validation = validateProjectPath(inputPath, userId, {
     requireInSandbox: !isAdmin,
-    allowProtectedPaths: false, // Never allow protected paths
+    allowProtectedPaths: false, // Never allow truly protected paths (ssh, etc)
+    allowDeveloperPaths: isDeveloper || isAdmin, // Admins can work on Claudia source
   })
 
   if (!validation.valid) {

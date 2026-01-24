@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/tooltip"
 import { MiniMePanel } from "./mini-me-panel"
 import { MiniMeAgent, MiniMeStatus } from "./mini-me"
+import { useAuth } from "@/components/auth/auth-provider"
 
 // LocalStorage key for persistent session settings
 const STORAGE_KEY_NEVER_LOSE_SESSION = "claude-code-never-lose-session"
@@ -33,8 +34,9 @@ const MAX_RECENT_SESSIONS = 10
 
 /**
  * Resize Handle component for resizable panels
+ * Exported for use in multi-terminal dashboard
  */
-function ResizeHandle({
+export function ResizeHandle({
   direction,
   onResize
 }: {
@@ -148,6 +150,9 @@ export function ClaudeCodeTerminal({
   currentPacket,
   allPackets
 }: ClaudeCodeTerminalProps) {
+  // Auth for passing user info to API
+  const { user } = useAuth()
+
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<any>(null)
   const fitAddonRef = useRef<any>(null)
@@ -437,7 +442,8 @@ export function ClaudeCodeTerminal({
   }, []) // No dependencies - uses ref
 
   // Generate/refresh KICKOFF.md
-  const refreshKickoff = useCallback(async () => {
+  // Returns: { success: boolean, skipped?: boolean, reason?: string }
+  const refreshKickoff = useCallback(async (): Promise<{ success: boolean; skipped?: boolean; reason?: string }> => {
     setKickoffStatus("generating")
 
     try {
@@ -457,10 +463,18 @@ export function ClaudeCodeTerminal({
         const data = await response.json()
         console.error("[Terminal] Failed to generate KICKOFF.md:", data.error)
         setKickoffStatus("error")
-        return false
+        return { success: false }
       }
 
       const data = await response.json()
+
+      // Handle skipped case (developer paths like claudia-admin)
+      if (data.skipped) {
+        console.log("[Terminal] KICKOFF.md skipped:", data.reason)
+        setKickoffStatus("ready")
+        return { success: true, skipped: true, reason: data.reason }
+      }
+
       console.log("[Terminal] KICKOFF.md generated:", data.kickoffPath)
       setKickoffStatus("ready")
 
@@ -468,11 +482,11 @@ export function ClaudeCodeTerminal({
         xtermRef.current.write("\r\n\x1b[1;32m● KICKOFF.md updated\x1b[0m\r\n")
       }
 
-      return true
+      return { success: true }
     } catch (err) {
       console.error("[Terminal] Failed to refresh kickoff:", err)
       setKickoffStatus("error")
-      return false
+      return { success: false }
     }
   }, [projectId, projectName, projectDescription, workingDirectory, currentPacket, allPackets])
 
@@ -725,10 +739,12 @@ export function ClaudeCodeTerminal({
       term.write("\x1b[1;33m  WARNING: Bypass permissions enabled (dangerous)\x1b[0m\r\n")
     }
 
-    // Generate KICKOFF.md before starting the session
+    // Generate KICKOFF.md before starting the session (unless developer path)
     term.write("\x1b[90m  Generating KICKOFF.md...\x1b[0m\r\n")
-    const kickoffGenerated = await refreshKickoff()
-    if (kickoffGenerated) {
+    const kickoffResult = await refreshKickoff()
+    if (kickoffResult.skipped) {
+      term.write("\x1b[90m  KICKOFF.md skipped (developer mode)\x1b[0m\r\n")
+    } else if (kickoffResult.success) {
       term.write("\x1b[90m  KICKOFF.md ready\x1b[0m\r\n")
     } else {
       term.write("\x1b[33m  Warning: Could not generate KICKOFF.md\x1b[0m\r\n")
@@ -749,7 +765,10 @@ export function ClaudeCodeTerminal({
           continueSession: shouldContinue && !shouldResume, // Only use continue if not resuming
           resume: shouldResume,
           resumeSessionId: shouldResume ? claudeIdToResume : undefined,
-          isBackground: neverLoseSession // Track as background if never lose is enabled
+          isBackground: neverLoseSession, // Track as background if never lose is enabled
+          // Pass user info for authorization checks
+          userId: user?.id,
+          userRole: user?.role,
         })
       })
 

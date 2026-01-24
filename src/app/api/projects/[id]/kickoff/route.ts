@@ -24,6 +24,9 @@ import {
 import {
   logSecurityEvent as logSecurityActivityEvent,
 } from "@/lib/security/activity-log"
+import {
+  isDeveloperPath,
+} from "@/lib/security/sandbox"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -366,6 +369,21 @@ export async function POST(
     }
 
     const { workingDirectory } = body
+
+    // ============================================
+    // SAFETY: Never generate KICKOFF.md for Claudia platform source code
+    // This prevents accidental self-modification or corruption
+    // ============================================
+    if (isDeveloperPath(workingDirectory)) {
+      console.log(`[kickoff] Skipping KICKOFF.md generation for developer path: ${workingDirectory}`)
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: "Developer path - KICKOFF.md generation disabled for platform source code",
+        projectId,
+        workingDirectory,
+      })
+    }
 
     // Ensure working directory exists
     try {

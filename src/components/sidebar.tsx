@@ -45,7 +45,15 @@ import {
   Rocket,
   PlusCircle,
   History,
+  Sparkles,
+  Code2,
+  Film,
+  Puzzle,
+  Loader2,
+  type LucideIcon,
 } from "lucide-react"
+import { useEmergentModules } from "@/hooks/useEmergentModules"
+import { SidebarExecution, useProjectFromPath } from "@/components/sidebar/sidebar-execution"
 
 interface NavItem {
   title: string
@@ -73,6 +81,8 @@ const projectsItems: NavItem[] = [
 // Tools category items
 const toolsItems: NavItem[] = [
   { title: "Claude Code", href: "/claude-code", icon: Terminal },
+  { title: "Ganesha AI", href: "/dev-tools/ganesha", icon: Sparkles },
+  { title: "VS Code", href: "/dev-tools/vscode", icon: Code2 },
   { title: "Run History", href: "/run-history", icon: History },
   { title: "Processes", href: "/processes", icon: Rocket },
 ]
@@ -233,6 +243,18 @@ function NavCategoryAccordion({
   )
 }
 
+// Icon mapping for emergent modules
+const EMERGENT_ICON_MAP: Record<string, LucideIcon> = {
+  Film: Film,
+  Sparkles: Sparkles,
+  Terminal: Terminal,
+  Code2: Code2,
+  Lightbulb: Lightbulb,
+  Rocket: Rocket,
+  Puzzle: Puzzle,
+  // Add more as needed
+}
+
 export function Sidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
@@ -241,9 +263,12 @@ export function Sidebar() {
   const { user, isBetaTester, betaLimits } = useAuth()
   const isAdmin = user?.role === "admin"
   const [trashedCount, setTrashedCount] = React.useState(0)
+  const { projectId, isProjectPage } = useProjectFromPath()
+  const { activeModules, isLoading: modulesLoading } = useEmergentModules()
   const [accordionState, setAccordionState] = React.useState<Record<string, boolean>>({
     projects: true,
     tools: true,
+    modules: true,
     upcoming: false,
     admin: false,
   })
@@ -437,7 +462,100 @@ export function Sidebar() {
             onToggle={handleAccordionToggle}
           />
         ))}
+
+        {/* Emergent Modules Section - Always show manager link */}
+        <Collapsible open={accordionState.modules} onOpenChange={() => handleAccordionToggle("modules")}>
+          <CollapsibleTrigger asChild>
+            <button
+              className={cn(
+                "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                activeModules.some(m => pathname.startsWith(m.route)) ? "text-primary" : "text-muted-foreground"
+              )}
+            >
+              {collapsed ? (
+                <Puzzle className="h-4 w-4 shrink-0" />
+              ) : (
+                <>
+                  <Puzzle className="h-4 w-4 shrink-0" />
+                  <span className="flex-1 text-left">Emergent Modules</span>
+                  {activeModules.length > 0 && (
+                    <Badge variant="outline" className="h-5 text-[10px] px-1.5 bg-purple-500/10 text-purple-500 border-purple-500/20">
+                      {activeModules.length}
+                    </Badge>
+                  )}
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 shrink-0 transition-transform duration-200",
+                      accordionState.modules ? "rotate-180" : ""
+                    )}
+                  />
+                </>
+              )}
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+            <nav className="ml-4 mt-1 space-y-0.5 border-l pl-3">
+              {modulesLoading ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Loading...</span>
+                </div>
+              ) : activeModules.length === 0 ? (
+                <div className="px-3 py-1.5 text-sm text-muted-foreground/60 italic">
+                  No active modules
+                </div>
+              ) : (
+                activeModules.map((module) => {
+                  const isActive = pathname === module.route || pathname.startsWith(module.route + "/")
+                  const IconComponent = EMERGENT_ICON_MAP[module.icon] || Sparkles
+
+                  return (
+                    <Link
+                      key={module.id}
+                      href={module.route}
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-purple-500/10 text-purple-500"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      )}
+                    >
+                      <IconComponent className="h-4 w-4 shrink-0" />
+                      <span className="flex-1">{module.name}</span>
+                      {module.experimental && (
+                        <Badge variant="outline" className="h-4 text-[9px] px-1 bg-amber-500/10 text-amber-500 border-amber-500/20">
+                          New
+                        </Badge>
+                      )}
+                    </Link>
+                  )
+                })
+              )}
+              {/* Link to modules management */}
+              <Link
+                href="/modules"
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  pathname === "/modules"
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground/60 hover:bg-accent hover:text-accent-foreground"
+                )}
+              >
+                <Settings className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Manage Modules</span>
+              </Link>
+            </nav>
+          </CollapsibleContent>
+        </Collapsible>
       </nav>
+
+      {/* Execution Controls - Only shown on project pages */}
+      {isProjectPage && projectId && (
+        <SidebarExecution
+          projectId={projectId}
+          collapsed={collapsed}
+        />
+      )}
 
       {/* Divider */}
       <div className="mx-4 border-t" />

@@ -26,9 +26,9 @@ export async function POST(request: NextRequest) {
       `).get(sessionToken) as { id: string; role: string; accessRevoked: number } | undefined
     }
 
-    // Allow bypass in beta mode
+    // Allow bypass in beta mode - use admin role for full access
     if (!result && process.env.NEXT_PUBLIC_BETA_AUTH_BYPASS === "true") {
-      result = { id: "beta-tester", role: "user", accessRevoked: 0 }
+      result = { id: "beta-admin", role: "admin", accessRevoked: 0 }
     }
 
     if (!result) {

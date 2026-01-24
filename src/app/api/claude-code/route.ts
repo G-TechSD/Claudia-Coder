@@ -256,9 +256,13 @@ export async function POST(request: NextRequest) {
     // ============================================
     // SANDBOX SECURITY VALIDATION
     // ============================================
-    const isAdmin = userRole === "admin" || userRole === "owner"
+    // If no userRole specified, treat as admin mode (for development)
+    const isAdmin = userRole === "admin" || userRole === "owner" || !userRole
     const isBetaTester = userRole === "beta" || userRole === "beta_tester"
-    const isSandboxed = isBetaTester || (userId && !isAdmin)
+    // Only sandbox beta testers - if role is not specified, assume development/admin mode
+    const isSandboxed = isBetaTester
+
+    console.log(`[claude-code] User auth: userId=${userId}, userRole=${userRole || "(none - admin mode)"}, isAdmin=${isAdmin}, isSandboxed=${isSandboxed}`)
 
     // For sandboxed users (beta testers), enforce strict path validation
     if (isSandboxed && userId) {
@@ -294,7 +298,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Even for non-sandboxed users, block access to absolutely protected paths
-    if (isPathProtected(workingDirectory)) {
+    // Admins can access developer paths (Claudia source code)
+    if (isPathProtected(workingDirectory, { allowDeveloperPaths: isAdmin })) {
       logSecurityEvent({
         userId: userId || "unknown",
         eventType: "path_blocked",
