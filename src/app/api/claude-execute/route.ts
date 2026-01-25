@@ -1427,12 +1427,19 @@ function isResearchOrInquiryTask(packet: ExecutionRequest["packet"]): boolean {
     return true
   }
 
+  // If type is explicitly "feature", "bugfix", "refactor", or "test" - it's a coding task
+  // Only override with research detection for ambiguous types
+  const codingTypes = ["feature", "bugfix", "refactor", "test", "infrastructure", "integration"]
+  if (codingTypes.includes(packet.type)) {
+    return false  // Respect the explicit type - it's a coding task
+  }
+
   // Check title and description for research/inquiry indicators
   const text = `${packet.title} ${packet.description}`.toLowerCase()
 
   // Research/inquiry keywords
   const researchKeywords = [
-    "research", "investigate", "analyze", "analyse", "review", "evaluate",
+    "research", "investigate", "analyze", "analyse", "evaluate",
     "assess", "compare", "study", "explore", "understand", "learn about",
     "find out", "look into", "recommend", "advise", "suggest", "strategy",
     "planning", "plan for", "how to", "what is", "what are", "why", "when should",
@@ -1446,15 +1453,21 @@ function isResearchOrInquiryTask(packet: ExecutionRequest["packet"]): boolean {
     "add endpoint", "write function", "create class", "add method",
     "update code", "modify", "change the", "add to", "remove from",
     "integrate", "connect", "wire up", "hook up", "api endpoint",
-    "database", "schema", "migration", "test for", "unit test"
+    "database", "schema", "migration", "test for", "unit test",
+    "create", "build", "code", "develop", "component"
   ]
 
   // Check for research indicators
   const hasResearchKeywords = researchKeywords.some(kw => text.includes(kw))
   const hasCodingKeywords = codingKeywords.some(kw => text.includes(kw))
 
+  // If it has coding keywords, it's NOT a research task
+  if (hasCodingKeywords) {
+    return false
+  }
+
   // If it has research keywords and no coding keywords, it's a research task
-  if (hasResearchKeywords && !hasCodingKeywords) {
+  if (hasResearchKeywords) {
     return true
   }
 
@@ -1463,7 +1476,11 @@ function isResearchOrInquiryTask(packet: ExecutionRequest["packet"]): boolean {
   const tasksAreResearch = researchKeywords.some(kw => taskTexts.includes(kw))
   const tasksAreCoding = codingKeywords.some(kw => taskTexts.includes(kw))
 
-  if (tasksAreResearch && !tasksAreCoding) {
+  if (tasksAreCoding) {
+    return false
+  }
+
+  if (tasksAreResearch) {
     return true
   }
 

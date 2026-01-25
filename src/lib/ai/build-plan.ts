@@ -835,22 +835,22 @@ export function parseBuildPlanResponse(
               buildPackets.push({
                 id: packetId,
                 phaseId: phase.id,
-                title: `${phase.name} - Task ${++packetIndex}`,
-                description: `Work packet for ${phase.name} phase. Review and update with specific requirements.`,
+                title: `Implement ${phase.name} - Part ${++packetIndex}`,
+                description: `Implement and build the ${phase.name} feature. Create the necessary code, components, and tests.`,
                 type: "feature" as PacketType,
                 priority: "medium" as const,
                 status: "queued" as const,
                 existing: false,
                 tasks: [
-                  { id: `${packetId}-task-1`, description: "Define specific requirements", completed: false, order: 1 },
-                  { id: `${packetId}-task-2`, description: "Implement the feature", completed: false, order: 2 },
-                  { id: `${packetId}-task-3`, description: "Test and validate", completed: false, order: 3 }
+                  { id: `${packetId}-task-1`, description: "Implement the core functionality", completed: false, order: 1 },
+                  { id: `${packetId}-task-2`, description: "Create component and integrate with existing code", completed: false, order: 2 },
+                  { id: `${packetId}-task-3`, description: "Write unit tests and validate", completed: false, order: 3 }
                 ],
                 suggestedTaskType: "coding",
                 blockedBy: [],
                 blocks: [],
                 estimatedTokens: 5000,
-                acceptanceCriteria: ["Requirements met", "Tests passing"]
+                acceptanceCriteria: ["Feature implemented and working", "Tests passing", "Code follows project patterns"]
               })
             }
           }
