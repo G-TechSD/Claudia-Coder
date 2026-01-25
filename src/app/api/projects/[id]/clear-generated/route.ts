@@ -282,6 +282,39 @@ function shouldPreserve(name: string, isDirectory: boolean): boolean {
 }
 
 /**
+ * Check if a directory contains mostly code files (async check)
+ * Used to detect project-specific directories that contain generated code
+ */
+async function containsCodeFiles(dirPath: string): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true })
+    let codeFileCount = 0
+    let totalFileCount = 0
+
+    for (const entry of entries) {
+      if (entry.isFile()) {
+        totalFileCount++
+        const ext = path.extname(entry.name).toLowerCase()
+        if (GENERATED_CODE_EXTENSIONS.includes(ext)) {
+          codeFileCount++
+        }
+      } else if (entry.isDirectory()) {
+        // Recursively check subdirectories (limit depth to avoid performance issues)
+        const subPath = path.join(dirPath, entry.name)
+        if (await containsCodeFiles(subPath)) {
+          return true
+        }
+      }
+    }
+
+    // If directory has files and most are code files, consider it a code directory
+    return totalFileCount > 0 && codeFileCount >= totalFileCount * 0.5
+  } catch {
+    return false
+  }
+}
+
+/**
  * Check if a path should be deleted (generated code)
  * Only called AFTER shouldPreserve returns false
  */
@@ -302,6 +335,23 @@ function shouldDelete(name: string, isDirectory: boolean): boolean {
     if (GENERATED_CODE_EXTENSIONS.includes(ext)) {
       return true
     }
+  }
+
+  return false
+}
+
+/**
+ * Async version of shouldDelete that also checks directory contents
+ */
+async function shouldDeleteAsync(name: string, isDirectory: boolean, fullPath: string): Promise<boolean> {
+  // First check synchronous rules
+  if (shouldDelete(name, isDirectory)) {
+    return true
+  }
+
+  // For directories not in the explicit list, check if they contain code files
+  if (isDirectory) {
+    return await containsCodeFiles(fullPath)
   }
 
   return false
@@ -428,7 +478,9 @@ export async function POST(
       }
 
       // SECOND: Check if should delete (generated code)
-      if (shouldDelete(entry.name, isDirectory)) {
+      // Use async version for directories to check contents
+      const shouldDeleteThis = await shouldDeleteAsync(entry.name, isDirectory, entryPath)
+      if (shouldDeleteThis) {
         if (dryRun) {
           result.deleted.push(entry.name)
         } else {
