@@ -572,12 +572,12 @@ export default function ProjectDetailPage() {
 
           setProviders(providerOptions)
 
-          // Auto-select provider: prefer online local, then CLI (Claude Code), then online cloud, then anthropic as fallback
+          // Auto-select provider: prefer online local, then CLI (Claude Code), then online cloud
+          // No hardcoded fallbacks - only use actually available providers
           const onlineLocal = providerOptions.find(p => p.status === "online" && p.type === "local")
           const onlineCli = providerOptions.find(p => p.status === "online" && p.type === "cli")
           const onlineCloud = providerOptions.find(p => p.status === "online" && p.type === "cloud")
-          const anthropicProvider = providerOptions.find(p => p.name === "anthropic")
-          const defaultProvider = onlineLocal || onlineCli || onlineCloud || anthropicProvider
+          const defaultProvider = onlineLocal || onlineCli || onlineCloud
           if (defaultProvider) {
             setSelectedProvider(defaultProvider.name)
           }

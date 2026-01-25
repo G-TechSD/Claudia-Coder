@@ -599,7 +599,14 @@ export function BuildPlanEditor({
   }, [objectives, nonGoals, packetFeedback, sectionComments, buildPlan, isLocked, saveToStorage])
 
   const generateBuildPlan = async () => {
-    if (!selectedProvider) return
+    if (!regenerationModel) return
+
+    // Parse the selected model to get provider and model ID
+    const selectedModelOption = regenerationModelOptions.find(m => m.value === regenerationModel)
+    if (!selectedModelOption) {
+      setError("Please select a valid model")
+      return
+    }
 
     setIsGenerating(true)
     setError(null)
@@ -651,8 +658,7 @@ export function BuildPlanEditor({
 
       console.log(`[build-plan-editor] Total ${existingPackets.length} existing packets for project ${projectId} (after merging localStorage)`)
 
-      const provider = providers.find(p => p.name === selectedProvider)
-      setGenerationStatus(`Generating with ${provider?.displayName || selectedProvider}...`)
+      setGenerationStatus(`Generating with ${selectedModelOption.label}...`)
 
       // Use kickoff content if available, otherwise use project description
       const effectiveDescription = kickoffContent
@@ -672,8 +678,8 @@ export function BuildPlanEditor({
           projectId,
           projectName,
           projectDescription: effectiveDescription,
-          preferredProvider: selectedProvider,
-          preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
+          preferredProvider: selectedModelOption.provider,
+          preferredModel: selectedModelOption.model || null,  // Pass specific model ID from selected model
           existingPackets: buildPlanSources.existingPackets ? existingPackets : [],  // Only pass if enabled
           sources: buildPlanSources,  // Pass source flags for API to handle user uploads and interview data
           constraints: {
@@ -712,7 +718,14 @@ export function BuildPlanEditor({
   }
 
   const reviseWithFeedback = async () => {
-    if (!selectedProvider || !buildPlan || !storedPlan) return
+    if (!regenerationModel || !buildPlan || !storedPlan) return
+
+    // Parse the selected model to get provider and model ID
+    const selectedModelOption = regenerationModelOptions.find(m => m.value === regenerationModel)
+    if (!selectedModelOption) {
+      setError("Please select a valid model")
+      return
+    }
 
     setIsRevising(true)
     setError(null)
@@ -750,8 +763,7 @@ export function BuildPlanEditor({
 
       const userFeedback = formatFeedbackForRevision(context)
 
-      const provider = providers.find(p => p.name === selectedProvider)
-      setGenerationStatus(`Revising with ${provider?.displayName || selectedProvider}...`)
+      setGenerationStatus(`Revising with ${selectedModelOption.label}...`)
 
       // Get cloud provider API keys from settings
       const globalSettings = getGlobalSettings()
@@ -768,8 +780,8 @@ export function BuildPlanEditor({
           projectDescription,
           originalPlan: storedPlan.originalPlan,
           userFeedback,
-          preferredProvider: selectedProvider,
-          preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
+          preferredProvider: selectedModelOption.provider,
+          preferredModel: selectedModelOption.model || null,  // Pass specific model ID from selected model
           cloudProviders: enabledCloudProviders
         })
       })
@@ -1329,66 +1341,74 @@ export function BuildPlanEditor({
             </Alert>
 
             <div className="flex items-center justify-center gap-3">
-              <Select value={selectedProvider || ""} onValueChange={onProviderChange}>
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="Select AI provider..." />
+              <Select value={regenerationModel} onValueChange={setRegenerationModel} disabled={isLoadingProviders}>
+                <SelectTrigger className="w-[280px]">
+                  <SelectValue placeholder={isLoadingProviders ? "Loading models..." : "Select model..."} />
                 </SelectTrigger>
-                <SelectContent className="bg-popover border border-border z-50">
-                  {providers.filter(p => p.type === "local").length > 0 && (
-                    <div className="px-2 py-1 text-xs text-muted-foreground font-medium">Local</div>
+                <SelectContent className="bg-popover border border-border z-50 max-h-[400px] overflow-y-auto">
+                  {regenerationModelOptions.length === 0 && !isLoadingProviders && (
+                    <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                      <p>No models configured</p>
+                      <Link href="/settings" className="text-primary hover:underline flex items-center justify-center gap-1 mt-2">
+                        <Settings className="h-3 w-3" />
+                        Configure providers
+                      </Link>
+                    </div>
                   )}
-                  {providers.filter(p => p.type === "local").map(provider => (
-                    <SelectItem
-                      key={provider.name}
-                      value={provider.name}
-                      disabled={provider.status !== "online"}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Server className="h-3 w-3 text-muted-foreground" />
-                        <span className={cn(
-                          "h-2 w-2 rounded-full",
-                          provider.status === "online" && "bg-green-500",
-                          provider.status === "offline" && "bg-red-500"
-                        )} />
-                        <span>{provider.displayName}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                  {providers.filter(p => p.type === "cli").length > 0 && (
-                    <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">CLI</div>
+                  {/* Local Models - First priority (free) */}
+                  {regenerationModelOptions.filter(m => m.type === "local").length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-xs text-muted-foreground font-medium border-b">Local Models (Free)</div>
+                      {regenerationModelOptions.filter(m => m.type === "local").map(model => (
+                        <SelectItem key={model.value} value={model.value}>
+                          <div className="flex items-center gap-2">
+                            {getModelIcon(model.icon)}
+                            <span>{model.label}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </>
                   )}
-                  {providers.filter(p => p.type === "cli").map(provider => (
-                    <SelectItem
-                      key={provider.name}
-                      value={provider.name}
-                      disabled={provider.status !== "online"}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Zap className="h-3 w-3 text-purple-500" />
-                        <span className="h-2 w-2 rounded-full bg-green-500" />
-                        <span>{provider.displayName}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                  {providers.filter(p => p.type === "cloud").length > 0 && (
-                    <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud</div>
+                  {/* Claude Code (CLI) Models */}
+                  {regenerationModelOptions.filter(m => m.type === "cli").length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Claude Code</div>
+                      {regenerationModelOptions.filter(m => m.type === "cli").map(model => (
+                        <SelectItem key={model.value} value={model.value}>
+                          <div className="flex items-center gap-2">
+                            {getModelIcon(model.icon)}
+                            <span>{model.label}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </>
                   )}
-                  {providers.filter(p => p.type === "cloud").map(provider => (
-                    <SelectItem
-                      key={provider.name}
-                      value={provider.name}
-                      disabled={provider.status !== "online"}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Cloud className="h-3 w-3 text-blue-500" />
-                        <span className="h-2 w-2 rounded-full bg-green-500" />
-                        <span>{provider.displayName}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
+                  {/* Cloud Models */}
+                  {regenerationModelOptions.filter(m => m.type === "cloud").length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-xs text-muted-foreground font-medium mt-1 border-t">Cloud Models</div>
+                      {regenerationModelOptions.filter(m => m.type === "cloud").map(model => (
+                        <SelectItem key={model.value} value={model.value}>
+                          <div className="flex items-center gap-2">
+                            {getModelIcon(model.icon)}
+                            <span>{model.label}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                  {/* Configure more link at bottom */}
+                  {regenerationModelOptions.length > 0 && (
+                    <div className="px-2 py-2 border-t mt-1">
+                      <Link href="/settings" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                        <Settings className="h-3 w-3" />
+                        Configure more providers...
+                      </Link>
+                    </div>
+                  )}
                 </SelectContent>
               </Select>
-              <Button onClick={generateBuildPlan} disabled={isGenerating || !selectedProvider}>
+              <Button onClick={generateBuildPlan} disabled={isGenerating || !regenerationModel || isLoadingProviders}>
                 {isGenerating ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
