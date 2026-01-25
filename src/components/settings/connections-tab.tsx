@@ -173,6 +173,8 @@ export function ConnectionsTab({
   const [providerDefaultModels, setProviderDefaultModels] = useState<Record<string, string>>({})
   // LM Studio models cache (fetched on demand)
   const [lmStudioModels, setLmStudioModels] = useState<Record<string, string[]>>({})
+  // Cloud provider models cache (fetched dynamically from API)
+  const [cloudProviderModels, setCloudProviderModels] = useState<Record<string, { id: string; name: string }[]>>({})
   const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({})
   // Claude Code CLI status
   const [claudeCodeStatus, setClaudeCodeStatus] = useState<{
@@ -331,6 +333,50 @@ export function ConnectionsTab({
     }
   }
 
+  // Fetch models for cloud providers (OpenAI, Anthropic, Google) from the API
+  async function fetchCloudProviderModels(providerId: string) {
+    if (cloudProviderModels[providerId]?.length > 0) return // Already fetched
+
+    setLoadingModels(prev => ({ ...prev, [providerId]: true }))
+    try {
+      const response = await fetch(`/api/models?provider=${providerId}&refresh=true`, {
+        headers: { "Cache-Control": "no-cache" },
+        cache: 'no-store'
+      })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.models && data.models.length > 0) {
+          // Filter to only this provider's models and format them
+          const providerModels = data.models
+            .filter((m: { provider: string }) => m.provider === providerId)
+            .map((m: { id: string; name: string }) => ({ id: m.id, name: m.name }))
+
+          if (providerModels.length > 0) {
+            setCloudProviderModels(prev => ({ ...prev, [providerId]: providerModels }))
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to fetch ${providerId} models:`, error)
+    } finally {
+      setLoadingModels(prev => ({ ...prev, [providerId]: false }))
+    }
+  }
+
+  // Auto-fetch models for connected cloud providers
+  useEffect(() => {
+    categorizedServices.ai.forEach(conn => {
+      const { service, providerId } = conn
+      const isCloudProvider = ["anthropic", "openai", "google"].includes(providerId || "")
+
+      // Fetch for connected cloud providers that have API keys configured
+      if (isCloudProvider && service.status === "connected" && providerId && !cloudProviderModels[providerId]?.length) {
+        fetchCloudProviderModels(providerId)
+      }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categorizedServices.ai])
+
   // Get external URL for a service
   function getExternalUrl(service: ServiceStatus): string | null {
     const name = service.name.toLowerCase()
@@ -412,8 +458,11 @@ export function ConnectionsTab({
 
     // Get available models - prefer dynamically fetched, fall back to hardcoded
     const models = isCloudProvider || isClaudeCode
-      ? FALLBACK_PROVIDER_MODELS[providerId || ""] || []
+      ? (cloudProviderModels[providerId || ""]?.length > 0
+          ? cloudProviderModels[providerId || ""]
+          : FALLBACK_PROVIDER_MODELS[providerId || ""] || [])
       : lmStudioModels[providerId || ""] || []
+    const isLoadingProviderModels = loadingModels[providerId || ""]
 
     const currentModel = providerDefaultModels[providerId || ""] || ""
 
