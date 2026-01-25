@@ -110,15 +110,24 @@ async function fetchOpenAIModels(apiKey?: string): Promise<FetchedModel[]> {
     const data = await response.json()
 
     // Filter to only include chat-capable models
+    // Include all GPT models, o-series reasoning models, and any chatgpt models
     const chatModels = (data.data || []).filter((model: { id: string }) => {
       const id = model.id.toLowerCase()
+      // Exclude non-chat models
+      if (id.includes("instruct") || id.includes("vision") || id.includes("audio") ||
+          id.includes("embed") || id.includes("whisper") || id.includes("tts") ||
+          id.includes("dall-e") || id.includes("moderation")) {
+        return false
+      }
+      // Include chat-capable models
       return (
-        id.startsWith("gpt-") ||
-        id.startsWith("o1") ||
-        id.startsWith("o3") ||
-        id.startsWith("o4") ||
-        id.includes("chatgpt")
-      ) && !id.includes("instruct") && !id.includes("vision") && !id.includes("audio")
+        id.startsWith("gpt-") ||       // GPT-3.5, GPT-4, GPT-4.5, GPT-5, etc.
+        id.startsWith("o1") ||          // o1 reasoning models
+        id.startsWith("o3") ||          // o3 reasoning models
+        id.startsWith("o4") ||          // o4 reasoning models (future)
+        id.startsWith("o5") ||          // o5 reasoning models (future)
+        id.includes("chatgpt")          // ChatGPT models
+      )
     })
 
     return chatModels.map((model: {
@@ -470,44 +479,34 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Add Claude Code CLI provider models (always available - uses CLI with Max subscription)
+  // Claude Code CLI uses Anthropic models - fetch from Anthropic API and mark as CLI type
   if (!provider || provider === "claude-code") {
-    allModels.push(
-      {
-        id: "claude-opus-4-20250514",
-        name: "Claude Opus 4 (Best for coding)",
-        provider: "claude-code",
-        type: "cli",
-        contextWindow: 200000,
-        maxOutput: 32000,
-        description: "Most capable model - recommended for complex coding tasks",
-        usesCli: true,
-        requiresApiKey: false
-      },
-      {
-        id: "claude-sonnet-4-20250514",
-        name: "Claude Sonnet 4 (Balanced)",
-        provider: "claude-code",
-        type: "cli",
-        contextWindow: 200000,
-        maxOutput: 16000,
-        description: "Balanced performance - good for coding with more usage allowance",
-        usesCli: true,
-        requiresApiKey: false
-      },
-      {
-        id: "claude-3-5-haiku-20241022",
-        name: "Claude Haiku (Fast)",
-        provider: "claude-code",
-        type: "cli",
-        contextWindow: 200000,
-        maxOutput: 8192,
-        description: "Fast and cheap - not recommended for complex coding",
-        usesCli: true,
-        requiresApiKey: false
+    // Try to get Anthropic models for Claude Code (uses same API)
+    const anthropicKey = getApiKey("anthropic")
+    if (anthropicKey) {
+      const anthropicModels = await fetchAnthropicModels(anthropicKey)
+      if (anthropicModels.length > 0) {
+        // Convert Anthropic models to Claude Code CLI models
+        const cliModels = anthropicModels.map(m => ({
+          ...m,
+          provider: "claude-code" as const,
+          type: "cli" as const,
+          usesCli: true,
+          requiresApiKey: false,
+          description: m.name.toLowerCase().includes("opus")
+            ? "Most capable - recommended for complex coding"
+            : m.name.toLowerCase().includes("sonnet")
+            ? "Balanced performance for coding"
+            : "Fast - for simpler tasks"
+        }))
+        allModels.push(...cliModels)
+        providerStatus["claude-code"] = "online"
+      } else {
+        providerStatus["claude-code"] = "offline"
       }
-    )
-    providerStatus["claude-code"] = "online"
+    } else {
+      providerStatus["claude-code"] = "no_key"
+    }
   }
 
   // Build list of env-configured local servers

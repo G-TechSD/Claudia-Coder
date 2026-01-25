@@ -34,37 +34,8 @@ import {
   Terminal
 } from "lucide-react"
 
-// Fallback models if dynamic fetch fails - these should be kept up to date
-// The UI should prefer dynamically fetched models from /api/models endpoint
-const FALLBACK_PROVIDER_MODELS: Record<string, { id: string; name: string }[]> = {
-  anthropic: [
-    { id: "claude-opus-4-5-20251101", name: "Claude Opus 4.5" },
-    { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
-    { id: "claude-opus-4-20250514", name: "Claude Opus 4" },
-    { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet" },
-    { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku" },
-  ],
-  openai: [
-    { id: "gpt-4.5-preview", name: "GPT-4.5 Preview" },
-    { id: "gpt-4o", name: "GPT-4o" },
-    { id: "gpt-4o-mini", name: "GPT-4o Mini" },
-    { id: "o3", name: "o3" },
-    { id: "o3-mini", name: "o3-mini" },
-    { id: "o1", name: "o1" },
-    { id: "o1-mini", name: "o1-mini" },
-  ],
-  google: [
-    { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
-    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
-    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
-    { id: "gemini-2.0-flash-thinking", name: "Gemini 2.0 Flash Thinking" },
-  ],
-  "claude-code": [
-    { id: "claude-opus-4-20250514", name: "Claude Opus 4 (Best for coding)" },
-    { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4 (Balanced)" },
-    { id: "claude-3-5-haiku-20241022", name: "Claude Haiku (Fast)" },
-  ],
-}
+// No hardcoded models - all models are fetched dynamically from provider APIs
+// This ensures we always show the latest available models
 
 // LocalStorage keys for default provider preferences
 const DEFAULT_AI_PROVIDER_KEY = "claudia_default_ai_provider"
@@ -456,11 +427,9 @@ export function ConnectionsTab({
     const isClaudeCode = providerId === "claude-code"
     const isDefault = defaultAiProvider === providerId
 
-    // Get available models - prefer dynamically fetched, fall back to hardcoded
+    // Get available models - always fetched dynamically from provider APIs
     const models = isCloudProvider || isClaudeCode
-      ? (cloudProviderModels[providerId || ""]?.length > 0
-          ? cloudProviderModels[providerId || ""]
-          : FALLBACK_PROVIDER_MODELS[providerId || ""] || [])
+      ? (cloudProviderModels[providerId || ""] || [])
       : lmStudioModels[providerId || ""] || []
     const isLoadingProviderModels = loadingModels[providerId || ""]
 
