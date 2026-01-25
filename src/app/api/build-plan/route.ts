@@ -607,6 +607,11 @@ export async function POST(request: NextRequest) {
           if (result) {
             const validation = validateBuildPlan(result.plan)
 
+            // Check if model failed to generate packets - warn user
+            const noPacketsWarning = result.plan.packets.length === 0
+              ? `${geminiModel} did not generate work packets. Try a more capable model like gemini-2.5-pro or a local model.`
+              : undefined
+
             // Generate business dev if monetization is enabled
             let businessDev: BusinessDev | null = null
             if (monetization) {
@@ -633,6 +638,7 @@ export async function POST(request: NextRequest) {
               packetSummary: result.packetSummary,
               sourcesUsed,
               mergeStats: result.mergeStats,
+              ...(noPacketsWarning && { warning: noPacketsWarning }),
               ...(businessDev && { businessDev })
             })
           } else {

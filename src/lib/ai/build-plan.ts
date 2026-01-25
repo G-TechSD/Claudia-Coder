@@ -815,9 +815,9 @@ export function parseBuildPlanResponse(
       })
     }
 
-    // FALLBACK: If we have phases with packetIds but no actual packets,
-    // generate stub packets from the phase information
-    // This handles cases where the LLM generates packetIds in phases but forgets the packets array
+    // WARNING: If we have phases with packetIds but no actual packets,
+    // the model failed to generate proper work packets. Log a warning.
+    // Don't generate stub packets - they're useless. Let validation catch this.
     if (buildPackets.length === 0 && buildPhases.length > 0) {
       const allPacketIds = new Set<string>()
       buildPhases.forEach(phase => {
@@ -825,36 +825,8 @@ export function parseBuildPlanResponse(
       })
 
       if (allPacketIds.size > 0) {
-        console.log(`[build-plan] Generating ${allPacketIds.size} stub packets from phase packetIds`)
-
-        // Generate stub packets from the packetIds
-        let packetIndex = 0
-        for (const phase of buildPhases) {
-          for (const packetId of phase.packetIds || []) {
-            if (!buildPackets.find(p => p.id === packetId)) {
-              buildPackets.push({
-                id: packetId,
-                phaseId: phase.id,
-                title: `Implement ${phase.name} - Part ${++packetIndex}`,
-                description: `Implement and build the ${phase.name} feature. Create the necessary code, components, and tests.`,
-                type: "feature" as PacketType,
-                priority: "medium" as const,
-                status: "queued" as const,
-                existing: false,
-                tasks: [
-                  { id: `${packetId}-task-1`, description: "Implement the core functionality", completed: false, order: 1 },
-                  { id: `${packetId}-task-2`, description: "Create component and integrate with existing code", completed: false, order: 2 },
-                  { id: `${packetId}-task-3`, description: "Write unit tests and validate", completed: false, order: 3 }
-                ],
-                suggestedTaskType: "coding",
-                blockedBy: [],
-                blocks: [],
-                estimatedTokens: 5000,
-                acceptanceCriteria: ["Feature implemented and working", "Tests passing", "Code follows project patterns"]
-              })
-            }
-          }
-        }
+        console.warn(`[build-plan] WARNING: Model generated ${allPacketIds.size} packetIds in phases but NO actual packets array!`)
+        console.warn(`[build-plan] This model may not be capable enough for build plan generation. Try a larger model like Gemini 2.5 Pro or Claude.`)
       }
     }
 
