@@ -3629,6 +3629,11 @@ export default function ProjectDetailPage() {
             <DialogDescription>
               This will permanently delete all AI-generated code from the working directory.
               Documentation and configuration files will be preserved.
+              {project && (
+                <span className="block mt-2 text-xs font-mono text-muted-foreground/70">
+                  Directory: {getEffectiveWorkingDirectory(project) || "Not configured"}
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -3659,7 +3664,10 @@ export default function ProjectDetailPage() {
                   </h4>
                   <div className="max-h-[200px] overflow-y-auto border rounded-lg p-2 bg-red-500/5">
                     {clearGeneratedPreview.deleted.length === 0 ? (
-                      <p className="text-sm text-muted-foreground italic">No generated files to delete</p>
+                      <div className="text-sm text-muted-foreground italic space-y-1">
+                        <p>No generated files to delete</p>
+                        <p className="text-xs">The directory may be empty or contain only preserved files (docs, .env, etc.).</p>
+                      </div>
                     ) : (
                       <ul className="text-sm space-y-1">
                         {clearGeneratedPreview.deleted.map((item) => (

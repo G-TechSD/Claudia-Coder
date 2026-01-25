@@ -7,6 +7,15 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   FileText,
   Plus,
@@ -24,7 +33,9 @@ import {
   ClipboardList,
   FileCode,
   Sparkles,
-  Download
+  Download,
+  CheckSquare,
+  Square
 } from "lucide-react"
 import { DocExportButton } from "@/components/export/pdf-export-button"
 import { cn } from "@/lib/utils"
@@ -247,6 +258,11 @@ export function DocsBrowser({
   const [newDocName, setNewDocName] = useState("")
   const [newDocTemplate, setNewDocTemplate] = useState<DocTemplate>("custom")
 
+  // Multi-select state for batch deletion
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set())
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+
   // Load docs from working directory
   const loadDocs = useCallback(async () => {
     if (!workingDirectory) {
@@ -366,7 +382,7 @@ export function DocsBrowser({
     }
   }
 
-  // Delete document
+  // Delete single document
   const handleDelete = async (doc: DocFile) => {
     if (!confirm(`Delete "${doc.name}"?`)) return
 
@@ -389,9 +405,92 @@ export function DocsBrowser({
         setSelectedDoc(null)
         setIsEditing(false)
       }
+      // Remove from selection if selected
+      setSelectedDocs(prev => {
+        const updated = new Set(prev)
+        updated.delete(doc.path)
+        return updated
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete")
     }
+  }
+
+  // Toggle document selection for multi-select
+  const toggleDocSelection = (docPath: string) => {
+    setSelectedDocs(prev => {
+      const updated = new Set(prev)
+      if (updated.has(docPath)) {
+        updated.delete(docPath)
+      } else {
+        updated.add(docPath)
+      }
+      return updated
+    })
+  }
+
+  // Select all documents
+  const selectAllDocs = () => {
+    setSelectedDocs(new Set(docs.map(d => d.path)))
+  }
+
+  // Deselect all documents
+  const deselectAllDocs = () => {
+    setSelectedDocs(new Set())
+  }
+
+  // Batch delete selected documents
+  const handleBatchDelete = async () => {
+    if (selectedDocs.size === 0) return
+
+    setIsDeleting(true)
+    setError(null)
+
+    const docsToDelete = docs.filter(d => selectedDocs.has(d.path))
+    const failedDeletes: string[] = []
+
+    for (const doc of docsToDelete) {
+      try {
+        const response = await fetch(`/api/projects/${projectId}/docs`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: doc.path })
+        })
+
+        if (!response.ok) {
+          failedDeletes.push(doc.name)
+        }
+      } catch {
+        failedDeletes.push(doc.name)
+      }
+    }
+
+    // Update local state - remove successfully deleted docs
+    const deletedPaths = docsToDelete
+      .filter(d => !failedDeletes.includes(d.name))
+      .map(d => d.path)
+
+    setDocs(prev => prev.filter(d => !deletedPaths.includes(d.path)))
+
+    // Clear selection for successfully deleted docs
+    setSelectedDocs(prev => {
+      const updated = new Set(prev)
+      deletedPaths.forEach(path => updated.delete(path))
+      return updated
+    })
+
+    // If currently viewing doc was deleted, clear selection
+    if (selectedDoc && deletedPaths.includes(selectedDoc.path)) {
+      setSelectedDoc(null)
+      setIsEditing(false)
+    }
+
+    if (failedDeletes.length > 0) {
+      setError(`Failed to delete: ${failedDeletes.join(", ")}`)
+    }
+
+    setIsDeleting(false)
+    setIsDeleteDialogOpen(false)
   }
 
   // Select a document
@@ -539,8 +638,50 @@ export function DocsBrowser({
             </div>
           )}
 
+          {/* Selection controls - show when docs exist */}
+          {docs.length > 0 && (
+            <div className="flex items-center justify-between mb-2 px-1">
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs px-2"
+                  onClick={selectedDocs.size === docs.length ? deselectAllDocs : selectAllDocs}
+                >
+                  {selectedDocs.size === docs.length ? (
+                    <>
+                      <Square className="h-3 w-3 mr-1" />
+                      Deselect
+                    </>
+                  ) : (
+                    <>
+                      <CheckSquare className="h-3 w-3 mr-1" />
+                      Select All
+                    </>
+                  )}
+                </Button>
+                {selectedDocs.size > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {selectedDocs.size} selected
+                  </span>
+                )}
+              </div>
+              {selectedDocs.size > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-6 text-xs px-2"
+                  onClick={() => setIsDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="h-3 w-3 mr-1" />
+                  Delete
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Document list */}
-          <ScrollArea className="h-[480px]">
+          <ScrollArea className="h-[440px]">
             {isLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -563,6 +704,7 @@ export function DocsBrowser({
                 {docs.map((doc) => {
                   const { icon: Icon, color } = getDocIcon(doc.name)
                   const isSelected = selectedDoc?.path === doc.path
+                  const isChecked = selectedDocs.has(doc.path)
 
                   return (
                     <div
@@ -571,10 +713,19 @@ export function DocsBrowser({
                         "group flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors",
                         isSelected
                           ? "bg-primary/10 border border-primary/30"
+                          : isChecked
+                          ? "bg-muted/50 border border-muted-foreground/20"
                           : "hover:bg-muted"
                       )}
                       onClick={() => handleSelectDoc(doc)}
                     >
+                      {/* Checkbox for multi-select */}
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => toggleDocSelection(doc.path)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-4 w-4 flex-shrink-0"
+                      />
                       <Icon className={cn("h-4 w-4 flex-shrink-0", color)} />
                       <span className="text-sm truncate flex-1">{doc.name}</span>
                       <Button
@@ -719,6 +870,64 @@ export function DocsBrowser({
           </div>
         </div>
       )}
+
+      {/* Batch delete confirmation dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Delete {selectedDocs.size} Document{selectedDocs.size !== 1 ? "s" : ""}
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. The following documents will be permanently deleted:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="max-h-[200px] overflow-y-auto border rounded-lg p-2 bg-destructive/5">
+              <ul className="text-sm space-y-1">
+                {docs
+                  .filter(d => selectedDocs.has(d.path))
+                  .map(doc => {
+                    const { icon: Icon, color } = getDocIcon(doc.name)
+                    return (
+                      <li key={doc.path} className="flex items-center gap-2 text-muted-foreground">
+                        <Icon className={cn("h-4 w-4 flex-shrink-0", color)} />
+                        <span className="truncate">{doc.name}</span>
+                      </li>
+                    )
+                  })}
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteDialogOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBatchDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete {selectedDocs.size} Document{selectedDocs.size !== 1 ? "s" : ""}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

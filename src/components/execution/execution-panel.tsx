@@ -12,7 +12,8 @@ import { BetaUsageBanner } from "@/components/beta/usage-banner"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectSeparator } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { useAvailableModels, AvailableModel } from "@/hooks/useAvailableModels"
+import { getProjectEnabledModels, getProjectDefaultModel, type EnabledInstance } from "@/components/project/model-assignment"
+import { getEffectiveDefaultModel } from "@/lib/settings/global-settings"
 import { useActivityPersistence } from "@/hooks/useActivityPersistence"
 import { updatePacket } from "@/lib/ai/build-plan"
 
@@ -287,8 +288,19 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
     return phase?.name || phaseId
   }, [phases])
 
-  // Available models hook for provider/model selection
-  const { models: availableModels, loading: modelsLoading } = useAvailableModels()
+  // Model option type for execution dropdown
+  interface ExecutionModelOption {
+    value: string
+    label: string
+    type: "auto" | "cli" | "cloud" | "local"
+    icon: "sparkles" | "terminal" | "cloud" | "server"
+    provider: string
+    model: string | null
+  }
+
+  // State for project-enabled models (replaces useAvailableModels)
+  const [modelsLoading, setModelsLoading] = React.useState(true)
+  const [executionModelOptions, setExecutionModelOptions] = React.useState<ExecutionModelOption[]>([])
 
   // Selected provider and model for execution
   const [selectedProviderId, setSelectedProviderId] = React.useState<string>(() => {
@@ -306,32 +318,155 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
     return project.defaultModelId || ""
   })
 
-  // Group models by provider for the dropdown
+  // Load project-enabled models and system default (same pattern as build-plan-editor)
+  React.useEffect(() => {
+    const loadModelOptions = () => {
+      setModelsLoading(true)
+      try {
+        // Get global default model from Claudia Coder settings
+        const globalDefault = getEffectiveDefaultModel()
+
+        // Get project-specific enabled models
+        const projectModels = getProjectEnabledModels(project.id)
+
+        // Get project's default model (may be different from global)
+        const projectDefaultModel = getProjectDefaultModel(project.id)
+
+        // Helper to determine icon type
+        const getIconType = (type: string): "terminal" | "cloud" | "server" => {
+          if (type === "cli") return "terminal"
+          if (type === "cloud") return "cloud"
+          return "server"
+        }
+
+        const options: ExecutionModelOption[] = []
+        const addedKeys = new Set<string>()
+
+        // 1. Add the Claudia Coder global default model (if exists)
+        if (globalDefault) {
+          const key = `${globalDefault.provider}:${globalDefault.modelId}`
+          if (!addedKeys.has(key)) {
+            addedKeys.add(key)
+            const type = globalDefault.provider === "claude-code" ? "cli" :
+                         ["anthropic", "openai", "google"].includes(globalDefault.provider || "") ? "cloud" : "local"
+            options.push({
+              value: key,
+              label: `${globalDefault.displayName || globalDefault.modelId} (System Default)`,
+              type,
+              icon: getIconType(type),
+              provider: globalDefault.provider || "",
+              model: globalDefault.modelId || null
+            })
+          }
+        }
+
+        // 2. Add project-enabled models
+        for (const instance of projectModels) {
+          const key = `${instance.provider}:${instance.modelId}`
+          if (!addedKeys.has(key)) {
+            addedKeys.add(key)
+            options.push({
+              value: key,
+              label: instance.displayName || `${instance.modelId} (${instance.provider})`,
+              type: instance.type,
+              icon: getIconType(instance.type),
+              provider: instance.provider,
+              model: instance.modelId
+            })
+          }
+        }
+
+        // If no options at all, show a placeholder
+        if (options.length === 0) {
+          options.push({
+            value: "",
+            label: "No models configured - add in AI Models section",
+            type: "auto",
+            icon: "sparkles",
+            provider: "",
+            model: null
+          })
+        }
+
+        setExecutionModelOptions(options)
+
+        // Set default selection
+        let defaultSelection = ""
+
+        // First try project default
+        if (projectDefaultModel) {
+          const key = `${projectDefaultModel.provider}:${projectDefaultModel.modelId}`
+          const match = options.find(opt => opt.value === key)
+          if (match) {
+            defaultSelection = match.value
+          }
+        }
+
+        // Fall back to global default
+        if (!defaultSelection && globalDefault) {
+          const key = `${globalDefault.provider}:${globalDefault.modelId}`
+          const match = options.find(opt => opt.value === key)
+          if (match) {
+            defaultSelection = match.value
+          }
+        }
+
+        // If still no default and we have options, use the first one
+        if (!defaultSelection && options.length > 0 && options[0].value) {
+          defaultSelection = options[0].value
+        }
+
+        // Update selected provider/model if we have a default
+        if (defaultSelection) {
+          const [provider, modelId] = defaultSelection.split(":")
+          setSelectedProviderId(provider)
+          setSelectedModelId(modelId || "")
+        }
+      } catch (error) {
+        console.error("[ExecutionPanel] Failed to load model options:", error)
+      } finally {
+        setModelsLoading(false)
+      }
+    }
+
+    loadModelOptions()
+  }, [project.id])
+
+  // Build grouped models for backward compatibility with dropdown rendering
+  // This transforms executionModelOptions into the grouped format expected by the dropdown
   const groupedModels = React.useMemo(() => {
-    const groups: { [key: string]: { displayName: string; type: "local" | "cloud" | "cli"; models: AvailableModel[] } } = {}
+    const groups: { [key: string]: { displayName: string; type: "local" | "cloud" | "cli"; models: { id: string; name: string; provider: string; type: "local" | "cloud" | "cli"; description?: string }[] } } = {}
 
-    availableModels.forEach(model => {
-      if (!groups[model.provider]) {
-        let displayName = model.provider
+    executionModelOptions.forEach(option => {
+      if (!option.provider) return // Skip placeholder options
+
+      if (!groups[option.provider]) {
+        let displayName = option.provider
         // Create human-readable provider names
-        if (model.provider === "claude-code") displayName = "Claude Code"
-        else if (model.provider === "anthropic") displayName = "Anthropic"
-        else if (model.provider === "openai") displayName = "OpenAI"
-        else if (model.provider === "google") displayName = "Google"
-        else if (model.provider === "lmstudio" || model.provider === "local-llm-server") displayName = "LM Studio"
-        else if (model.provider === "ollama") displayName = "Ollama"
+        if (option.provider === "claude-code") displayName = "Claude Code"
+        else if (option.provider === "anthropic") displayName = "Anthropic"
+        else if (option.provider === "openai") displayName = "OpenAI"
+        else if (option.provider === "google") displayName = "Google"
+        else if (option.provider === "lmstudio" || option.provider === "local-llm-server") displayName = "LM Studio"
+        else if (option.provider === "ollama") displayName = "Ollama"
 
-        groups[model.provider] = {
+        groups[option.provider] = {
           displayName,
-          type: model.type,
+          type: option.type === "auto" ? "cloud" : option.type,
           models: []
         }
       }
-      groups[model.provider].models.push(model)
+
+      groups[option.provider].models.push({
+        id: option.model || option.provider,
+        name: option.label.replace(" (System Default)", "").replace(` (${option.provider})`, ""),
+        provider: option.provider,
+        type: option.type === "auto" ? "cloud" : option.type
+      })
     })
 
     return groups
-  }, [availableModels])
+  }, [executionModelOptions])
 
   // Handle provider/model selection change
   const handleProviderModelChange = React.useCallback((value: string) => {

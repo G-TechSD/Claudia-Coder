@@ -44,7 +44,8 @@ import {
   Upload,
   Mic,
   Terminal,
-  Settings
+  Settings,
+  Trash2
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -57,7 +58,7 @@ import {
   approveBuildPlan,
   formatFeedbackForRevision
 } from "@/lib/data/build-plans"
-import { savePackets, getPacketsForProject, type WorkPacket } from "@/lib/ai/build-plan"
+import { savePackets, getPacketsForProject, deletePacket, type WorkPacket } from "@/lib/ai/build-plan"
 import { getProjectDefaultModel, getProjectEnabledModels, type EnabledInstance } from "@/components/project/model-assignment"
 import { VisionPacketEditor, isVisionPacket } from "@/components/project/vision-packet-editor"
 import { getEffectiveDefaultModel, getGlobalSettings } from "@/lib/settings/global-settings"
@@ -1223,6 +1224,45 @@ export function BuildPlanEditor({
     }))
   }
 
+  // Delete packet handler
+  const handleDeletePacket = (packetId: string, packetTitle: string) => {
+    if (isLocked) return
+
+    // Confirm before deleting
+    if (!confirm(`Delete packet "${packetTitle}"? This action cannot be undone.`)) {
+      return
+    }
+
+    // Delete from storage
+    const deleted = deletePacket(projectId, packetId)
+    if (!deleted) {
+      console.warn(`[build-plan-editor] Failed to delete packet ${packetId} from storage`)
+    }
+
+    // Update local build plan state
+    if (buildPlan) {
+      const updatedPackets = buildPlan.packets.filter(p => p.id !== packetId)
+      setBuildPlan({
+        ...buildPlan,
+        packets: updatedPackets
+      })
+    }
+
+    // Remove from packet feedback
+    setPacketFeedback(prev => {
+      const updated = { ...prev }
+      delete updated[packetId]
+      return updated
+    })
+
+    // Remove from expanded packets
+    setExpandedPackets(prev => {
+      const updated = new Set(prev)
+      updated.delete(packetId)
+      return updated
+    })
+  }
+
   // Vision packet metadata save handler
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleVisionPacketSave = useCallback((packetId: string, updatedMetadata: any) => {
@@ -2041,18 +2081,33 @@ export function BuildPlanEditor({
                               )}
                             </div>
 
-                            {/* Expand button */}
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => togglePacketExpand(packet.id)}
-                            >
-                              {isExpanded ? (
-                                <ChevronUp className="h-4 w-4" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4" />
+                            {/* Action buttons */}
+                            <div className="flex items-center gap-1">
+                              {/* Delete button - only show when not locked */}
+                              {!isLocked && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                  onClick={() => handleDeletePacket(packet.id, packet.title)}
+                                  title="Delete packet"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               )}
-                            </Button>
+                              {/* Expand button */}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => togglePacketExpand(packet.id)}
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
                           </div>
                         </div>
 
