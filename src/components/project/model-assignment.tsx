@@ -86,6 +86,13 @@ interface ModelAssignmentProps {
   onConfigChange?: (config: ProjectModelConfig) => void
 }
 
+// Local provider types (servers configured in Settings)
+const LOCAL_PROVIDERS = [
+  { id: "lmstudio", name: "LM Studio", color: "text-green-500" },
+  { id: "ollama", name: "Ollama", color: "text-purple-500" },
+  { id: "custom", name: "Custom Server", color: "text-gray-500" }
+]
+
 // Cloud and CLI provider metadata (remote providers)
 const CLOUD_PROVIDERS = [
   { id: "anthropic", name: "Anthropic", color: "text-orange-500" },
@@ -169,15 +176,18 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
     getProjectModelConfig(projectId) || createDefaultModelConfig(projectId)
   )
   const [expandedOverrides, setExpandedOverrides] = useState(false)
-  const [detectedServers, setDetectedServers] = useState<DetectedServer[]>([])
-  const [loadingServers, setLoadingServers] = useState(true)
+
+  // Servers/models for the SELECTED provider only (fetched on-demand)
+  const [providerServers, setProviderServers] = useState<DetectedServer[]>([])
+  const [providerModels, setProviderModels] = useState<string[]>([])
+  const [loadingProviderData, setLoadingProviderData] = useState(false)
 
   // Load enabled instances from localStorage on mount
   const [enabledInstances, setEnabledInstances] = useState<EnabledInstance[]>(() =>
     getStoredEnabledInstances(projectId)
   )
 
-  // Use dynamic model fetching
+  // Use dynamic model fetching for cloud providers
   const { models: dynamicModels, loading: loadingModels, refresh: refreshModels } = useAvailableModels()
 
   // Default model state - load from localStorage on mount
@@ -197,42 +207,61 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
   const [customUrl, setCustomUrl] = useState("")
   const [customApiKey, setCustomApiKey] = useState("")
 
-  // Fetch detected servers on mount
+  // Fetch provider data only when a provider is selected
   useEffect(() => {
-    async function fetchServers() {
+    if (!selectedProvider) {
+      setProviderServers([])
+      setProviderModels([])
+      return
+    }
+
+    async function fetchProviderData() {
+      setLoadingProviderData(true)
       try {
         const response = await fetch("/api/providers")
         const data = await response.json()
 
-        if (data.providers) {
-          const servers: DetectedServer[] = data.providers.map((p: {
-            name: string
-            displayName: string
-            type: "local" | "cloud" | "cli"
-            status: string
-            baseUrl?: string
-            model?: string
-            models?: string[]
-          }) => ({
-            name: p.name,
-            displayName: p.displayName,
-            type: p.type,
-            status: p.status,
-            baseUrl: p.baseUrl,
-            model: p.model,
-            models: p.models
-          }))
-          setDetectedServers(servers)
+        if (data.providers && selectedProvider) {
+          // For local providers, get matching servers
+          if (LOCAL_PROVIDERS.some(p => p.id === selectedProvider)) {
+            const servers: DetectedServer[] = data.providers
+              .filter((p: { name: string; type: string; status: string }) =>
+                p.type === "local" &&
+                p.status === "online" &&
+                p.name.toLowerCase().includes(selectedProvider.toLowerCase())
+              )
+              .map((p: {
+                name: string
+                displayName: string
+                type: "local" | "cloud" | "cli"
+                status: string
+                baseUrl?: string
+                model?: string
+                models?: string[]
+              }) => ({
+                name: p.name,
+                displayName: p.displayName,
+                type: p.type,
+                status: p.status,
+                baseUrl: p.baseUrl,
+                model: p.model,
+                models: p.models
+              }))
+            setProviderServers(servers)
+          }
+
+          // For cloud/CLI providers, models come from dynamicModels (useAvailableModels)
+          // which is already being fetched
         }
       } catch (error) {
-        console.error("Failed to fetch servers:", error)
+        console.error("Failed to fetch provider data:", error)
       } finally {
-        setLoadingServers(false)
+        setLoadingProviderData(false)
       }
     }
 
-    fetchServers()
-  }, [])
+    fetchProviderData()
+  }, [selectedProvider])
 
   // NOTE: Auto-selection of default models has been removed.
   // Users must explicitly add models they want to use.
@@ -254,7 +283,7 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
     onConfigChange?.(config)
   }, [config, onConfigChange])
 
-  const localServers = detectedServers.filter(s => s.type === "local" && s.status === "online")
+  // providerServers already contains filtered local servers for the selected provider
   const cloudModels = dynamicModels.filter(m => m.type === "cloud" || m.type === "cli")
 
   // Provider icons for compact grid
@@ -272,7 +301,7 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
 
     const isLocal = ["lmstudio", "ollama", "custom"].includes(selectedProvider) || selectedServer?.startsWith("lmstudio-") || selectedServer === "ollama"
     const isCli = selectedProvider === "claude-code"
-    const server = detectedServers.find(s => s.name === selectedServer)
+    const server = providerServers.find(s => s.name === selectedServer)
     const cloudProviderInfo = CLOUD_PROVIDERS.find(p => p.id === selectedProvider)
     const cloudModel = cloudModels.find(m => m.id === selectedModel && m.provider === selectedProvider)
 
@@ -441,99 +470,128 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {loadingServers ? (
-            <div className="flex items-center justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-sm text-muted-foreground">Detecting servers...</span>
-            </div>
-          ) : (
-            <>
-              {/* Add Provider Panel */}
-              {showAddProvider && (
-                <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
-                  {/* Provider Grid - Compact */}
-                  <div>
-                    <Label className="text-xs text-muted-foreground uppercase mb-2 block">Select Provider</Label>
-                    <div className="grid grid-cols-5 gap-2">
-                      {/* Local Servers */}
-                      {localServers.map(server => {
-                        const icon = providerIcons[server.name.split("-")[0]] || { icon: Server, color: "text-green-500" }
-                        const Icon = icon.icon
-                        const modelCount = server.models?.length || 0
-                        const loadedModel = server.model
-                        return (
-                          <button
-                            key={server.name}
-                            onClick={() => {
-                              setSelectedProvider(server.name.split("-")[0])
-                              setSelectedServer(server.name)
-                              setSelectedModel(null)
-                            }}
-                            className={cn(
-                              "flex flex-col items-center gap-1 p-3 rounded-lg border text-center transition-all",
-                              selectedServer === server.name
-                                ? "border-primary bg-primary/5"
-                                : "hover:bg-accent"
-                            )}
-                          >
-                            <Icon className={cn("h-5 w-5", icon.color)} />
-                            <span className="text-xs font-medium truncate w-full">{server.displayName}</span>
-                            <Badge variant="outline" className={cn(
-                              "text-[10px]",
-                              loadedModel ? "bg-green-500/10 text-green-600" : "bg-muted"
-                            )}>
-                              {loadedModel ? "Ready" : modelCount > 0 ? `${modelCount} models` : "Free"}
-                            </Badge>
-                          </button>
-                        )
-                      })}
+          <>
+            {/* Add Provider Panel */}
+            {showAddProvider && (
+              <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+                {/* Provider Grid - Static list of provider types */}
+                <div>
+                  <Label className="text-xs text-muted-foreground uppercase mb-2 block">Select Provider Type</Label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {/* Local Provider Types */}
+                    {LOCAL_PROVIDERS.map(provider => {
+                      const icon = providerIcons[provider.id] || { icon: Server, color: "text-green-500" }
+                      const Icon = icon.icon
+                      return (
+                        <button
+                          key={provider.id}
+                          onClick={() => {
+                            setSelectedProvider(provider.id)
+                            setSelectedServer(null)
+                            setSelectedModel(null)
+                          }}
+                          className={cn(
+                            "flex flex-col items-center gap-1 p-3 rounded-lg border text-center transition-all",
+                            selectedProvider === provider.id
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-accent"
+                          )}
+                        >
+                          <Icon className={cn("h-5 w-5", provider.color)} />
+                          <span className="text-xs font-medium">{provider.name}</span>
+                          <Badge variant="outline" className="text-[10px] bg-muted">
+                            Local
+                          </Badge>
+                        </button>
+                      )
+                    })}
 
-                      {/* Cloud Providers */}
-                      {CLOUD_PROVIDERS.map(provider => {
-                        const providerModelCount = cloudModels.filter(m => m.provider === provider.id).length
-                        return (
-                          <button
-                            key={provider.id}
-                            onClick={() => {
-                              setSelectedProvider(provider.id)
-                              setSelectedServer(null)
-                              setSelectedModel(null)
-                            }}
-                            className={cn(
-                              "flex flex-col items-center gap-1 p-3 rounded-lg border text-center transition-all",
-                              selectedProvider === provider.id && !selectedServer
-                                ? "border-primary bg-primary/5"
-                                : "hover:bg-accent"
-                            )}
-                          >
-                            <Cloud className={cn("h-5 w-5", provider.color)} />
-                            <span className="text-xs font-medium">{provider.name}</span>
-                            <Badge variant="outline" className="text-[10px]">
-                              {providerModelCount > 0 ? `${providerModelCount} models` : "Paid"}
-                            </Badge>
-                          </button>
-                        )
-                      })}
-
-                      {/* Custom */}
-                      <button
-                        onClick={() => setShowCustomServer(true)}
-                        className="flex flex-col items-center gap-1 p-3 rounded-lg border border-dashed text-center hover:bg-accent"
-                      >
-                        <Plus className="h-5 w-5 text-muted-foreground" />
-                        <span className="text-xs font-medium text-muted-foreground">Custom</span>
-                      </button>
-                    </div>
+                    {/* Cloud Providers */}
+                    {CLOUD_PROVIDERS.map(provider => {
+                      const providerModelCount = cloudModels.filter(m => m.provider === provider.id).length
+                      return (
+                        <button
+                          key={provider.id}
+                          onClick={() => {
+                            setSelectedProvider(provider.id)
+                            setSelectedServer(null)
+                            setSelectedModel(null)
+                          }}
+                          className={cn(
+                            "flex flex-col items-center gap-1 p-3 rounded-lg border text-center transition-all",
+                            selectedProvider === provider.id
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-accent"
+                          )}
+                        >
+                          <Cloud className={cn("h-5 w-5", provider.color)} />
+                          <span className="text-xs font-medium">{provider.name}</span>
+                          <Badge variant="outline" className="text-[10px]">
+                            {providerModelCount > 0 ? `${providerModelCount} models` : "Paid"}
+                          </Badge>
+                        </button>
+                      )
+                    })}
                   </div>
+                </div>
 
-                  {/* Model Selection */}
-                  {(selectedServer || (selectedProvider && CLOUD_PROVIDERS.some((p: { id: string }) => p.id === selectedProvider))) && (
+                {/* Server Selection for Local Providers */}
+                {selectedProvider && LOCAL_PROVIDERS.some(p => p.id === selectedProvider) && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground uppercase mb-2 block">
+                      {loadingProviderData ? "Loading servers..." : "Select Server"}
+                    </Label>
+                    {loadingProviderData ? (
+                      <div className="flex items-center gap-2 py-2">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Checking for {selectedProvider} servers...</span>
+                      </div>
+                    ) : providerServers.length === 0 ? (
+                      <div className="text-sm text-muted-foreground py-2">
+                        No {selectedProvider} servers found online. Configure servers in Settings.
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {providerServers.map(server => {
+                          const modelCount = server.models?.length || 0
+                          const loadedModel = server.model
+                          return (
+                            <button
+                              key={server.name}
+                              onClick={() => {
+                                setSelectedServer(server.name)
+                                setSelectedModel(null)
+                              }}
+                              className={cn(
+                                "flex flex-col items-center gap-1 p-3 rounded-lg border text-center transition-all min-w-[120px]",
+                                selectedServer === server.name
+                                  ? "border-primary bg-primary/5"
+                                  : "hover:bg-accent"
+                              )}
+                            >
+                              <span className="text-xs font-medium">{server.displayName}</span>
+                              <Badge variant="outline" className={cn(
+                                "text-[10px]",
+                                loadedModel ? "bg-green-500/10 text-green-600" : "bg-muted"
+                              )}>
+                                {loadedModel ? "Ready" : modelCount > 0 ? `${modelCount} models` : "Available"}
+                              </Badge>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Model Selection */}
+                {(selectedServer || (selectedProvider && CLOUD_PROVIDERS.some((p: { id: string }) => p.id === selectedProvider))) && (
                     <div>
                       <Label className="text-xs text-muted-foreground uppercase mb-2 block">Select Model</Label>
                       <div className="flex flex-wrap gap-2">
                         {/* Local server models */}
                         {selectedServer && (() => {
-                          const server = detectedServers.find(s => s.name === selectedServer)
+                          const server = providerServers.find(s => s.name === selectedServer)
                           // Filter out embedding models from loaded model
                           const loadedModel = server?.model && isLLMModel(server.model) ? server.model : undefined
                           // Filter out embedding models from available models list
@@ -781,8 +839,7 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                   </div>
                 </div>
               )}
-            </>
-          )}
+          </>
         </CardContent>
       </Card>
 

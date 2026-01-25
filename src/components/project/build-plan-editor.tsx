@@ -340,8 +340,15 @@ export function BuildPlanEditor({
         const projectDefaultModel = getProjectDefaultModel(projectId)
         setUserDefaultModel(projectDefaultModel)
 
+        // Debug logging
+        console.log("[build-plan-editor] Loading model options for project:", projectId)
+        console.log("[build-plan-editor] Global default:", globalDefault)
+        console.log("[build-plan-editor] Project enabled models:", projectModels)
+        console.log("[build-plan-editor] Project default model:", projectDefaultModel)
+
         // Build options ONLY from global default + project-enabled models
         const options = buildRegenerationModelOptions(projectId, globalDefault, projectModels)
+        console.log("[build-plan-editor] Built options:", options)
         setRegenerationModelOptions(options)
 
         // Set default selection
