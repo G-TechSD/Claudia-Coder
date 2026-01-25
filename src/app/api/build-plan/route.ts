@@ -224,7 +224,7 @@ async function generateBusinessDevAnalysis(
             }],
             generationConfig: {
               temperature: 0.7,
-              maxOutputTokens: 4096
+              maxOutputTokens: 16384
             }
           })
         }
@@ -589,7 +589,7 @@ export async function POST(request: NextRequest) {
               }],
               generationConfig: {
                 temperature: 0.7,
-                maxOutputTokens: 4096
+                maxOutputTokens: 16384
               }
             })
           }
@@ -599,7 +599,16 @@ export async function POST(request: NextRequest) {
           const data = await response.json()
           const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
           console.log(`[build-plan] Gemini ${geminiModel} response length: ${content.length}`)
-          console.log(`[build-plan] Gemini response preview: ${content.substring(0, 500)}...`)
+
+          // Debug: Check if "packets" appears in the raw response and what's there
+          const packetsMatch = content.match(/"packets"\s*:\s*\[/)
+          console.log(`[build-plan] Raw response has "packets": array: ${!!packetsMatch}`)
+          if (packetsMatch) {
+            // Find the packets section
+            const packetsStart = content.indexOf('"packets"')
+            const packetsPreview = content.substring(packetsStart, packetsStart + 500)
+            console.log(`[build-plan] Packets section preview: ${packetsPreview}`)
+          }
 
           const result = parseAndMergeBuildPlan(content, projectId, `google:${geminiModel}`, existingPackets)
           console.log(`[build-plan] Parse result: ${result ? `phases=${result.plan.phases.length}, packets=${result.plan.packets.length}` : 'null'}`)
