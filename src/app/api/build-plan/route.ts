@@ -208,9 +208,11 @@ async function generateBusinessDevAnalysis(
   // Try Gemini (provider name can be "google" or "gemini")
   const geminiKey = getApiKey("google")
   if ((preferredProvider === "gemini" || preferredProvider === "google") && geminiKey) {
+    // Use the requested model if provided, otherwise default to gemini-2.5-pro
+    const geminiModel = preferredModel || "gemini-2.5-pro"
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -569,9 +571,13 @@ export async function POST(request: NextRequest) {
     // Handle Google Gemini (provider name can be "google" or "gemini")
     const googleApiKey = getApiKey("google")
     if ((preferredProvider === "gemini" || preferredProvider === "google") && googleApiKey) {
+      // Use the requested model if provided, otherwise default to gemini-2.5-pro
+      const geminiModel = preferredModel || "gemini-2.5-pro"
+      console.log(`[build-plan] Using Gemini model: ${geminiModel} (requested: ${requestedModel})`)
+
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${googleApiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${googleApiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -593,7 +599,7 @@ export async function POST(request: NextRequest) {
           const data = await response.json()
           const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
 
-          const result = parseAndMergeBuildPlan(content, projectId, "google:gemini-2.5-pro", existingPackets)
+          const result = parseAndMergeBuildPlan(content, projectId, `google:${geminiModel}`, existingPackets)
 
           if (result) {
             const validation = validateBuildPlan(result.plan)
@@ -618,9 +624,9 @@ export async function POST(request: NextRequest) {
               validation,
               source: "google",
               server: "Google Gemini",
-              model: "gemini-2.5-pro",
-              requestedModel: requestedModel || "gemini-2.5-pro",
-              availableModels: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
+              model: geminiModel,
+              requestedModel: requestedModel || geminiModel,
+              availableModels: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
               packetSummary: result.packetSummary,
               sourcesUsed,
               mergeStats: result.mergeStats,

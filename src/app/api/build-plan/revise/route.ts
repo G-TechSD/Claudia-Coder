@@ -201,9 +201,11 @@ Return the plan in the same JSON format as before.`
     // Try Google Gemini as fallback
     const googleKey = getApiKey("google")
     if (googleKey) {
+      // Use the requested model if provided, otherwise default to gemini-2.5-pro
+      const geminiModel = preferredModel || "gemini-2.5-pro"
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${googleKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${googleKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -228,7 +230,7 @@ Return the plan in the same JSON format as before.`
           const result = parseBuildPlanResponse(
             content,
             projectId,
-            "google:gemini-2.5-pro"
+            `google:${geminiModel}`
           )
 
           if (result) {
@@ -239,7 +241,7 @@ Return the plan in the same JSON format as before.`
               validation,
               source: "google",
               server: "Google Gemini",
-              model: "gemini-2.5-pro",
+              model: geminiModel,
               isRevision: true
             })
           }
