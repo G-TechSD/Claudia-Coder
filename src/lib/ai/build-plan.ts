@@ -455,15 +455,19 @@ CONSTRAINTS:
 - Max parallel packets: ${constraints?.maxParallelPackets || 2}
 ${existingPacketsSection}
 CRITICAL - PACKET GENERATION RULES:
-1. Create MANY small, focused packets - NOT few large ones
-2. Each feature should decompose into 2-4 separate packets (core, UI, tests, etc.)
-3. Aim for 15-30 total packets for a typical project
-4. Each packet = 1-2 hours of focused work
-5. Include packets for: setup, features, testing, documentation, deployment
+1. The "packets" array is REQUIRED - you MUST generate actual work packets
+2. Create MANY small, focused packets - NOT few large ones
+3. Each feature should decompose into 2-4 separate packets (core, UI, tests, etc.)
+4. Aim for 15-30 total packets for a typical project
+5. Each packet = 1-2 hours of focused work
+6. Include packets for: setup, features, testing, documentation, deployment
 
 PACKET GRANULARITY EXAMPLES:
 - BAD: "Implement user authentication" (too broad)
 - GOOD: "Create User data model", "Add login API endpoint", "Build login form component", "Add auth state management", "Write auth tests"
+
+IMPORTANT: Your response MUST include a fully populated "packets" array with detailed work packets.
+The phases[].packetIds reference packets by ID - each ID MUST have a corresponding entry in the "packets" array.
 
 Generate the build plan as JSON with this structure:
 {
