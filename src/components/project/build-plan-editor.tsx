@@ -58,22 +58,9 @@ import {
   formatFeedbackForRevision
 } from "@/lib/data/build-plans"
 import { savePackets, getPacketsForProject, type WorkPacket } from "@/lib/ai/build-plan"
-import { getProjectDefaultModel, type EnabledInstance } from "@/components/project/model-assignment"
+import { getProjectDefaultModel, getProjectEnabledModels, type EnabledInstance } from "@/components/project/model-assignment"
 import { VisionPacketEditor, isVisionPacket } from "@/components/project/vision-packet-editor"
-import { getEffectiveDefaultModel } from "@/lib/settings/global-settings"
-
-// Provider info from /api/providers
-interface FetchedProvider {
-  name: string
-  displayName: string
-  type: "local" | "cloud" | "cli"
-  status: "online" | "offline" | "checking" | "not-configured"
-  baseUrl?: string
-  model?: string
-  models?: string[]
-  usesCli?: boolean
-  requiresApiKey?: boolean
-}
+import { getEffectiveDefaultModel, getGlobalSettings } from "@/lib/settings/global-settings"
 
 // Dynamic model option for regeneration dropdown
 interface RegenerationModelOption {
@@ -132,94 +119,67 @@ interface PacketFeedback {
   comment: string
 }
 
-// Helper function to build model options from fetched providers
-function buildRegenerationModelOptions(fetchedProviders: FetchedProvider[]): RegenerationModelOption[] {
+// Helper function to build model options from project-enabled models and global default
+// ONLY shows: 1) Claudia Coder default model, 2) Project-specific enabled models
+function buildRegenerationModelOptions(
+  projectId: string,
+  globalDefault: ReturnType<typeof getEffectiveDefaultModel>,
+  projectModels: EnabledInstance[]
+): RegenerationModelOption[] {
   const options: RegenerationModelOption[] = []
+  const addedKeys = new Set<string>()
 
-  // Group providers by type
-  const cliProviders = fetchedProviders.filter(p => p.type === "cli" && p.status === "online")
-  const cloudProviders = fetchedProviders.filter(p => p.type === "cloud" && p.status === "online")
-  const localProviders = fetchedProviders.filter(p => p.type === "local" && p.status === "online")
-
-  // Add CLI providers (Claude Code) with their specific models
-  for (const provider of cliProviders) {
-    if (provider.models && provider.models.length > 0) {
-      for (const model of provider.models) {
-        // Create friendly labels for Claude Code models
-        let label = model
-        if (model.includes("opus")) {
-          label = "Claude Opus 4 (most capable)"
-        } else if (model.includes("sonnet")) {
-          label = "Claude Sonnet 4 (balanced)"
-        } else if (model.includes("haiku")) {
-          label = "Claude 3.5 Haiku (fast)"
-        }
-        options.push({
-          value: `${provider.name}:${model}`,
-          label: `${label}`,
-          type: "cli",
-          icon: "terminal",
-          provider: provider.name,
-          model
-        })
-      }
-    }
+  // Helper to determine icon type
+  const getIconType = (type: string): "terminal" | "cloud" | "server" => {
+    if (type === "cli") return "terminal"
+    if (type === "cloud") return "cloud"
+    return "server"
   }
 
-  // Add cloud providers with their specific models
-  for (const provider of cloudProviders) {
-    if (provider.models && provider.models.length > 0) {
-      // Add top models for each provider (limit to avoid huge list)
-      const topModels = provider.models.slice(0, 5)
-      for (const model of topModels) {
-        options.push({
-          value: `${provider.name}:${model}`,
-          label: `${model} (${provider.displayName})`,
-          type: "cloud",
-          icon: "cloud",
-          provider: provider.name,
-          model
-        })
-      }
-    } else {
-      // Fallback: provider without specific models
+  // 1. Add the Claudia Coder global default model (if exists)
+  if (globalDefault) {
+    const key = `${globalDefault.provider}:${globalDefault.modelId}`
+    if (!addedKeys.has(key)) {
+      addedKeys.add(key)
+      const type = globalDefault.provider === "claude-code" ? "cli" :
+                   ["anthropic", "openai", "google"].includes(globalDefault.provider || "") ? "cloud" : "local"
       options.push({
-        value: provider.name,
-        label: provider.displayName,
-        type: "cloud",
-        icon: "cloud",
-        provider: provider.name,
-        model: null
+        value: key,
+        label: `${globalDefault.displayName || globalDefault.modelId} (System Default)`,
+        type,
+        icon: getIconType(type),
+        provider: globalDefault.provider || "",
+        model: globalDefault.modelId || null
       })
     }
   }
 
-  // Add local providers with their available models
-  for (const provider of localProviders) {
-    if (provider.models && provider.models.length > 0) {
-      // Add individual models
-      for (const model of provider.models) {
-        options.push({
-          value: `${provider.name}:${model}`,
-          label: `${model} (${provider.displayName})`,
-          type: "local",
-          icon: "server",
-          provider: provider.name,
-          model
-        })
-      }
-    }
-    // Also add option to use whatever model is loaded
-    if (provider.model) {
+  // 2. Add project-enabled models
+  for (const instance of projectModels) {
+    const key = `${instance.provider}:${instance.modelId}`
+    if (!addedKeys.has(key)) {
+      addedKeys.add(key)
       options.push({
-        value: provider.name,
-        label: `${provider.displayName} (currently: ${provider.model})`,
-        type: "local",
-        icon: "server",
-        provider: provider.name,
-        model: null
+        value: key,
+        label: instance.displayName || `${instance.modelId} (${instance.provider})`,
+        type: instance.type,
+        icon: getIconType(instance.type),
+        provider: instance.provider,
+        model: instance.modelId
       })
     }
+  }
+
+  // If no options at all, show a placeholder
+  if (options.length === 0) {
+    options.push({
+      value: "",
+      label: "No models configured - add in AI Models section",
+      type: "auto",
+      icon: "sparkles",
+      provider: "",
+      model: null
+    })
   }
 
   return options
@@ -284,8 +244,7 @@ export function BuildPlanEditor({
   const [userDefaultModel, setUserDefaultModel] = useState<EnabledInstance | null>(null)
   const [autoResearchPriorArt, setAutoResearchPriorArt] = useState(true)  // Auto-research prior art on acceptance
 
-  // Dynamic provider options fetched from API
-  const [fetchedProviders, setFetchedProviders] = useState<FetchedProvider[]>([])
+  // Dynamic model options (built from project-enabled models and global default)
   const [regenerationModelOptions, setRegenerationModelOptions] = useState<RegenerationModelOption[]>([])
   const [isLoadingProviders, setIsLoadingProviders] = useState(true)
 
@@ -366,83 +325,60 @@ export function BuildPlanEditor({
     projectStatus === "completed" ||
     projectStatus === "archived"
 
-  // Fetch available providers and build model options on mount
+  // Build model options from project-enabled models and global default
   useEffect(() => {
-    const fetchProviders = async () => {
+    const loadModelOptions = () => {
       setIsLoadingProviders(true)
       try {
-        const response = await fetch("/api/providers")
-        if (response.ok) {
-          const data = await response.json()
-          const providers: FetchedProvider[] = data.providers || []
-          setFetchedProviders(providers)
+        // Get global default model from Claudia Coder settings
+        const globalDefault = getEffectiveDefaultModel()
 
-          // Build model options from fetched providers
-          const options = buildRegenerationModelOptions(providers)
-          setRegenerationModelOptions(options)
+        // Get project-specific enabled models
+        const projectModels = getProjectEnabledModels(projectId)
 
-          // Set default model selection based on project default or global default
-          const projectDefaultModel = getProjectDefaultModel(projectId)
-          setUserDefaultModel(projectDefaultModel)
+        // Get project's default model (may be different from global)
+        const projectDefaultModel = getProjectDefaultModel(projectId)
+        setUserDefaultModel(projectDefaultModel)
 
-          let defaultSelection = ""
+        // Build options ONLY from global default + project-enabled models
+        const options = buildRegenerationModelOptions(projectId, globalDefault, projectModels)
+        setRegenerationModelOptions(options)
 
-          if (projectDefaultModel) {
-            // Try to find a matching option for the project's default model
-            const provider = projectDefaultModel.provider?.toLowerCase() || ""
-            const modelId = projectDefaultModel.modelId || ""
-            const serverName = projectDefaultModel.serverName || ""
+        // Set default selection
+        let defaultSelection = ""
 
-            // Try to match by provider:model format
-            const matchingOption = options.find(opt => {
-              if (opt.model && modelId) {
-                return opt.model.includes(modelId) || modelId.includes(opt.model)
-              }
-              if (opt.provider.toLowerCase() === provider || opt.provider === serverName) {
-                return true
-              }
-              return false
-            })
-
-            if (matchingOption) {
-              defaultSelection = matchingOption.value
-            }
+        // First try project default
+        if (projectDefaultModel) {
+          const key = `${projectDefaultModel.provider}:${projectDefaultModel.modelId}`
+          const match = options.find(opt => opt.value === key)
+          if (match) {
+            defaultSelection = match.value
           }
-
-          // If no project default found, try global default
-          if (!defaultSelection) {
-            const globalDefault = getEffectiveDefaultModel()
-            if (globalDefault) {
-              const matchingOption = options.find(opt => {
-                if (opt.model && globalDefault.modelId) {
-                  return opt.model.includes(globalDefault.modelId) || globalDefault.modelId.includes(opt.model)
-                }
-                if (opt.provider.toLowerCase() === globalDefault.provider?.toLowerCase()) {
-                  return true
-                }
-                return false
-              })
-              if (matchingOption) {
-                defaultSelection = matchingOption.value
-              }
-            }
-          }
-
-          // If still no default and we have options, use the first one
-          if (!defaultSelection && options.length > 0) {
-            defaultSelection = options[0].value
-          }
-
-          setRegenerationModel(defaultSelection)
         }
+
+        // Fall back to global default
+        if (!defaultSelection && globalDefault) {
+          const key = `${globalDefault.provider}:${globalDefault.modelId}`
+          const match = options.find(opt => opt.value === key)
+          if (match) {
+            defaultSelection = match.value
+          }
+        }
+
+        // If still no default and we have options, use the first one
+        if (!defaultSelection && options.length > 0) {
+          defaultSelection = options[0].value
+        }
+
+        setRegenerationModel(defaultSelection)
       } catch (error) {
-        console.error("[build-plan-editor] Failed to fetch providers:", error)
+        console.error("[build-plan-editor] Failed to load model options:", error)
       } finally {
         setIsLoadingProviders(false)
       }
     }
 
-    fetchProviders()
+    loadModelOptions()
   }, [projectId])
 
   // Load existing plan on mount
@@ -716,6 +652,12 @@ export function BuildPlanEditor({
         ? `${projectDescription}\n\n---\n\n## Detailed Specification (from ${kickoffContent.sourceName})\n\n${kickoffContent.content}`
         : projectDescription
 
+      // Get cloud provider API keys from settings
+      const globalSettings = getGlobalSettings()
+      const enabledCloudProviders = globalSettings.cloudProviders
+        .filter(p => p.enabled && p.apiKey)
+        .map(p => ({ provider: p.provider, apiKey: p.apiKey }))
+
       const response = await fetch("/api/build-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -730,7 +672,8 @@ export function BuildPlanEditor({
           constraints: {
             requireLocalFirst: true,
             requireHumanApproval: ["planning", "deployment"]
-          }
+          },
+          cloudProviders: enabledCloudProviders
         })
       })
 
@@ -803,6 +746,12 @@ export function BuildPlanEditor({
       const provider = providers.find(p => p.name === selectedProvider)
       setGenerationStatus(`Revising with ${provider?.displayName || selectedProvider}...`)
 
+      // Get cloud provider API keys from settings
+      const globalSettings = getGlobalSettings()
+      const enabledCloudProviders = globalSettings.cloudProviders
+        .filter(p => p.enabled && p.apiKey)
+        .map(p => ({ provider: p.provider, apiKey: p.apiKey }))
+
       const response = await fetch("/api/build-plan/revise", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -813,7 +762,8 @@ export function BuildPlanEditor({
           originalPlan: storedPlan.originalPlan,
           userFeedback,
           preferredProvider: selectedProvider,
-          preferredModel: userDefaultModel?.modelId || null  // Pass specific model ID from user's default model
+          preferredModel: userDefaultModel?.modelId || null,  // Pass specific model ID from user's default model
+          cloudProviders: enabledCloudProviders
         })
       })
 
@@ -1099,6 +1049,12 @@ export function BuildPlanEditor({
 
       console.log(`[build-plan-editor] Selected: ${regenerationModel}, Provider: ${preferredProvider}, Model: ${preferredModelId}`)
 
+      // Get cloud provider API keys from settings
+      const globalSettings = getGlobalSettings()
+      const enabledCloudProviders = globalSettings.cloudProviders
+        .filter(p => p.enabled && p.apiKey)
+        .map(p => ({ provider: p.provider, apiKey: p.apiKey }))
+
       const response = await fetch("/api/build-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1116,7 +1072,8 @@ export function BuildPlanEditor({
           constraints: {
             requireLocalFirst: modelOption?.type === "local",
             requireHumanApproval: ["planning", "deployment"]
-          }
+          },
+          cloudProviders: enabledCloudProviders
         })
       })
 
