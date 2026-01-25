@@ -637,28 +637,41 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
                         })()}
 
                         {/* Cloud provider models */}
-                        {!selectedServer && selectedProvider && (
-                          cloudModels
-                            .filter(m => m.provider === selectedProvider)
-                            .map(model => {
-                              const alreadyAdded = enabledInstances.some(
-                                i => i.provider === selectedProvider && i.modelId === model.id
-                              )
-                              return (
-                                <Button
-                                  key={model.id}
-                                  variant={selectedModel === model.id ? "default" : "outline"}
-                                  size="sm"
-                                  className="h-8"
-                                  disabled={alreadyAdded}
-                                  onClick={() => setSelectedModel(model.id)}
-                                >
-                                  {model.name}
-                                  {alreadyAdded && <CheckCircle2 className="h-3 w-3 ml-1 text-green-500" />}
-                                </Button>
-                              )
-                            })
-                        )}
+                        {!selectedServer && selectedProvider && (() => {
+                          const providerModels = cloudModels.filter(m => m.provider === selectedProvider)
+                          return (
+                            <>
+                              {providerModels.map(model => {
+                                const alreadyAdded = enabledInstances.some(
+                                  i => i.provider === selectedProvider && i.modelId === model.id
+                                )
+                                return (
+                                  <Button
+                                    key={model.id}
+                                    variant={selectedModel === model.id ? "default" : "outline"}
+                                    size="sm"
+                                    className="h-8"
+                                    disabled={alreadyAdded}
+                                    onClick={() => setSelectedModel(model.id)}
+                                  >
+                                    {model.name}
+                                    {alreadyAdded && <CheckCircle2 className="h-3 w-3 ml-1 text-green-500" />}
+                                  </Button>
+                                )
+                              })}
+                              {providerModels.length === 0 && (
+                                <div className="text-sm text-muted-foreground py-2">
+                                  No models available. Check your API key and account permissions.
+                                </div>
+                              )}
+                              {providerModels.length > 0 && providerModels.length < 6 && selectedProvider === "openai" && (
+                                <div className="w-full text-xs text-muted-foreground mt-2 pt-2 border-t">
+                                  Only showing models available to your API key. For newer models, check your OpenAI account tier.
+                                </div>
+                              )}
+                            </>
+                          )
+                        })()}
                       </div>
                     </div>
                   )}

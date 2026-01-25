@@ -323,10 +323,9 @@ export default function ProjectsPage() {
         return
       }
 
-      // Get existing data from localStorage
+      // Get existing data from localStorage for projects and build plans
       const existingProjects = JSON.parse(localStorage.getItem('claudia_projects') || '[]')
       const existingBuildPlans = JSON.parse(localStorage.getItem('claudia_build_plans') || '[]')
-      const existingPackets = JSON.parse(localStorage.getItem('claudia_packets') || '{}')
 
       // Filter out any existing TaskFlow project to avoid duplicates
       const taskFlowId = data.project?.id
@@ -343,20 +342,18 @@ export default function ProjectsPage() {
         filteredBuildPlans.push(data.buildPlan)
       }
 
-      // Add packets to the packets object
-      const updatedPackets = { ...existingPackets }
-      if (data.packets && Array.isArray(data.packets)) {
-        for (const packet of data.packets) {
-          if (packet.id) {
-            updatedPackets[packet.id] = packet
-          }
-        }
-      }
-
-      // Save to localStorage
+      // Save projects and build plans to localStorage
       localStorage.setItem('claudia_projects', JSON.stringify(filteredProjects))
       localStorage.setItem('claudia_build_plans', JSON.stringify(filteredBuildPlans))
-      localStorage.setItem('claudia_packets', JSON.stringify(updatedPackets))
+
+      // Save packets to server
+      if (data.packets && Array.isArray(data.packets) && taskFlowId) {
+        await fetch(`/api/projects/${taskFlowId}/packets`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ packets: data.packets })
+        })
+      }
 
       // Refresh the projects list
       loadProjects()

@@ -53,7 +53,8 @@ describe("Sidebar", () => {
   it("shows Claudia Coder branding", () => {
     render(<Sidebar />)
 
+    // The sidebar displays the brand name as text
     expect(screen.getByText("Claudia Coder")).toBeInTheDocument()
-    expect(screen.getByAltText("Claudia Coder")).toBeInTheDocument()
+    // Logo is a styled icon, not an image with alt text
   })
 })

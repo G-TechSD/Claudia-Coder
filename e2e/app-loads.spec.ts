@@ -87,7 +87,8 @@ test.describe('App Loading Tests', () => {
       await takeScreenshot(page, 'dashboard-from-sidebar');
     });
 
-    test('should navigate to Business Ideas page', async ({ page }) => {
+    // Skipped: Business Ideas is in "upcomingFeaturesItems" which is commented out in sidebar
+    test.skip('should navigate to Business Ideas page', async ({ page }) => {
       await page.goto('/');
       await waitForAppReady(page);
 

@@ -547,7 +547,7 @@ function NewProjectContent() {
         blockedBy: pkt.dependencies || [],
         blocks: []
       }))
-      savePackets(project.id, packetsToSave)
+      await await savePackets(project.id, packetsToSave)
 
       // Update project with packet IDs
       updateProject(project.id, {
@@ -799,7 +799,7 @@ function NewProjectContent() {
         blockedBy: pkt.dependencies || [],
         blocks: []
       }))
-      savePackets(project.id, packetsToSave)
+      await await savePackets(project.id, packetsToSave)
 
       // Update project with packet IDs
       updateProject(project.id, {
@@ -1028,7 +1028,7 @@ function NewProjectContent() {
       saveBuildPlan(project.id, buildPlan)
 
       // Save the packets
-      savePackets(project.id, workPackets)
+      await await savePackets(project.id, workPackets)
 
       // Update project with packet IDs
       updateProject(project.id, {
@@ -1384,7 +1384,7 @@ ${p.description}
 
       // Save packets with correct project association
       const finalPackets = packets.map(p => ({ ...p }))
-      savePackets(project.id, finalPackets)
+      await await savePackets(project.id, finalPackets)
 
       // Create GitLab repo if enabled
       if (createRepo && hasToken) {
@@ -1688,7 +1688,7 @@ ${p.description}
           blockedBy: pkt.dependencies || [],
           blocks: []
         }))
-        savePackets(project.id, packetsToSave)
+        await await savePackets(project.id, packetsToSave)
 
         // Update project with packet IDs
         updateProject(project.id, {

@@ -41,6 +41,63 @@ const DB_NAME = "claudia-files"
 const DB_VERSION = 1
 const STORE_NAME = "resources"
 
+// ============ Server Sync Helpers ============
+
+async function syncResourceToServer(resource: ProjectResource): Promise<void> {
+  try {
+    await fetch("/api/resources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(resource)
+    })
+  } catch (error) {
+    console.warn("[resources] Failed to sync to server:", error)
+  }
+}
+
+async function deleteResourceFromServer(id: string): Promise<void> {
+  try {
+    await fetch(`/api/resources?id=${id}`, { method: "DELETE" })
+  } catch (error) {
+    console.warn("[resources] Failed to delete from server:", error)
+  }
+}
+
+/**
+ * Fetch resources from server and merge with localStorage
+ * Call this on app init to sync from server
+ */
+export async function syncResourcesFromServer(userId: string): Promise<void> {
+  try {
+    const response = await fetch("/api/resources")
+    const data = await response.json()
+    if (data.success && Array.isArray(data.resources)) {
+      const localResources = getStoredResourcesForUser(userId)
+      const serverIds = new Set(data.resources.map((r: ProjectResource) => r.id))
+
+      // Sync local resources that aren't on server
+      for (const local of localResources) {
+        if (!serverIds.has(local.id)) {
+          syncResourceToServer(local)
+        }
+      }
+
+      // Merge server resources with local
+      const mergedMap = new Map<string, ProjectResource>()
+      for (const r of localResources) {
+        mergedMap.set(r.id, r)
+      }
+      for (const r of data.resources) {
+        mergedMap.set(r.id, r)
+      }
+
+      saveResourcesForUser(userId, Array.from(mergedMap.values()))
+    }
+  } catch (error) {
+    console.warn("[resources] Failed to sync from server:", error)
+  }
+}
+
 // ============ IndexedDB Helpers ============
 
 // Cache for database connections per user

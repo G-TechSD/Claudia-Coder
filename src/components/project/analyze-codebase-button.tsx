@@ -128,7 +128,7 @@ export function AnalyzeCodebaseButton({
       }))
 
       // Save packets
-      savePackets(projectId, workPackets)
+      await savePackets(projectId, workPackets)
 
       // Create a build plan from the analysis
       if (buildPlan.documentation) {

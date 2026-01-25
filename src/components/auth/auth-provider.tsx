@@ -1,12 +1,16 @@
 "use client"
 
-import * as React from "react"
-import { useSession } from "@/lib/auth/client"
+import { useState, useEffect, createContext, useContext, useCallback, useMemo, type ReactNode } from "react"
 
 // TEMPORARY: Force bypass mode for beta testing
 // TODO: Remove this and restore env var checks before production release
 // The middleware is also bypassing auth (see src/middleware.ts line ~196)
 const AUTH_BYPASS_MODE = true
+
+// Since we're in bypass mode, we don't need the real useSession hook
+// This prevents the SSR/build issues completely
+// When bypass mode is disabled, uncomment the import below
+// import { useSession } from "@/lib/auth/client"
 
 // Original check (restore when beta testing is complete):
 // const AUTH_BYPASS_MODE =
@@ -86,7 +90,8 @@ interface AuthContextType {
   refreshBetaLimits: () => Promise<void>
 }
 
-const AuthContext = React.createContext<AuthContextType>({
+// Default context value for SSR - no auth state
+const defaultAuthContext: AuthContextType = {
   user: null,
   session: null,
   isLoading: true,
@@ -94,13 +99,59 @@ const AuthContext = React.createContext<AuthContextType>({
   isBetaTester: false,
   betaLimits: null,
   refreshBetaLimits: async () => {},
-})
+}
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { data: realSession, isPending } = useSession()
-  const [userRole, setUserRole] = React.useState<string | null>(null)
-  const [betaLimits, setBetaLimits] = React.useState<BetaLimits | null>(null)
-  const [roleSynced, setRoleSynced] = React.useState(false)
+// Bypass auth context - used in bypass mode
+const bypassAuthContext: AuthContextType = {
+  user: {
+    id: BYPASS_SESSION.user.id,
+    name: BYPASS_SESSION.user.name,
+    email: BYPASS_SESSION.user.email,
+    image: BYPASS_SESSION.user.image,
+    role: "admin",
+    emailVerified: BYPASS_SESSION.user.emailVerified,
+    createdAt: BYPASS_SESSION.user.createdAt,
+    updatedAt: BYPASS_SESSION.user.updatedAt,
+  },
+  session: {
+    user: {
+      id: BYPASS_SESSION.user.id,
+      name: BYPASS_SESSION.user.name,
+      email: BYPASS_SESSION.user.email,
+      image: BYPASS_SESSION.user.image,
+      role: "admin",
+      emailVerified: BYPASS_SESSION.user.emailVerified,
+      createdAt: BYPASS_SESSION.user.createdAt,
+      updatedAt: BYPASS_SESSION.user.updatedAt,
+    },
+    session: {
+      id: BYPASS_SESSION.session.id,
+      expiresAt: BYPASS_SESSION.session.expiresAt,
+      token: BYPASS_SESSION.session.token,
+      ipAddress: BYPASS_SESSION.session.ipAddress,
+      userAgent: BYPASS_SESSION.session.userAgent,
+    },
+  },
+  isLoading: false,
+  isAuthenticated: true,
+  isBetaTester: false,
+  betaLimits: null,
+  refreshBetaLimits: async () => {},
+}
+
+const AuthContext = createContext<AuthContextType>(defaultAuthContext)
+
+// Inner component that uses hooks - only rendered on client
+function AuthProviderClient({ children }: { children: ReactNode }) {
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [betaLimits, setBetaLimits] = useState<BetaLimits | null>(null)
+  const [roleSynced, setRoleSynced] = useState(false)
+
+  // Since AUTH_BYPASS_MODE is true, skip the real session hook
+  // This prevents SSR/build issues completely
+  // When bypass mode is disabled, restore: const { data: realSession, isPending } = useSession()
+  const realSession = null
+  const isPending = false
 
   // DEBUG: Log auth state on every render
   console.log(`[AuthProvider] Render - isPending: ${isPending}, AUTH_BYPASS_MODE: ${AUTH_BYPASS_MODE}, realSession: ${realSession ? 'exists' : 'null'}`)
@@ -111,7 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   console.log(`[AuthProvider] Session resolved - userId: ${session?.user?.id}, sessionExists: ${!!session}`)
 
   // Sync role cookie when session changes
-  React.useEffect(() => {
+  useEffect(() => {
     const syncRole = async () => {
       if (session?.user && !roleSynced) {
         try {
@@ -144,7 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     syncRole()
   }, [session?.user, roleSynced])
 
-  const fetchBetaLimits = React.useCallback(async () => {
+  const fetchBetaLimits = useCallback(async () => {
     try {
       const response = await fetch("/api/beta/limits")
       if (response.ok) {
@@ -158,7 +209,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const refreshBetaLimits = React.useCallback(async () => {
+  const refreshBetaLimits = useCallback(async () => {
     if (userRole === "beta" || userRole === "beta_tester") {
       await fetchBetaLimits()
     }
@@ -171,7 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   console.log(`[AuthProvider] isLoading computed: ${isLoading} (AUTH_BYPASS_MODE: ${AUTH_BYPASS_MODE}, realSession: ${!!realSession}, isPending: ${isPending})`)
 
-  const value = React.useMemo<AuthContextType>(() => {
+  const value = useMemo<AuthContextType>(() => {
     console.log(`[AuthProvider] useMemo - computing context value with userId: ${session?.user?.id}, isLoading: ${isLoading}`)
     return {
     user: session?.user ? {
@@ -218,8 +269,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   )
 }
 
+// Main AuthProvider - checks for SSR and uses appropriate implementation
+export function AuthProvider({ children }: { children: ReactNode }) {
+  // During SSR/prerendering, provide static context to avoid hooks
+  // This check runs before any hooks are called
+  if (typeof window === "undefined") {
+    // Server-side: use bypass context directly without hooks
+    return (
+      <AuthContext.Provider value={AUTH_BYPASS_MODE ? bypassAuthContext : defaultAuthContext}>
+        {children}
+      </AuthContext.Provider>
+    )
+  }
+
+  // Client-side: use the full implementation with hooks
+  return <AuthProviderClient>{children}</AuthProviderClient>
+}
+
 export function useAuth() {
-  const context = React.useContext(AuthContext)
+  const context = useContext(AuthContext)
   if (!context) {
     throw new Error("useAuth must be used within an AuthProvider")
   }
@@ -234,7 +302,7 @@ export function useUser() {
 export function useRequireAuth() {
   const { user, isLoading, isAuthenticated } = useAuth()
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       window.location.href = "/auth/login"
     }

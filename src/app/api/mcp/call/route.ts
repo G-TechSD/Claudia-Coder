@@ -313,5 +313,5 @@ async function handleBatchCall(
   }
 }
 
-// Export for use in other handlers
-export { handleBatchCall }
+// Note: handleBatchCall is internal to this route and not exported
+// If batch calls are needed from other modules, use the API endpoint instead

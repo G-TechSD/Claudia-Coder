@@ -42,69 +42,6 @@ export function useTranscription(): UseTranscriptionReturn {
   }, [reset])
 
   /**
-   * Transcribe using local Whisper API (primary method)
-   */
-  const transcribe = useCallback(async (audioBlob: Blob): Promise<TranscriptionData | null> => {
-    reset()
-    setIsTranscribing(true)
-    setProgress(10)
-
-    abortControllerRef.current = new AbortController()
-
-    try {
-      // Try local Whisper first
-      const formData = new FormData()
-      formData.append("file", audioBlob, "recording.webm")
-
-      setProgress(30)
-      setMethod("whisper-local")
-
-      const response = await fetch("/api/transcribe", {
-        method: "POST",
-        body: formData,
-        signal: abortControllerRef.current.signal
-      })
-
-      setProgress(70)
-
-      const data = await response.json()
-
-      if (data.useBrowserFallback) {
-        // Local Whisper not available, try browser
-        console.log("Falling back to browser speech recognition")
-        return await transcribeWithBrowser(audioBlob)
-      }
-
-      if (data.error) {
-        throw new Error(data.error)
-      }
-
-      if (data.transcription) {
-        setResult(data.transcription)
-        setProgress(100)
-        return data.transcription
-      }
-
-      throw new Error("No transcription returned")
-
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        return null
-      }
-
-      const errorMessage = err instanceof Error ? err.message : "Transcription failed"
-      setError(errorMessage)
-
-      // Try browser fallback
-      console.log("API error, falling back to browser:", errorMessage)
-      return await transcribeWithBrowser(audioBlob)
-    } finally {
-      setIsTranscribing(false)
-      abortControllerRef.current = null
-    }
-  }, [reset])
-
-  /**
    * Transcribe using browser Speech Recognition (fallback)
    * This plays the audio and captures speech recognition in real-time
    */
@@ -203,6 +140,69 @@ export function useTranscription(): UseTranscriptionReturn {
       }
     })
   }, [])
+
+  /**
+   * Transcribe using local Whisper API (primary method)
+   */
+  const transcribe = useCallback(async (audioBlob: Blob): Promise<TranscriptionData | null> => {
+    reset()
+    setIsTranscribing(true)
+    setProgress(10)
+
+    abortControllerRef.current = new AbortController()
+
+    try {
+      // Try local Whisper first
+      const formData = new FormData()
+      formData.append("file", audioBlob, "recording.webm")
+
+      setProgress(30)
+      setMethod("whisper-local")
+
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData,
+        signal: abortControllerRef.current.signal
+      })
+
+      setProgress(70)
+
+      const data = await response.json()
+
+      if (data.useBrowserFallback) {
+        // Local Whisper not available, try browser
+        console.log("Falling back to browser speech recognition")
+        return await transcribeWithBrowser(audioBlob)
+      }
+
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      if (data.transcription) {
+        setResult(data.transcription)
+        setProgress(100)
+        return data.transcription
+      }
+
+      throw new Error("No transcription returned")
+
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return null
+      }
+
+      const errorMessage = err instanceof Error ? err.message : "Transcription failed"
+      setError(errorMessage)
+
+      // Try browser fallback
+      console.log("API error, falling back to browser:", errorMessage)
+      return await transcribeWithBrowser(audioBlob)
+    } finally {
+      setIsTranscribing(false)
+      abortControllerRef.current = null
+    }
+  }, [reset, transcribeWithBrowser])
 
   return {
     isTranscribing,

@@ -171,19 +171,37 @@ export interface EffortEstimate {
  * System prompt for build plan generation
  * Enhanced for nuance awareness and smaller model compatibility
  * Enhanced for game/creative project support with vision packets
+ * IMPROVED: More detailed packets with integration instructions
  */
-export const BUILD_PLAN_SYSTEM_PROMPT = `You are a senior software architect creating a build plan. Your plans are:
+export const BUILD_PLAN_SYSTEM_PROMPT = `You are a senior software architect creating a build plan for AI coding agents. Your plans MUST be:
 
-1. CONCISE - No fluff, every word matters
-2. STRICT - Clear boundaries, explicit scope
-3. REALISTIC - Honest estimates, acknowledged risks
-4. ACTIONABLE - Every item can be executed
+1. EXTREMELY DETAILED - Each packet is self-contained with everything an AI needs to implement it
+2. INTEGRATION-FOCUSED - Every packet explains how it connects to other packets
+3. ACTIONABLE - Specific file paths, function names, and concrete implementation steps
+4. TESTABLE - Clear verification steps that can be automated
 
-CRITICAL: READ ALL CONTEXT CAREFULLY
-- If discussion notes or extracted context is provided, READ EVERY POINT
-- Decisions made in discussions MUST be reflected in your plan
-- Requirements from comments are JUST AS IMPORTANT as the main description
-- If someone raised a concern, address it in your plan
+CRITICAL: PACKET DETAIL REQUIREMENTS
+Each packet MUST include:
+- EXACT file paths where code should be created/modified
+- Function/component names to create
+- Import statements needed from other packets
+- Data structures and interfaces
+- API endpoints with request/response shapes
+- Error handling requirements
+- Integration points with other packets (explicit references like "This uses the UserService from packet-setup-02")
+
+CRITICAL: INTEGRATION INSTRUCTIONS
+- Every packet that depends on another MUST reference the specific packet by ID
+- Include code snippets showing how to import/use code from dependent packets
+- Specify the exact interface/API contract between packets
+- List any shared state, types, or utilities that need coordination
+
+CRITICAL: RECURSIVE CODING APPROACH
+- Break complex features into 2-4 smaller packets that build on each other
+- First packet creates foundation (types, interfaces, base structure)
+- Middle packets add functionality piece by piece
+- Final packet integrates and connects everything
+- Include "verification packet" at end of each phase to test integration
 
 GAME/CREATIVE PROJECTS:
 - If this is a game, VR, or creative project, recognize that it needs a VISION packet
@@ -196,18 +214,30 @@ Structure your plan with:
 - Non-goals (what's explicitly out of scope)
 - Assumptions (what we're taking as given)
 - Risks (what could go wrong and how we mitigate)
-- Phases (logical groupings of work)
-- Packets (discrete, assignable work units)
+- Phases (logical groupings of work - each phase ends with verification)
+- Packets (discrete, self-contained work units)
 
 For each work packet:
-- Title: Clear, action-oriented
-- Description: What and why, not how (INCLUDE relevant context from discussions)
+- Title: Clear, action-oriented (e.g., "Create User Authentication Service")
+- Description: DETAILED implementation guide including:
+  * Files to create/modify (exact paths)
+  * Functions/classes/components to implement (with signatures)
+  * Dependencies from other packets (by ID)
+  * Integration code showing how to connect to other parts
+  * Example usage code
 - Type: feature/bugfix/refactor/test/docs/config/research/vision
 - Priority: critical/high/medium/low
-- Tasks: 3-7 concrete steps (informed by any action items from discussions)
-- Acceptance criteria: How we know it's done (include requirements from comments)
-- Dependencies: What must come first
-- Suggested model type: planning/coding/testing/documentation
+- Tasks: 5-10 SPECIFIC steps with file paths and function names
+- Acceptance criteria: Testable conditions with verification commands
+- blockedBy: Array of packet IDs this depends on
+- blocks: Array of packet IDs that depend on this
+
+VERIFICATION PACKETS:
+Include a "verification" type packet at the end of each phase:
+- Runs tests for all packets in that phase
+- Verifies integration between components
+- Tests the complete user flow for that phase
+- Priority: critical (must pass before next phase)
 
 Be honest about effort. If something is complex, say so. If there are unknowns, flag them as research packets.
 
@@ -221,16 +251,34 @@ OUTPUT FORMAT: Return valid JSON only.
 /**
  * Simplified system prompt for smaller models
  * More explicit JSON instructions, shorter context
+ * IMPROVED: More detail requirements even for simple prompt
  */
-export const BUILD_PLAN_SIMPLE_SYSTEM_PROMPT = `Create a software build plan as JSON.
+export const BUILD_PLAN_SIMPLE_SYSTEM_PROMPT = `Create a detailed software build plan as JSON.
+
+CRITICAL - Each packet MUST include:
+1. EXACT file paths to create/modify
+2. Function/component names to implement
+3. How this packet integrates with others (reference by packet ID)
+4. Specific tasks with file paths (not vague descriptions)
+5. Testable acceptance criteria with commands to verify
+
+INTEGRATION REQUIREMENTS:
+- If packet B depends on packet A, packet B must say "Uses [function/type] from packet-A"
+- Include code snippets showing imports and usage
+- List exact interfaces/types shared between packets
+
+VERIFICATION:
+- End each phase with a test/verification packet
+- Acceptance criteria must include specific test commands
 
 Read ALL provided context including comments and discussions.
 Include decisions and requirements from comments in your packets.
 
 For game/creative projects, include a "vision" type packet that describes the final product.
 
-Each packet needs: title, description, type, priority, tasks, acceptanceCriteria.
-Types: feature, bugfix, refactor, test, docs, config, research, vision
+Each packet needs: title, description (with file paths and integration details), type, priority, tasks (specific with paths), acceptanceCriteria (testable), blockedBy (array of packet IDs), blocks (array of packet IDs).
+
+Types: feature, bugfix, refactor, test, docs, config, research, vision, verification
 
 Return ONLY valid JSON:
 - Start with { end with }
@@ -1064,61 +1112,121 @@ export function estimatePlanCost(
 }
 
 /**
- * Save packets to localStorage for a project
+ * Packet Storage - SERVER ONLY
+ * All packet data is stored on the server, not in localStorage
  */
-const PACKETS_STORAGE_KEY = "claudia_packets"
 
-function getStoredPackets(): Record<string, WorkPacket[]> {
-  if (typeof window === "undefined") return {}
-  const stored = localStorage.getItem(PACKETS_STORAGE_KEY)
-  return stored ? JSON.parse(stored) : {}
-}
-
-function saveAllPackets(allPackets: Record<string, WorkPacket[]>): void {
+/**
+ * Save packets to server for a project
+ * This is the ONLY storage location for packets
+ */
+export async function savePackets(projectId: string, packets: WorkPacket[]): Promise<void> {
   if (typeof window === "undefined") return
-  localStorage.setItem(PACKETS_STORAGE_KEY, JSON.stringify(allPackets))
+  try {
+    await fetch(`/api/projects/${projectId}/packets`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packets })
+    })
+    console.log(`[build-plan] Saved ${packets.length} packets to server for project ${projectId}`)
+  } catch (error) {
+    console.error("[build-plan] Failed to save packets to server:", error)
+  }
 }
 
-export function savePackets(projectId: string, packets: WorkPacket[]): void {
-  const allPackets = getStoredPackets()
-  allPackets[projectId] = packets
-  saveAllPackets(allPackets)
+/**
+ * Save packets synchronously (for use in non-async contexts)
+ * Fires and forgets - use savePackets for reliable saving
+ */
+export function savePacketsSync(projectId: string, packets: WorkPacket[]): void {
+  if (typeof window === "undefined") return
+  fetch(`/api/projects/${projectId}/packets`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ packets })
+  }).catch(error => {
+    console.error("[build-plan] Failed to save packets to server:", error)
+  })
 }
 
-export function getPacketsForProject(projectId: string): WorkPacket[] {
-  const allPackets = getStoredPackets()
-  return allPackets[projectId] || []
+/**
+ * Fetch packets from server
+ */
+export async function getPacketsForProject(projectId: string): Promise<WorkPacket[]> {
+  if (typeof window === "undefined") return []
+  try {
+    const response = await fetch(`/api/projects/${projectId}/packets`)
+    const data = await response.json()
+    if (data.success && Array.isArray(data.packets)) {
+      return data.packets
+    }
+  } catch (error) {
+    console.warn("[build-plan] Failed to fetch packets from server:", error)
+  }
+  return []
 }
 
-export function getAllPackets(): WorkPacket[] {
-  const allPackets = getStoredPackets()
-  return Object.values(allPackets).flat()
+/**
+ * Get all packets for all projects from server
+ */
+export async function getAllPackets(): Promise<WorkPacket[]> {
+  // This would need a new API endpoint to fetch all packets
+  // For now, return empty - this function should be replaced with server calls
+  console.warn("[build-plan] getAllPackets() needs to be updated for server-only storage")
+  return []
 }
 
-export function updatePacket(projectId: string, packetId: string, updates: Partial<WorkPacket>): WorkPacket | null {
-  const allPackets = getStoredPackets()
-  const packets = allPackets[projectId] || []
-  const index = packets.findIndex(p => p.id === packetId)
-
-  if (index === -1) return null
-
-  packets[index] = { ...packets[index], ...updates }
-  allPackets[projectId] = packets
-  saveAllPackets(allPackets)
-
-  return packets[index]
+/**
+ * Update a single packet on the server
+ */
+export async function updatePacket(projectId: string, packetId: string, updates: Partial<WorkPacket>): Promise<WorkPacket | null> {
+  if (typeof window === "undefined") return null
+  try {
+    const response = await fetch(`/api/projects/${projectId}/packets`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packetId, updates })
+    })
+    const data = await response.json()
+    if (data.success && data.packet) {
+      return data.packet
+    }
+  } catch (error) {
+    console.error("[build-plan] Failed to update packet on server:", error)
+  }
+  return null
 }
 
-export function deletePacket(projectId: string, packetId: string): boolean {
-  const allPackets = getStoredPackets()
-  const packets = allPackets[projectId] || []
-  const filtered = packets.filter(p => p.id !== packetId)
+/**
+ * Update packet synchronously (fires and forgets)
+ */
+export function updatePacketSync(projectId: string, packetId: string, updates: Partial<WorkPacket>): void {
+  if (typeof window === "undefined") return
+  fetch(`/api/projects/${projectId}/packets`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ packetId, updates })
+  }).catch(error => {
+    console.error("[build-plan] Failed to update packet on server:", error)
+  })
+}
 
-  if (filtered.length === packets.length) return false
-
-  allPackets[projectId] = filtered
-  saveAllPackets(allPackets)
-  return true
+/**
+ * Delete a packet from server
+ */
+export async function deletePacket(projectId: string, packetId: string): Promise<boolean> {
+  if (typeof window === "undefined") return false
+  try {
+    // Fetch current packets, filter out the one to delete, and save back
+    const packets = await getPacketsForProject(projectId)
+    const filtered = packets.filter(p => p.id !== packetId)
+    if (filtered.length === packets.length) return false
+    await savePackets(projectId, filtered)
+    return true
+  } catch (error) {
+    console.error("[build-plan] Failed to delete packet:", error)
+    return false
+  }
 }
 
 /**
@@ -1142,8 +1250,10 @@ export function saveBuildPlan(projectId: string, plan: BuildPlan): void {
   allPlans[projectId] = plan
   saveAllBuildPlansRaw(allPlans)
 
-  // Also save the packets from this plan
-  savePackets(projectId, plan.packets)
+  // Also save the packets to server (fire-and-forget)
+  savePackets(projectId, plan.packets).catch(err => {
+    console.error("[build-plan] Failed to save packets to server:", err)
+  })
 }
 
 export function getBuildPlanRaw(projectId: string): BuildPlan | null {

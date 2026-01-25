@@ -509,7 +509,7 @@ function VSCodePageContent() {
                             ? `Folder: ${customFolderPath}`
                             : `Project: ${selectedProject?.name}`}
                         </p>
-                        <p className="text-gray-600 mt-4 text-sm">Click "Open in VS Code" above to begin...</p>
+                        <p className="text-gray-600 mt-4 text-sm">Click &quot;Open in VS Code&quot; above to begin...</p>
                       </>
                     ) : (
                       <>

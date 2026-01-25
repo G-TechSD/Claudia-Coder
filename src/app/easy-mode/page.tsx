@@ -466,10 +466,33 @@ Output ONLY valid JSON, no markdown or explanation.`,
         tags: []
       }
 
-      // Save to localStorage
+      // Save to localStorage for client-side cache
       const existingProjects = JSON.parse(localStorage.getItem("claudia_projects") || "[]")
       existingProjects.push(project)
       localStorage.setItem("claudia_projects", JSON.stringify(existingProjects))
+
+      // Also save to server-side storage for persistence
+      try {
+        const serverResponse = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: projectId,
+            name: project.name,
+            description: project.description,
+            status: project.status,
+            priority: project.priority,
+            repos: project.repos,
+            packetIds: project.packetIds,
+            tags: project.tags
+          })
+        })
+        if (!serverResponse.ok) {
+          console.warn("Failed to save project to server, will be available locally only")
+        }
+      } catch (err) {
+        console.warn("Error saving project to server:", err)
+      }
 
       // Save build plan
       const storedBuildPlan = {
@@ -490,10 +513,7 @@ Output ONLY valid JSON, no markdown or explanation.`,
       existingBuildPlans.push(storedBuildPlan)
       localStorage.setItem("claudia_build_plans", JSON.stringify(existingBuildPlans))
 
-      // Save packets
-      const existingPackets = JSON.parse(localStorage.getItem("claudia_packets") || "{}")
-      existingPackets[projectId] = buildPlan.packets
-      localStorage.setItem("claudia_packets", JSON.stringify(existingPackets))
+      // Packets are saved to server by initialize-folder API below
 
       setCreatedProject(project)
 

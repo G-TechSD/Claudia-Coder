@@ -69,6 +69,32 @@ export function useInterview(options: UseInterviewOptions): UseInterviewReturn {
     setSession(newSession)
   }, [])
 
+  // Define finishInterview early since it's used by respond
+  const finishInterview = useCallback(async (currentSession: InterviewSession) => {
+    setIsProcessing(true)
+    try {
+      // Extract insights
+      const insights = await extractInsights(currentSession)
+
+      // Complete the session
+      const completedSession = completeInterview(
+        currentSession,
+        insights.summary,
+        insights.keyPoints,
+        insights.suggestedActions,
+        insights.extractedData
+      )
+
+      // Save to storage
+      saveInterview(completedSession)
+
+      updateSession(completedSession)
+      onComplete?.(completedSession)
+    } finally {
+      setIsProcessing(false)
+    }
+  }, [updateSession, onComplete])
+
   const start = useCallback(() => {
     // DOUBLE-RENDER FIX: Prevent double initialization from React StrictMode
     if (hasStartedRef.current) {
@@ -151,7 +177,7 @@ export function useInterview(options: UseInterviewOptions): UseInterviewReturn {
       isProcessingRef.current = false
       setIsProcessing(false)
     }
-  }, [updateSession])
+  }, [updateSession, finishInterview])
 
   const skip = useCallback(async () => {
     if (!sessionRef.current || isProcessing) return
@@ -179,31 +205,6 @@ export function useInterview(options: UseInterviewOptions): UseInterviewReturn {
       setIsProcessing(false)
     }
   }, [isProcessing, updateSession])
-
-  const finishInterview = useCallback(async (currentSession: InterviewSession) => {
-    setIsProcessing(true)
-    try {
-      // Extract insights
-      const insights = await extractInsights(currentSession)
-
-      // Complete the session
-      const completedSession = completeInterview(
-        currentSession,
-        insights.summary,
-        insights.keyPoints,
-        insights.suggestedActions,
-        insights.extractedData
-      )
-
-      // Save to storage
-      saveInterview(completedSession)
-
-      updateSession(completedSession)
-      onComplete?.(completedSession)
-    } finally {
-      setIsProcessing(false)
-    }
-  }, [updateSession, onComplete])
 
   const finish = useCallback(async () => {
     if (!sessionRef.current || isProcessing) return

@@ -238,7 +238,7 @@ export async function POST(request: NextRequest) {
 
     // Add to existing packets and save
     const updatedPackets = [...existingPackets, newPacket]
-    await savePackets(targetProjectId, updatedPackets)
+    await await savePackets(targetProjectId, updatedPackets)
 
     console.log(`[claude-code/packets] Created packet "${title}" for project ${targetProjectId}`)
 

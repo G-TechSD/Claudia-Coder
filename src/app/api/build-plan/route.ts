@@ -174,9 +174,9 @@ async function generateBusinessDevAnalysis(
     buildPlanSpec
   )
 
-  // Try OpenAI
+  // Try OpenAI (accept both "chatgpt" and "openai" as provider names)
   const openaiKey = getApiKey("openai")
-  if (preferredProvider === "chatgpt" && openaiKey) {
+  if ((preferredProvider === "chatgpt" || preferredProvider === "openai") && openaiKey) {
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -373,9 +373,13 @@ export async function POST(request: NextRequest) {
       // Not authenticated or error - continue with other sources
     }
 
-    // Helper to get API key: 1) server DB, 2) request body, 3) environment
+    // Helper to get API key: 1) request body (explicit), 2) server DB, 3) environment
     const getApiKey = (providerName: string): string | undefined => {
-      // First priority: Server-side database (authenticated user)
+      // First priority: Request body (when user explicitly passes a key)
+      const userKey = cloudProviders.find((p: { provider: string }) => p.provider === providerName)?.apiKey
+      if (userKey) return userKey
+
+      // Second priority: Server-side database (authenticated user's saved keys)
       if (serverApiKeys) {
         switch (providerName) {
           case "anthropic":
@@ -389,10 +393,6 @@ export async function POST(request: NextRequest) {
             break
         }
       }
-
-      // Second priority: Request body (backwards compatibility)
-      const userKey = cloudProviders.find((p: { provider: string }) => p.provider === providerName)?.apiKey
-      if (userKey) return userKey
 
       // Fall back to environment variables
       switch (providerName) {
@@ -499,9 +499,9 @@ export async function POST(request: NextRequest) {
       userPrompt = sourcesContextSection + userPrompt
     }
 
-    // Handle ChatGPT / OpenAI
+    // Handle ChatGPT / OpenAI (accept both "chatgpt" and "openai" as provider names)
     const openaiApiKey = getApiKey("openai")
-    if (preferredProvider === "chatgpt" && openaiApiKey) {
+    if ((preferredProvider === "chatgpt" || preferredProvider === "openai") && openaiApiKey) {
       try {
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
@@ -866,7 +866,7 @@ export async function POST(request: NextRequest) {
     // Only pass preferredServer for local providers (local-llm-server, local-llm-server-2, etc.)
     // Paid providers are handled above and return early
     const localPreferredServer = preferredProvider &&
-      !["anthropic", "chatgpt", "gemini", "google", "paid_claudecode", "claude-code"].includes(preferredProvider)
+      !["anthropic", "chatgpt", "openai", "gemini", "google", "paid_claudecode", "claude-code"].includes(preferredProvider)
         ? preferredProvider
         : undefined
 

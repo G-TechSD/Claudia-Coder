@@ -222,7 +222,7 @@ export default function AutoModPage() {
 
         // Save packets
         if (planData.packets?.length > 0) {
-          await savePackets(project.id, planData.packets)
+          await await savePackets(project.id, planData.packets)
         }
       }
 

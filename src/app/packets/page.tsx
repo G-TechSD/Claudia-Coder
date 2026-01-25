@@ -232,7 +232,7 @@ export default function PacketsPage() {
   const [selectedServer, setSelectedServer] = useState<string | null>(null)
   const [executionMode, setExecutionMode] = useState<"standard" | "long-horizon">("standard")
 
-  // Fetch packets from multiple sources: localStorage (primary), N8N API (secondary)
+  // Fetch packets from server API only (no localStorage)
   const loadPackets = useCallback(async () => {
     setIsLoading(true)
     setError(null)
@@ -240,71 +240,7 @@ export default function PacketsPage() {
     const allPackets: Packet[] = []
     const seenIds = new Set<string>()
 
-    // 1. First, load from localStorage (where build plan packets are stored)
-    try {
-      const storedPackets = localStorage.getItem("claudia_packets")
-      if (storedPackets) {
-        const packetsByProject = JSON.parse(storedPackets) as Record<string, Array<{
-          id: string
-          title: string
-          description: string
-          type: string
-          priority: string
-          status: string
-          tasks?: Array<{ id: string; description: string; completed: boolean }>
-          acceptanceCriteria?: string[]
-          phaseId?: string
-          assignedModel?: string
-        }>>
-
-        // Flatten all project packets
-        for (const [projectId, projectPackets] of Object.entries(packetsByProject)) {
-          for (const wp of projectPackets) {
-            if (!seenIds.has(wp.id)) {
-              seenIds.add(wp.id)
-              // Map status from WorkPacket to Packet status
-              let status: Packet["status"] = "queued"
-              if (wp.status === "completed") status = "completed"
-              else if (wp.status === "in_progress" || wp.status === "assigned") status = "running"
-              else if (wp.status === "blocked") status = "blocked"
-              else if (wp.status === "review") status = "running"
-
-              // Map priority to PacketPriority type (high | normal | low)
-              let priority: PacketPriority = "normal"
-              if (wp.priority === "critical" || wp.priority === "high") priority = "high"
-              else if (wp.priority === "low") priority = "low"
-
-              allPackets.push({
-                id: wp.id,
-                packetID: wp.id,
-                projectID: projectId,
-                planRunID: wp.phaseId || "",
-                title: wp.title,
-                summary: wp.description || "",
-                status,
-                priority,
-                assignedWorker: wp.assignedModel || null,
-                issueIDs: [],
-                issues: [],
-                acceptanceCriteria: wp.acceptanceCriteria || [],
-                risks: [],
-                dependencies: [],
-                feedback: null,
-                feedbackComment: null,
-                startedAt: null,
-                completedAt: null,
-                createdAt: new Date(),
-                updatedAt: new Date()
-              })
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load packets from localStorage:", err)
-    }
-
-    // 2. Then try the server-side API (loads from N8N and .local-storage files)
+    // Load from server-side API (central source of truth)
     try {
       const response = await fetch("/api/packets")
       const data = await response.json()
@@ -320,7 +256,7 @@ export default function PacketsPage() {
       }
     } catch (err) {
       console.error("Failed to fetch packets from API:", err)
-      // Don't set error if we have browser localStorage packets
+      setError("Failed to load packets from server")
     }
 
     // Sort by priority and creation date

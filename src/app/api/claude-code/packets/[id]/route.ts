@@ -240,7 +240,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     // Save updated packets
     packets[packetIndex] = packet
-    await savePackets(session.projectId, packets)
+    await await savePackets(session.projectId, packets)
 
     console.log(`[claude-code/packets/[id]] Updated packet "${packet.title}" - status: ${packet.status}`)
 

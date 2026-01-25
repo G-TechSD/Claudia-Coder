@@ -409,6 +409,7 @@ export default function ProjectDetailPage() {
   }, [projectId])
 
   // Load packets and build plan status for this project
+  // SERVER-SIDE ONLY - no localStorage for packets
   useEffect(() => {
     if (!projectId) return
 
@@ -424,7 +425,7 @@ export default function ProjectDetailPage() {
       setCurrentBuildPlan(null)
     }
 
-    // Load packets from localStorage
+    // Load packets from SERVER ONLY - no localStorage
     type LocalPacket = {
       id: string
       title: string
@@ -435,44 +436,54 @@ export default function ProjectDetailPage() {
       tasks: Array<{ id: string; description: string; completed: boolean; order?: number }>
       acceptanceCriteria: string[]
     }
-    let projectPackets: LocalPacket[] = []
-    const storedPackets = localStorage.getItem("claudia_packets")
-    if (storedPackets) {
+
+    async function loadPacketsFromServer() {
+      let projectPackets: LocalPacket[] = []
+
+      // Fetch from server (source of truth)
       try {
-        const allPackets = JSON.parse(storedPackets)
-        // Packets are stored as { [projectId]: LocalPacket[] }, not a flat array
-        projectPackets = allPackets[projectId] || []
-      } catch {
-        console.error("Failed to parse packets")
+        const response = await fetch(`/api/projects/${projectId}/packets`)
+        const data = await response.json()
+        if (data.success && Array.isArray(data.packets)) {
+          projectPackets = data.packets
+          console.log(`[ProjectPage] Loaded ${projectPackets.length} packets from server`)
+        }
+      } catch (error) {
+        console.warn("[ProjectPage] Failed to fetch packets from server:", error)
       }
+
+      // If server has no packets but build plan has them, initialize from build plan
+      const buildPlanPackets = buildPlan?.originalPlan?.packets || []
+      if (projectPackets.length === 0 && buildPlanPackets.length > 0) {
+        console.log(`[ProjectPage] Server has no packets, initializing ${buildPlanPackets.length} from build plan`)
+        // Convert build plan packets to the format expected by the project page
+        projectPackets = buildPlanPackets.map(p => ({
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          type: p.type,
+          priority: p.priority,
+          status: "queued",
+          tasks: p.tasks.map(t => ({ id: t.id, description: t.description, completed: t.completed })),
+          acceptanceCriteria: p.acceptanceCriteria
+        }))
+        // Save to server
+        try {
+          await fetch(`/api/projects/${projectId}/packets`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ packets: projectPackets })
+          })
+          console.log(`[ProjectPage] Saved ${projectPackets.length} packets to server`)
+        } catch (err) {
+          console.error("[ProjectPage] Failed to save packets to server:", err)
+        }
+      }
+
+      setPackets(projectPackets)
     }
 
-    // Fallback: if no packets in localStorage but build plan has packets, use those
-    const buildPlanPackets = buildPlan?.originalPlan?.packets || []
-    if (projectPackets.length === 0 && buildPlanPackets.length > 0) {
-      console.log(`[ProjectPage] No packets in localStorage, loading ${buildPlanPackets.length} from build plan`)
-      // Convert build plan packets to the format expected by the project page
-      projectPackets = buildPlanPackets.map(p => ({
-        id: p.id,
-        title: p.title,
-        description: p.description,
-        type: p.type,
-        priority: p.priority,
-        status: "queued",
-        tasks: p.tasks.map(t => ({ id: t.id, description: t.description, completed: t.completed })),
-        acceptanceCriteria: p.acceptanceCriteria
-      }))
-      // Also save them to localStorage for future loads
-      try {
-        const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
-        allPackets[projectId] = projectPackets
-        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
-      } catch {
-        console.error("Failed to save packets from build plan")
-      }
-    }
-
-    setPackets(projectPackets)
+    loadPacketsFromServer()
   }, [projectId])
 
   useEffect(() => {
@@ -776,23 +787,17 @@ export default function ProjectDetailPage() {
         : p
     ))
 
-    // Update localStorage
-    const storedPackets = localStorage.getItem("claudia_packets")
-    if (storedPackets) {
-      try {
-        const allPackets = JSON.parse(storedPackets)
-        const projectPackets = allPackets[projectId] || []
-        const updatedProjectPackets = projectPackets.map((p: { id: string; title: string; description: string; priority: string }) =>
-          p.id === editingPacket.id
-            ? { ...p, title: editingPacket.title, description: editingPacket.description, priority: editingPacket.priority }
-            : p
-        )
-        allPackets[projectId] = updatedProjectPackets
-        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
-      } catch {
-        console.error("Failed to save packet edit")
-      }
-    }
+    // Save to server
+    const updatedPackets = packets.map(p =>
+      p.id === editingPacket.id
+        ? { ...p, title: editingPacket.title, description: editingPacket.description, priority: editingPacket.priority }
+        : p
+    )
+    fetch(`/api/projects/${projectId}/packets`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packets: updatedPackets })
+    }).catch(err => console.error("Failed to save packet edit:", err))
 
     // Close dialog
     setEditingPacket(null)
@@ -815,24 +820,15 @@ export default function ProjectDetailPage() {
     }
 
     // Update local state
-    setPackets(prev => [...prev, packet])
+    const updatedPackets = [...packets, packet]
+    setPackets(updatedPackets)
 
-    // Update localStorage
-    const storedPackets = localStorage.getItem("claudia_packets")
-    if (storedPackets) {
-      try {
-        const allPackets = JSON.parse(storedPackets)
-        const projectPackets = allPackets[projectId] || []
-        allPackets[projectId] = [...projectPackets, packet]
-        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
-      } catch {
-        console.error("Failed to save new packet")
-      }
-    } else {
-      // Initialize storage with this packet
-      const allPackets = { [projectId]: [packet] }
-      localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
-    }
+    // Save to server
+    fetch(`/api/projects/${projectId}/packets`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packets: updatedPackets })
+    }).catch(err => console.error("Failed to save new packet:", err))
 
     // Reset form and close dialog
     setNewPacket({ title: '', description: '', priority: 'medium', type: 'feature' })
@@ -857,36 +853,20 @@ export default function ProjectDetailPage() {
       setSelectedRun(null)
     }
 
-    // Update localStorage
-    const storedPackets = localStorage.getItem("claudia_packets")
-    if (storedPackets) {
-      try {
-        const allPackets = JSON.parse(storedPackets)
-        const projectPackets = allPackets[projectId] || []
-        const updatedProjectPackets = projectPackets.filter((p: { id: string }) => p.id !== deletePacketId)
-        allPackets[projectId] = updatedProjectPackets
-        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
-      } catch {
-        console.error("Failed to delete packet")
-      }
-    }
+    // Save updated packets to server
+    const updatedPackets = packets.filter(p => p.id !== deletePacketId)
+    fetch(`/api/projects/${projectId}/packets`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packets: updatedPackets })
+    }).catch(err => console.error("Failed to delete packet:", err))
 
-    // Also clean up associated runs
-    const storedRuns = localStorage.getItem("claudia_packet_runs")
-    if (storedRuns) {
-      try {
-        const allRuns = JSON.parse(storedRuns)
-        delete allRuns[deletePacketId]
-        localStorage.setItem("claudia_packet_runs", JSON.stringify(allRuns))
-        setPacketRuns(prev => {
-          const updated = { ...prev }
-          delete updated[deletePacketId]
-          return updated
-        })
-      } catch {
-        console.error("Failed to delete packet runs")
-      }
-    }
+    // Clean up associated runs state
+    setPacketRuns(prev => {
+      const updated = { ...prev }
+      delete updated[deletePacketId]
+      return updated
+    })
 
     // Close dialog
     setDeletePacketId(null)
@@ -913,16 +893,15 @@ export default function ProjectDetailPage() {
     // future enhancement would add true concurrency support to the hook)
     await executeBatch(packetIds, projectId)
 
-    // Refresh packets to show updated statuses
-    const storedPackets = localStorage.getItem("claudia_packets")
-    if (storedPackets) {
-      try {
-        const allPackets = JSON.parse(storedPackets)
-        const projectPackets = allPackets[projectId] || []
-        setPackets(projectPackets)
-      } catch {
-        console.error("Failed to parse packets")
+    // Refresh packets from server to show updated statuses
+    try {
+      const response = await fetch(`/api/projects/${projectId}/packets`)
+      const data = await response.json()
+      if (data.success && Array.isArray(data.packets)) {
+        setPackets(data.packets)
       }
+    } catch (error) {
+      console.error("Failed to refresh packets from server:", error)
     }
   }
 
@@ -939,17 +918,12 @@ export default function ProjectDetailPage() {
     // Update local state
     setPackets(resetPackets)
 
-    // Update localStorage
-    const storedPackets = localStorage.getItem("claudia_packets")
-    if (storedPackets) {
-      try {
-        const allPackets = JSON.parse(storedPackets)
-        allPackets[projectId] = resetPackets
-        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
-      } catch {
-        console.error("Failed to save reset packets")
-      }
-    }
+    // Save to server
+    fetch(`/api/projects/${projectId}/packets`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packets: resetPackets })
+    }).catch(err => console.error("Failed to save reset packets:", err))
   }
 
   // Handler for retrying only failed/blocked packets (preserves completed packets)
@@ -968,17 +942,12 @@ export default function ProjectDetailPage() {
     // Update local state
     setPackets(updatedPackets)
 
-    // Update localStorage
-    const storedPackets = localStorage.getItem("claudia_packets")
-    if (storedPackets) {
-      try {
-        const allPackets = JSON.parse(storedPackets)
-        allPackets[projectId] = updatedPackets
-        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
-      } catch {
-        console.error("Failed to save retry packets")
-      }
-    }
+    // Save to server
+    fetch(`/api/projects/${projectId}/packets`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packets: updatedPackets })
+    }).catch(err => console.error("Failed to save retry packets:", err))
   }
 
   // Get pending packets count for the "Run All" button
@@ -1024,7 +993,7 @@ export default function ProjectDetailPage() {
   }
 
   // Handler for packets approved from brain dump packetize flow
-  const handleBrainDumpPacketsApproved = (approvedPackets: Array<{
+  const handleBrainDumpPacketsApproved = async (approvedPackets: Array<{
     id: string
     title: string
     description: string
@@ -1037,12 +1006,7 @@ export default function ProjectDetailPage() {
     if (!project || approvedPackets.length === 0) return
 
     try {
-      // Get existing packets from localStorage
-      const storedPackets = localStorage.getItem("claudia_packets")
-      const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
-      const projectPackets = allPackets[project.id] || []
-
-      // Convert approved packets to work packet format and add them
+      // Convert approved packets to work packet format
       const newPackets = approvedPackets.map(p => ({
         id: p.id,
         phaseId: "brain-dump-phase",
@@ -1059,12 +1023,15 @@ export default function ProjectDetailPage() {
         }
       }))
 
-      // Add new packets to existing ones
-      allPackets[project.id] = [...projectPackets, ...newPackets]
-      localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+      // Add to local state and save to server
+      const updatedPackets = [...packets, ...newPackets]
+      setPackets(updatedPackets)
 
-      // Update local state
-      setPackets(allPackets[project.id])
+      await fetch(`/api/projects/${project.id}/packets`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packets: updatedPackets })
+      })
 
       console.log(`Added ${newPackets.length} packets from brain dump`)
     } catch (err) {
@@ -1336,16 +1303,12 @@ export default function ProjectDetailPage() {
       return
     }
 
-    // Get packets for this project from localStorage
-    // Packets are stored as { [projectId]: WorkPacket[] }, not a flat array
-    const storedPackets = localStorage.getItem("claudia_packets")
-    const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
-    const projectPackets = allPackets[project.id] || []
-
-    if (projectPackets.length === 0) {
+    // Use packets from React state (already loaded from server)
+    if (packets.length === 0) {
       alert("No packets found for this project. Create a build plan first.")
       return
     }
+    const projectPackets = packets
 
     // Add to queue
     try {
@@ -1622,21 +1585,36 @@ export default function ProjectDetailPage() {
             tasks: p.tasks,
             acceptanceCriteria: p.acceptanceCriteria || []
           }))}
-          onTouchdownComplete={() => {
+          onTouchdownComplete={async () => {
             console.log("Touchdown completed!")
-            // Refresh packets after touchdown
-            const storedPackets = localStorage.getItem("claudia_packets")
-            if (storedPackets) {
-              try {
-                const allPackets = JSON.parse(storedPackets)
-                const projectPackets = allPackets[project.id] || []
-                setPackets(projectPackets)
-              } catch {
-                console.error("Failed to parse packets")
+            // Refresh packets from server
+            try {
+              const response = await fetch(`/api/projects/${project.id}/packets`)
+              const data = await response.json()
+              if (data.success && Array.isArray(data.packets)) {
+                setPackets(data.packets)
               }
+            } catch (error) {
+              console.error("Failed to refresh packets from server:", error)
             }
             // Focus on Launch & Test section after touchdown
             setActiveSection("launch")
+          }}
+          onPacketsGenerated={async (newPackets) => {
+            console.log(`[Touchdown] Adding ${newPackets.length} refinement packets`)
+            // Add new packets to state
+            setPackets(prev => [...prev, ...newPackets])
+            // Save to server
+            try {
+              await fetch(`/api/projects/${project.id}/packets`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ packets: [...packets, ...newPackets] })
+              })
+              console.log("[Touchdown] Saved refinement packets to server")
+            } catch (error) {
+              console.error("[Touchdown] Failed to save refinement packets:", error)
+            }
           }}
         />
       )}
@@ -1664,17 +1642,17 @@ export default function ProjectDetailPage() {
               packets={packets}
               hasBuildPlan={hasBuildPlan}
               workingDirectory={getEffectiveWorkingDirectory(project)}
-              onPacketCreated={(packetId) => {
+              onPacketCreated={async (packetId) => {
                 console.log("Packet created from What's Next:", packetId)
-                const storedPackets = localStorage.getItem("claudia_packets")
-                if (storedPackets) {
-                  try {
-                    const allPackets = JSON.parse(storedPackets)
-                    const projectPackets = allPackets[project.id] || []
-                    setPackets(projectPackets)
-                  } catch {
-                    console.error("Failed to parse packets")
+                // Refresh packets from server
+                try {
+                  const response = await fetch(`/api/projects/${project.id}/packets`)
+                  const data = await response.json()
+                  if (data.success && Array.isArray(data.packets)) {
+                    setPackets(data.packets)
                   }
+                } catch (error) {
+                  console.error("Failed to refresh packets from server:", error)
                 }
               }}
               onResetPackets={handleResetAllPackets}
@@ -1753,22 +1731,22 @@ export default function ProjectDetailPage() {
             repoPath={project.repos.find(r => r.localPath)?.localPath}
             repoCloned={project.repos.some(r => r.localPath)}
             hasBuildPlan={hasBuildPlan}
-            onAnalysisComplete={() => {
+            onAnalysisComplete={async () => {
               const buildPlan = getBuildPlanForProject(project.id)
               if (buildPlan) {
                 setHasBuildPlan(true)
                 setBuildPlanApproved(buildPlan.status === "approved" || buildPlan.status === "locked")
                 setCurrentBuildPlan(buildPlan)
               }
-              const storedPackets = localStorage.getItem("claudia_packets")
-              if (storedPackets) {
-                try {
-                  const allPackets = JSON.parse(storedPackets)
-                  const projectPackets = allPackets[project.id] || []
-                  setPackets(projectPackets)
-                } catch {
-                  console.error("Failed to parse packets")
+              // Refresh packets from server
+              try {
+                const response = await fetch(`/api/projects/${project.id}/packets`)
+                const data = await response.json()
+                if (data.success && Array.isArray(data.packets)) {
+                  setPackets(data.packets)
                 }
+              } catch (error) {
+                console.error("Failed to refresh packets from server:", error)
               }
             }}
           />
@@ -2786,32 +2764,30 @@ export default function ProjectDetailPage() {
               projectName={project.name}
               projectDescription={project.description}
               refreshTrigger={resourceRefreshTrigger}
-              onPacketCreate={(transcription, resource) => {
+              onPacketCreate={async (transcription, resource) => {
                 console.log("Packet created from transcription:", resource.name)
-                // Refresh packets list
-                const storedPackets = localStorage.getItem("claudia_packets")
-                if (storedPackets) {
-                  try {
-                    const allPackets = JSON.parse(storedPackets)
-                    const projectPackets = allPackets[project.id] || []
-                    setPackets(projectPackets)
-                  } catch {
-                    console.error("Failed to parse packets")
+                // Refresh packets from server
+                try {
+                  const response = await fetch(`/api/projects/${project.id}/packets`)
+                  const data = await response.json()
+                  if (data.success && Array.isArray(data.packets)) {
+                    setPackets(data.packets)
                   }
+                } catch (error) {
+                  console.error("Failed to refresh packets from server:", error)
                 }
               }}
-              onMarkdownPacketsCreated={(packets) => {
-                console.log("Packets created from markdown:", packets.length)
-                // Refresh packets list
-                const storedPackets = localStorage.getItem("claudia_packets")
-                if (storedPackets) {
-                  try {
-                    const allPackets = JSON.parse(storedPackets)
-                    const projectPackets = allPackets[project.id] || []
-                    setPackets(projectPackets)
-                  } catch {
-                    console.error("Failed to parse packets")
+              onMarkdownPacketsCreated={async () => {
+                console.log("Packets created from markdown")
+                // Refresh packets from server
+                try {
+                  const response = await fetch(`/api/projects/${project.id}/packets`)
+                  const data = await response.json()
+                  if (data.success && Array.isArray(data.packets)) {
+                    setPackets(data.packets)
                   }
+                } catch (error) {
+                  console.error("Failed to refresh packets from server:", error)
                 }
               }}
             />
@@ -3149,6 +3125,20 @@ export default function ProjectDetailPage() {
                                   <Pencil className="h-4 w-4" />
                                 </Button>
 
+                                {/* Delete button */}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:text-red-500"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleDeletePacket(packet.id)
+                                  }}
+                                  title="Delete packet"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+
                                 {/* Start/Stop button */}
                                 {isExecuting ? (
                                   <Button
@@ -3426,18 +3416,17 @@ export default function ProjectDetailPage() {
       <QuickComment
         projectId={project.id}
         projectName={project.name}
-        onPacketCreated={(packetId) => {
+        onPacketCreated={async (packetId) => {
           console.log("Packet created from comment:", packetId)
-          // Refresh packets list
-          const storedPackets = localStorage.getItem("claudia_packets")
-          if (storedPackets) {
-            try {
-              const allPackets = JSON.parse(storedPackets)
-              const projectPackets = allPackets[project.id] || []
-              setPackets(projectPackets)
-            } catch {
-              console.error("Failed to parse packets")
+          // Refresh packets from server
+          try {
+            const response = await fetch(`/api/projects/${project.id}/packets`)
+            const data = await response.json()
+            if (data.success && Array.isArray(data.packets)) {
+              setPackets(data.packets)
             }
+          } catch (error) {
+            console.error("Failed to refresh packets from server:", error)
           }
         }}
         onCommentAdded={(comment) => {

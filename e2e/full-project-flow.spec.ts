@@ -60,8 +60,8 @@ test.describe('Complete Project Creation Flow', () => {
 
     await takeScreenshot(page, '02-before-new-project-click');
 
-    // Click New Project button
-    const newProjectLink = page.locator('a[href="/projects/new"]');
+    // Click New Project button (use first() since there may be multiple links)
+    const newProjectLink = page.locator('a[href="/projects/new"]').first();
     if (await newProjectLink.isVisible()) {
       await newProjectLink.click();
     } else {

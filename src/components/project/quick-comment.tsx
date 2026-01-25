@@ -291,25 +291,27 @@ export function QuickComment({
     setError(null)
 
     try {
-      // Get existing packets from localStorage
-      const storedPackets = localStorage.getItem("claudia_packets")
-      const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
-      const projectPackets = allPackets[projectId] || []
+      // Fetch existing packets from server
+      const existingResponse = await fetch(`/api/projects/${projectId}/packets`)
+      const existingData = await existingResponse.json()
+      const existingPackets = existingData.success && Array.isArray(existingData.packets)
+        ? existingData.packets
+        : []
 
       // Create new packet
       const newPacket = {
         id: `packet-${Date.now()}`,
         ...proposedPacket,
         status: "ready",
-        order: projectPackets.length
+        order: existingPackets.length
       }
 
-      // Add to project packets
-      projectPackets.push(newPacket)
-      allPackets[projectId] = projectPackets
-
-      // Save to localStorage
-      localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+      // Save to server
+      await fetch(`/api/projects/${projectId}/packets`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packets: [...existingPackets, newPacket] })
+      })
 
       onPacketCreated?.(newPacket.id)
       setSuccess("Packet added to queue!")

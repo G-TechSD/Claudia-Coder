@@ -24,15 +24,17 @@ interface MigrationContextType {
   error: string | null
 }
 
-const MigrationContext = React.createContext<MigrationContextType>({
+const defaultMigrationContext: MigrationContextType = {
   isMigrating: false,
   migrationComplete: false,
   migrationResult: null,
   migrationStatus: null,
   error: null,
-})
+}
 
-// ============ Migration Provider ============
+const MigrationContext = React.createContext<MigrationContextType>(defaultMigrationContext)
+
+// ============ Migration Provider Client ============
 
 interface MigrationProviderProps {
   children: React.ReactNode
@@ -40,7 +42,8 @@ interface MigrationProviderProps {
   showMigrationNotice?: boolean
 }
 
-export function MigrationProvider({
+// Inner component that uses hooks - only rendered on client
+function MigrationProviderClient({
   children,
   showMigrationNotice = true,
 }: MigrationProviderProps) {
@@ -143,6 +146,29 @@ export function MigrationProvider({
     <MigrationContext.Provider value={value}>
       {children}
     </MigrationContext.Provider>
+  )
+}
+
+// ============ Migration Provider ============
+
+export function MigrationProvider({
+  children,
+  showMigrationNotice = true,
+}: MigrationProviderProps) {
+  // During SSR/prerendering, provide static context to avoid hooks
+  if (typeof window === "undefined") {
+    return (
+      <MigrationContext.Provider value={defaultMigrationContext}>
+        {children}
+      </MigrationContext.Provider>
+    )
+  }
+
+  // Client-side: use the full implementation with hooks
+  return (
+    <MigrationProviderClient showMigrationNotice={showMigrationNotice}>
+      {children}
+    </MigrationProviderClient>
   )
 }
 

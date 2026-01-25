@@ -5,14 +5,16 @@ const SCREENSHOT_DIR = '/home/bill/projects/claudia-coder-beta/test-screenshots'
 
 test.describe('Comprehensive E2E Test Suite', () => {
 
-  test('1. Home page redirects to projects', async ({ page }) => {
-    console.log('TEST 1: Home Page Redirect');
+  test('1. Home page loads dashboard', async ({ page }) => {
+    console.log('TEST 1: Home Page Dashboard');
     await page.goto(BASE_URL);
-    await page.waitForURL('**/projects**', { timeout: 10000 });
+    await page.waitForLoadState('networkidle');
     const url = page.url();
-    console.log(`Redirected to: ${url}`);
-    expect(url).toContain('/projects');
-    console.log('PASS: Home page redirects to projects');
+    console.log(`Loaded: ${url}`);
+    // Home page is now a dashboard, not a redirect
+    // Should either be at / or /projects (if user is redirected for some reason)
+    expect(url === BASE_URL + '/' || url.includes('/projects')).toBeTruthy();
+    console.log('PASS: Home page loaded successfully');
   });
 
   test('2. Projects list page displays correctly', async ({ page }) => {

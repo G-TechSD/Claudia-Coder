@@ -65,6 +65,7 @@ export function useAudioRecorder(
     return () => {
       cleanup()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const cleanup = useCallback(() => {

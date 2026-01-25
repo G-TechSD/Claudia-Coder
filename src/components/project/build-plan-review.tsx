@@ -209,7 +209,7 @@ export function BuildPlanReview({
 
       // Save to localStorage
       saveBuildPlan(projectId, finalPlan)
-      savePackets(projectId, finalPackets)
+      await savePackets(projectId, finalPackets)
 
       // Call parent handler
       onApproveAndStart(finalPlan, finalPackets)

@@ -30,16 +30,16 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params
-    const module = getModule(id)
+    const moduleRecord = getModule(id)
 
-    if (!module) {
+    if (!moduleRecord) {
       return NextResponse.json({ error: "Module not found" }, { status: 404 })
     }
 
     // Record access for analytics
     recordModuleAccess(id)
 
-    return NextResponse.json({ module })
+    return NextResponse.json({ module: moduleRecord })
   } catch (error) {
     console.error("[emergent-modules] GET error:", error)
     return NextResponse.json(
@@ -67,16 +67,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 })
     }
 
-    const module = updateModuleStatus(id, status, errorMessage)
+    const updatedModule = updateModuleStatus(id, status, errorMessage)
 
-    if (!module) {
+    if (!updatedModule) {
       return NextResponse.json({ error: "Module not found" }, { status: 404 })
     }
 
     return NextResponse.json({
       success: true,
-      module,
-      message: `Module "${module.name}" is now ${status}`,
+      module: updatedModule,
+      message: `Module "${updatedModule.name}" is now ${status}`,
     })
   } catch (error) {
     console.error("[emergent-modules] PATCH error:", error)

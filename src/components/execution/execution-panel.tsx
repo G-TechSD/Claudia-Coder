@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label"
 import { getProjectEnabledModels, getProjectDefaultModel, type EnabledInstance } from "@/components/project/model-assignment"
 import { getEffectiveDefaultModel } from "@/lib/settings/global-settings"
 import { useActivityPersistence } from "@/hooks/useActivityPersistence"
-import { updatePacket } from "@/lib/ai/build-plan"
+import { updatePacketSync } from "@/lib/ai/build-plan"
 
 type ExecutionMode = "local" | "turbo" | "auto" | "n8n"
 
@@ -936,7 +936,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
               phaseFailedPackets.push(packet.title)
               failedPackets.push(packet.title)
               // IMPORTANT: Update packet status to blocked in localStorage
-              updatePacket(project.id, packet.id, { status: "blocked" })
+              updatePacketSync(project.id, packet.id, { status: "blocked" })
               // Notify parent of status change so React state stays in sync
               onPacketStatusChange?.(packet.id, "blocked")
 
@@ -968,7 +968,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
 
               // IMPORTANT: Update packet status AND tasks to completed in localStorage
               const completedTasks = packet.tasks.map((t, i) => ({ ...t, completed: true, order: t.order ?? i }))
-              updatePacket(project.id, packet.id, { status: "completed", tasks: completedTasks })
+              updatePacketSync(project.id, packet.id, { status: "completed", tasks: completedTasks })
               // Notify parent of status change so React state stays in sync
               onPacketStatusChange?.(packet.id, "completed", completedTasks)
 
@@ -1195,7 +1195,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
         if (!result.success) {
           failedPackets.push(packet.title)
           // IMPORTANT: Update packet status to blocked (not "failed" which isn't a valid status)
-          updatePacket(project.id, packet.id, { status: "blocked" })
+          updatePacketSync(project.id, packet.id, { status: "blocked" })
           // Notify parent of status change so React state stays in sync
           onPacketStatusChange?.(packet.id, "blocked")
 
@@ -1286,7 +1286,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
 
         // IMPORTANT: Update packet status AND tasks in localStorage so it persists
         const completedTasks = packet.tasks.map((t, i) => ({ ...t, completed: true, order: t.order ?? i }))
-        updatePacket(project.id, packet.id, { status: "completed", tasks: completedTasks })
+        updatePacketSync(project.id, packet.id, { status: "completed", tasks: completedTasks })
         // Notify parent of status change so React state stays in sync
         onPacketStatusChange?.(packet.id, "completed", completedTasks)
 

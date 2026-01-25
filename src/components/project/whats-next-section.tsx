@@ -267,28 +267,41 @@ export function WhatsNextSection({
         throw new Error(data.error || "Failed to create packets")
       }
 
-      // Save packets to localStorage
+      // Save packets to server
       if (data.proposedPackets && data.proposedPackets.length > 0) {
-        const storedPackets = localStorage.getItem("claudia_packets")
-        const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
-        const projectPackets = allPackets[projectId] || []
+        // Fetch existing packets from server
+        const existingResponse = await fetch(`/api/projects/${projectId}/packets`)
+        const existingData = await existingResponse.json()
+        const existingPackets = existingData.success && Array.isArray(existingData.packets)
+          ? existingData.packets
+          : []
 
         // Add new packets
-        for (const packet of data.proposedPackets) {
-          projectPackets.push({
-            id: packet.id,
-            title: packet.title,
-            description: packet.description,
-            type: packet.type,
-            priority: packet.priority,
-            status: "pending",
-            tasks: packet.tasks || [],
-            acceptanceCriteria: packet.acceptanceCriteria || []
-          })
-        }
+        const newPackets = data.proposedPackets.map((packet: {
+          id: string
+          title: string
+          description: string
+          type: string
+          priority: string
+          tasks?: Array<{ id: string; description: string; completed: boolean; order: number }>
+          acceptanceCriteria?: string[]
+        }) => ({
+          id: packet.id,
+          title: packet.title,
+          description: packet.description,
+          type: packet.type,
+          priority: packet.priority,
+          status: "pending",
+          tasks: packet.tasks || [],
+          acceptanceCriteria: packet.acceptanceCriteria || []
+        }))
 
-        allPackets[projectId] = projectPackets
-        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+        // Save to server
+        await fetch(`/api/projects/${projectId}/packets`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ packets: [...existingPackets, ...newPackets] })
+        })
 
         // Notify parent
         if (onPacketCreated) {
@@ -310,10 +323,12 @@ export function WhatsNextSection({
     setError(null)
 
     try {
-      // Create a packet directly from the recommendation
-      const storedPackets = localStorage.getItem("claudia_packets")
-      const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
-      const projectPackets = allPackets[projectId] || []
+      // Fetch existing packets from server
+      const existingResponse = await fetch(`/api/projects/${projectId}/packets`)
+      const existingData = await existingResponse.json()
+      const existingPackets = existingData.success && Array.isArray(existingData.packets)
+        ? existingData.packets
+        : []
 
       const newPacket = {
         id: `packet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -328,9 +343,12 @@ export function WhatsNextSection({
         reasoning: recommendation.reasoning
       }
 
-      projectPackets.push(newPacket)
-      allPackets[projectId] = projectPackets
-      localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+      // Save to server
+      await fetch(`/api/projects/${projectId}/packets`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packets: [...existingPackets, newPacket] })
+      })
 
       // Mark as added
       setAddedRecommendations(prev => new Set([...prev, recommendation.id]))

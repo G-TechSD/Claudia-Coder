@@ -144,11 +144,11 @@ export function updateModuleStatus(id: string, status: ModuleStatus, errorMessag
  */
 export function recordModuleAccess(id: string): void {
   const modules = loadModules()
-  const module = modules.find((m) => m.id === id)
+  const moduleRecord = modules.find((m) => m.id === id)
 
-  if (module) {
-    module.lastAccessedAt = new Date().toISOString()
-    module.accessCount = (module.accessCount || 0) + 1
+  if (moduleRecord) {
+    moduleRecord.lastAccessedAt = new Date().toISOString()
+    moduleRecord.accessCount = (moduleRecord.accessCount || 0) + 1
     saveModules(modules)
   }
 }

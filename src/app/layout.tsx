@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
-import { AuthProvider } from "@/components/auth/auth-provider";
-import { MigrationProvider } from "@/components/data/migration-provider";
+import { Providers } from "@/components/providers";
+
+// Force all routes to be dynamically rendered at runtime
+// This prevents SSR/prerendering issues with auth hooks
+export const dynamic = "force-dynamic";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,11 +33,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>
-          <MigrationProvider>
-            <AppShell>{children}</AppShell>
-          </MigrationProvider>
-        </AuthProvider>
+        <Providers>
+          <AppShell>{children}</AppShell>
+        </Providers>
       </body>
     </html>
   );

@@ -1,5 +1,8 @@
 "use client"
 
+// Force dynamic rendering to prevent SSR issues with auth context
+export const dynamic = "force-dynamic"
+
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ShieldAlert, ArrowLeft } from "lucide-react"

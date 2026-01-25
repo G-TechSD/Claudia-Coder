@@ -208,13 +208,18 @@ export function ResourceList({
         fullTranscription: transcriptionResult.text
       }
 
-      // Save packet to localStorage
-      const storedPackets = localStorage.getItem("claudia_packets")
-      const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
-      const projectPackets = allPackets[projectId] || []
-      projectPackets.push(packet)
-      allPackets[projectId] = projectPackets
-      localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+      // Save packet to server
+      const existingResponse = await fetch(`/api/projects/${projectId}/packets`)
+      const existingData = await existingResponse.json()
+      const existingPackets = existingData.success && Array.isArray(existingData.packets)
+        ? existingData.packets
+        : []
+
+      await fetch(`/api/projects/${projectId}/packets`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packets: [...existingPackets, packet] })
+      })
 
       // Callback to parent
       onPacketCreate?.(transcriptionResult, transcriptionResource)
@@ -464,37 +469,46 @@ export function ResourceList({
   /**
    * Handle packet approval from dialog
    */
-  const handlePacketsApproved = useCallback((approvedPackets: Array<ProposedPacket & { approvedPriority: string }>) => {
+  const handlePacketsApproved = useCallback(async (approvedPackets: Array<ProposedPacket & { approvedPriority: string }>) => {
     setShowPacketApproval(false)
 
-    // Save packets to localStorage
-    const storedPackets = localStorage.getItem("claudia_packets")
-    const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
-    const projectPackets = allPackets[projectId] || []
+    try {
+      // Fetch existing packets from server
+      const existingResponse = await fetch(`/api/projects/${projectId}/packets`)
+      const existingData = await existingResponse.json()
+      const existingPackets = existingData.success && Array.isArray(existingData.packets)
+        ? existingData.packets
+        : []
 
-    // Convert ProposedPacket to the format expected by localStorage
-    const newPackets = approvedPackets.map(packet => ({
-      id: packet.id,
-      title: packet.title,
-      description: packet.description,
-      type: packet.type,
-      priority: packet.approvedPriority,
-      status: "pending",
-      tasks: packet.tasks,
-      acceptanceCriteria: packet.acceptanceCriteria,
-      createdAt: new Date().toISOString(),
-      sourceCategory: packet.category
-    }))
+      // Convert ProposedPacket to the format expected
+      const newPackets = approvedPackets.map(packet => ({
+        id: packet.id,
+        title: packet.title,
+        description: packet.description,
+        type: packet.type,
+        priority: packet.approvedPriority,
+        status: "pending",
+        tasks: packet.tasks,
+        acceptanceCriteria: packet.acceptanceCriteria,
+        createdAt: new Date().toISOString(),
+        sourceCategory: packet.category
+      }))
 
-    projectPackets.push(...newPackets)
-    allPackets[projectId] = projectPackets
-    localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+      // Save to server
+      await fetch(`/api/projects/${projectId}/packets`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packets: [...existingPackets, ...newPackets] })
+      })
 
-    // Notify parent
-    onMarkdownPacketsCreated?.(approvedPackets)
+      // Notify parent
+      onMarkdownPacketsCreated?.(approvedPackets)
 
-    // Clear state
-    setProposedPackets([])
+      // Clear state
+      setProposedPackets([])
+    } catch (error) {
+      console.error("Failed to save packets to server:", error)
+    }
   }, [projectId, onMarkdownPacketsCreated])
 
   /**

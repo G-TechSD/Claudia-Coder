@@ -28,25 +28,6 @@ export function useSettings() {
   const [error, setError] = useState<string | null>(null)
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Fetch settings from server on mount
-  useEffect(() => {
-    // Initial load from localStorage
-    setSettings(getSettings())
-
-    // Subscribe to changes from other components
-    const unsubscribe = subscribeToSettings(setSettings)
-
-    // Attempt to fetch from server
-    fetchFromServer()
-
-    return () => {
-      unsubscribe()
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current)
-      }
-    }
-  }, [])
-
   // Fetch settings from server
   const fetchFromServer = useCallback(async () => {
     setSyncStatus("syncing")
@@ -85,6 +66,25 @@ export function useSettings() {
       setError(err instanceof Error ? err.message : "Failed to sync")
     }
   }, [])
+
+  // Fetch settings from server on mount
+  useEffect(() => {
+    // Initial load from localStorage
+    setSettings(getSettings())
+
+    // Subscribe to changes from other components
+    const unsubscribe = subscribeToSettings(setSettings)
+
+    // Attempt to fetch from server
+    fetchFromServer()
+
+    return () => {
+      unsubscribe()
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current)
+      }
+    }
+  }, [fetchFromServer])
 
   // Sync settings to server with debounce
   const syncToServer = useCallback(async (settingsToSync: AppSettings) => {

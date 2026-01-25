@@ -7,7 +7,7 @@
     "claudia:lan": "next dev --hostname 0.0.0.0",
     "claudia:turbo": "next dev --turbo --experimental-https --experimental-https-key localhost.key --experimental-https-cert localhost.crt",
     "claudia:ssl": "node server.js",
-    "build": "next build",
+    "build": "unset TURBOPACK; NODE_ENV=production next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",

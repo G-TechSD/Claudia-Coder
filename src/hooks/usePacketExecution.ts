@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { getProject } from "@/lib/data/projects"
-import { getPacketsForProject, updatePacket } from "@/lib/ai/build-plan"
+import { getPacketsForProject, updatePacketSync } from "@/lib/ai/build-plan"
 import type { PacketRun, PacketRunStatus, PacketRunRating } from "@/lib/data/types"
 import {
   getPacketRuns,
@@ -50,6 +50,14 @@ export interface UsePacketExecutionReturn {
 
 // Re-export types for consumers
 export type { PacketRun, PacketRunStatus, PacketRunRating }
+
+// ============ Constants ============
+
+// Terminal statuses that indicate execution has finished
+const TERMINAL_STATUSES: PacketRunStatus[] = ["completed", "failed", "cancelled"]
+
+// Maximum polling duration (30 minutes) to prevent infinite polling
+const MAX_POLLING_DURATION_MS = 30 * 60 * 1000
 
 // ============ Hook ============
 
@@ -97,12 +105,6 @@ export function usePacketExecution(packetId: string, projectId: string): UsePack
       }
     }
   }, [])
-
-  // Terminal statuses that indicate execution has finished
-  const TERMINAL_STATUSES: PacketRunStatus[] = ["completed", "failed", "cancelled"]
-
-  // Maximum polling duration (30 minutes) to prevent infinite polling
-  const MAX_POLLING_DURATION_MS = 30 * 60 * 1000
 
   // Poll for execution status updates
   // Supports both local packet run status and N8N callback endpoint for async workflows
@@ -212,7 +214,7 @@ export function usePacketExecution(packetId: string, projectId: string): UsePack
         throw new Error(`Project not found: ${projectId}`)
       }
 
-      const packets = getPacketsForProject(projectId)
+      const packets = await getPacketsForProject(projectId)
       const packet = packets.find(p => p.id === packetId)
       if (!packet) {
         throw new Error(`Packet not found: ${packetId}`)
@@ -229,7 +231,7 @@ export function usePacketExecution(packetId: string, projectId: string): UsePack
       setIsExecuting(true)
 
       // Update packet status
-      updatePacket(projectId, packetId, { status: "in_progress" })
+      updatePacketSync(projectId, packetId, { status: "in_progress" })
 
       // Create abort controller for this execution
       abortControllerRef.current = new AbortController()
@@ -276,7 +278,7 @@ export function usePacketExecution(packetId: string, projectId: string): UsePack
           output: result.rawOutput || JSON.stringify(result.files || [], null, 2),
           exitCode: 0
         })
-        updatePacket(projectId, packetId, { status: "completed" })
+        updatePacketSync(projectId, packetId, { status: "completed" })
       } else {
         updatePacketRun(run.id, {
           status: "failed",
@@ -284,7 +286,7 @@ export function usePacketExecution(packetId: string, projectId: string): UsePack
           output: result.errors?.join("\n") || "Unknown error",
           exitCode: 1
         })
-        updatePacket(projectId, packetId, { status: "blocked" })
+        updatePacketSync(projectId, packetId, { status: "blocked" })
       }
 
       // Refresh to get the updated run
@@ -312,7 +314,7 @@ export function usePacketExecution(packetId: string, projectId: string): UsePack
           output: message,
           exitCode: 1
         })
-        updatePacket(projectId, packetId, { status: "blocked" })
+        updatePacketSync(projectId, packetId, { status: "blocked" })
       }
 
       setIsExecuting(false)
@@ -342,7 +344,7 @@ export function usePacketExecution(packetId: string, projectId: string): UsePack
         completedAt: new Date().toISOString(),
         output: currentRun.output + "\n[Cancelled by user]"
       })
-      updatePacket(projectId, packetId, { status: "queued" })
+      updatePacketSync(projectId, packetId, { status: "queued" })
     }
 
     setIsExecuting(false)
@@ -468,7 +470,7 @@ export function useLegacyPacketExecution(): LegacyUsePacketExecutionReturn {
         throw new Error(`Project not found: ${projectId}`)
       }
 
-      const packets = getPacketsForProject(projectId)
+      const packets = await getPacketsForProject(projectId)
       const packet = packets.find(p => p.id === packetId)
       if (!packet) {
         throw new Error(`Packet not found: ${packetId}`)
@@ -488,7 +490,7 @@ export function useLegacyPacketExecution(): LegacyUsePacketExecutionReturn {
       }
 
       // Update packet status to in_progress
-      updatePacket(projectId, packetId, { status: "in_progress" })
+      updatePacketSync(projectId, packetId, { status: "in_progress" })
 
       // Call execution API
       const response = await fetch("/api/execute", {
@@ -518,13 +520,13 @@ export function useLegacyPacketExecution(): LegacyUsePacketExecutionReturn {
 
       // Update packet status based on result
       if (result.success) {
-        updatePacket(projectId, packetId, { status: "completed" })
+        updatePacketSync(projectId, packetId, { status: "completed" })
         addLog("success", `Execution completed! ${result.files.length} files generated.`)
         if (result.commitUrl) {
           addLog("success", `Commit: ${result.commitUrl}`)
         }
       } else {
-        updatePacket(projectId, packetId, { status: "blocked" })
+        updatePacketSync(projectId, packetId, { status: "blocked" })
         addLog("error", `Execution failed: ${result.errors.join(", ")}`)
       }
 
@@ -537,7 +539,7 @@ export function useLegacyPacketExecution(): LegacyUsePacketExecutionReturn {
       addLog("error", message)
 
       // Update packet status to blocked
-      updatePacket(projectId, packetId, { status: "blocked" })
+      updatePacketSync(projectId, packetId, { status: "blocked" })
 
       const failedResult: ExecutionResult = {
         success: false,

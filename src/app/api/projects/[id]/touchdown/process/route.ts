@@ -39,22 +39,81 @@ interface RefinementPacket {
 }
 
 /**
- * Parse TypeScript errors from output
+ * Storage for saving packets to server
  */
-function parseTypeScriptErrors(output: string): string[] {
-  const errors: string[] = []
+import * as fs from "fs/promises"
+import * as path from "path"
+
+const STORAGE_DIR = path.join(process.cwd(), ".local-storage")
+const PACKETS_FILE = path.join(STORAGE_DIR, "packets.json")
+
+interface PacketsStore {
+  packets: Record<string, RefinementPacket[]>
+  lastUpdated: string
+}
+
+async function readPacketsStore(): Promise<PacketsStore> {
+  try {
+    const data = await fs.readFile(PACKETS_FILE, "utf-8")
+    return JSON.parse(data) as PacketsStore
+  } catch {
+    return { packets: {}, lastUpdated: new Date().toISOString() }
+  }
+}
+
+async function addPacketsToProject(projectId: string, newPackets: RefinementPacket[]): Promise<void> {
+  const store = await readPacketsStore()
+  const existingPackets = store.packets[projectId] || []
+  const existingIds = new Set(existingPackets.map(p => p.id))
+
+  // Add new packets that don't already exist
+  for (const packet of newPackets) {
+    if (!existingIds.has(packet.id)) {
+      existingPackets.push(packet)
+    }
+  }
+
+  store.packets[projectId] = existingPackets
+  store.lastUpdated = new Date().toISOString()
+
+  await fs.mkdir(STORAGE_DIR, { recursive: true })
+  await fs.writeFile(PACKETS_FILE, JSON.stringify(store, null, 2), "utf-8")
+  console.log(`[touchdown/process] Added ${newPackets.length} packets to project ${projectId}`)
+}
+
+/**
+ * Parse TypeScript errors from output - ENHANCED with file paths
+ */
+function parseTypeScriptErrors(output: string): Array<{ file: string; error: string; line?: number }> {
+  const errors: Array<{ file: string; error: string; line?: number }> = []
   const lines = output.split("\n")
 
   for (const line of lines) {
     // Match TS error pattern: filename(line,col): error TS1234: message
-    const match = line.match(/error TS\d+:\s*(.+)/)
+    const match = line.match(/(.+?)\((\d+),\d+\):\s*error TS\d+:\s*(.+)/)
     if (match) {
-      errors.push(match[1].trim())
+      errors.push({
+        file: match[1].trim(),
+        line: parseInt(match[2]),
+        error: match[3].trim()
+      })
+    } else {
+      // Simpler pattern without line numbers
+      const simpleMatch = line.match(/error TS\d+:\s*(.+)/)
+      if (simpleMatch) {
+        errors.push({ file: "unknown", error: simpleMatch[1].trim() })
+      }
     }
   }
 
-  // Deduplicate similar errors
-  return [...new Set(errors)].slice(0, 10)
+  // Deduplicate by error message
+  const seen = new Set<string>()
+  return errors.filter(e => {
+    const key = `${e.file}:${e.error}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 15)
 }
 
 /**
@@ -164,29 +223,88 @@ export async function POST(
     const packets: RefinementPacket[] = []
     const timestamp = Date.now()
 
-    // Process TypeScript errors
+    // Process TypeScript errors - Create detailed packets per file
     if (body.qualityGates?.typeCheck && !body.qualityGates.typeCheck.passed && body.qualityGates.typeCheck.output) {
       const tsErrors = parseTypeScriptErrors(body.qualityGates.typeCheck.output)
 
       if (tsErrors.length > 0) {
-        packets.push({
-          id: `touchdown-ts-${timestamp}`,
-          title: `Fix TypeScript Errors (${tsErrors.length} issues)`,
-          description: `TypeScript compilation found the following errors that need to be fixed:\n\n${tsErrors.map((e, i) => `${i + 1}. ${e}`).join("\n")}\n\nRun \`npx tsc --noEmit\` to verify all errors are resolved.`,
-          type: "bug_fix",
-          priority: "high",
-          status: "queued",
-          tasks: tsErrors.slice(0, 5).map((error, i) => ({
-            id: `task-ts-${i}`,
-            description: `Fix: ${error}`,
-            completed: false
-          })),
-          acceptanceCriteria: [
-            "All TypeScript errors are resolved",
-            "`npx tsc --noEmit` completes with no errors",
-            "No type: any added to bypass errors"
-          ]
-        })
+        // Group errors by file for better organization
+        const errorsByFile: Record<string, typeof tsErrors> = {}
+        for (const err of tsErrors) {
+          if (!errorsByFile[err.file]) errorsByFile[err.file] = []
+          errorsByFile[err.file].push(err)
+        }
+
+        // Create a packet for each file with errors (up to 5 files)
+        const files = Object.keys(errorsByFile).slice(0, 5)
+        for (let fileIdx = 0; fileIdx < files.length; fileIdx++) {
+          const file = files[fileIdx]
+          const fileErrors = errorsByFile[file]
+
+          packets.push({
+            id: `touchdown-ts-${timestamp}-${fileIdx}`,
+            title: `Fix TypeScript Errors in ${file.split("/").pop() || file}`,
+            description: `Fix TypeScript compilation errors in \`${file}\`:
+
+**Errors to fix:**
+${fileErrors.map((e, i) => `${i + 1}. Line ${e.line || "?"}: ${e.error}`).join("\n")}
+
+**Steps:**
+1. Open \`${file}\`
+2. Go to each line number listed above
+3. Fix the type error by:
+   - Adding proper type annotations
+   - Fixing import statements
+   - Correcting variable types
+   - Adding null checks where needed
+4. Run \`npx tsc --noEmit\` to verify
+
+**Integration Note:** After fixing, ensure any exported types/functions still work correctly with importing files.`,
+            type: "bug_fix",
+            priority: "high",
+            status: "queued",
+            tasks: fileErrors.slice(0, 5).map((error, i) => ({
+              id: `task-ts-${fileIdx}-${i}`,
+              description: `Fix line ${error.line || "?"}: ${error.error}`,
+              completed: false
+            })),
+            acceptanceCriteria: [
+              `No TypeScript errors in \`${file}\``,
+              "`npx tsc --noEmit` passes for this file",
+              "No type: any added to bypass errors",
+              "All imports and exports still work"
+            ]
+          })
+        }
+
+        // Add summary/verification packet if multiple files
+        if (files.length > 1) {
+          packets.push({
+            id: `touchdown-ts-verify-${timestamp}`,
+            title: `Verify All TypeScript Errors Fixed`,
+            description: `After fixing TypeScript errors in individual files, verify the entire codebase compiles:
+
+1. Run \`npx tsc --noEmit\`
+2. Verify zero errors
+3. Run \`npm run build\` to ensure build works
+4. Check that all fixed files integrate correctly
+
+This packet depends on: ${files.map((_, i) => `touchdown-ts-${timestamp}-${i}`).join(", ")}`,
+            type: "verification",
+            priority: "critical",
+            status: "queued",
+            tasks: [
+              { id: `task-ts-verify-1`, description: "Run `npx tsc --noEmit` - should pass with 0 errors", completed: false },
+              { id: `task-ts-verify-2`, description: "Run `npm run build` - should succeed", completed: false },
+              { id: `task-ts-verify-3`, description: "Manually review any type: any additions", completed: false }
+            ],
+            acceptanceCriteria: [
+              "TypeScript compilation succeeds with no errors",
+              "Build completes successfully",
+              "No new type: any declarations"
+            ]
+          })
+        }
       }
     }
 
@@ -306,11 +424,32 @@ export async function POST(
       }
     }
 
+    // Auto-save packets to server storage
+    if (packets.length > 0) {
+      try {
+        await addPacketsToProject(projectId, packets)
+        console.log(`[touchdown/process] Auto-saved ${packets.length} packets to server`)
+      } catch (saveError) {
+        console.error("[touchdown/process] Failed to auto-save packets:", saveError)
+      }
+    }
+
+    // Add iteration tracking metadata
+    const iterationInfo = {
+      iterationNumber: 1, // Would need to track this across calls
+      hasMoreIssues: packets.length > 0,
+      recommendation: packets.length > 0
+        ? "Execute these packets to fix issues, then run touchdown again"
+        : "All quality gates passing - project ready for deployment"
+    }
+
     return NextResponse.json({
       success: true,
       packets,
       count: packets.length,
-      projectId
+      projectId,
+      savedToServer: packets.length > 0,
+      iteration: iterationInfo
     })
 
   } catch (error) {

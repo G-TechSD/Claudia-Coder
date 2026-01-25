@@ -270,7 +270,7 @@ export async function triggerTouchdown(
   // Save the touchdown packet
   const allPackets = await getPacketsForProject(projectId)
   allPackets.push(touchdownPacket)
-  await savePackets(projectId, allPackets)
+  await await savePackets(projectId, allPackets)
 
   // Update project status to completed
   if (project) {

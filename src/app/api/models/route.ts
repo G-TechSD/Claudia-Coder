@@ -42,7 +42,7 @@ interface CachedModels {
 
 // In-memory cache (per-server instance)
 const modelCache: Record<string, CachedModels> = {}
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const CACHE_TTL = 1 * 60 * 1000 // 1 minute (reduced for fresher data)
 
 /**
  * Fetch models from Anthropic API
@@ -93,6 +93,7 @@ async function fetchAnthropicModels(apiKey?: string): Promise<FetchedModel[]> {
  */
 async function fetchOpenAIModels(apiKey?: string): Promise<FetchedModel[]> {
   const key = apiKey || process.env.OPENAI_API_KEY
+  console.log(`[OpenAI] Attempting fetch with key: ${key ? key.substring(0, 10) + "..." : "NO KEY"}`)
   if (!key) return []
 
   try {
@@ -103,32 +104,72 @@ async function fetchOpenAIModels(apiKey?: string): Promise<FetchedModel[]> {
     })
 
     if (!response.ok) {
-      console.error("OpenAI API error:", response.status)
+      const errorText = await response.text().catch(() => "")
+      console.error("OpenAI API error:", response.status, errorText)
       return []
     }
 
     const data = await response.json()
 
+    // Get all models from API response
+    const allModels = data.data || []
+    console.log(`[OpenAI API] Returned ${allModels.length} total models:`, allModels.map((m: {id: string}) => m.id))
+
     // Filter to only include chat-capable models
-    // Include all GPT models, o-series reasoning models, and any chatgpt models
-    const chatModels = (data.data || []).filter((model: { id: string }) => {
+    // Be very permissive - better to show too many than miss important ones
+    const chatModels = allModels.filter((model: { id: string }) => {
       const id = model.id.toLowerCase()
-      // Exclude non-chat models
-      if (id.includes("instruct") || id.includes("vision") || id.includes("audio") ||
-          id.includes("embed") || id.includes("whisper") || id.includes("tts") ||
-          id.includes("dall-e") || id.includes("moderation")) {
+
+      // Hard exclusions - definitely not chat models
+      const isExcluded = (
+        id.includes("embed") ||
+        id.includes("whisper") ||
+        id.includes("tts") ||
+        id.includes("dall-e") ||
+        id.includes("moderation") ||
+        id.includes("audio") ||
+        id.includes("realtime") ||
+        id.includes("transcri") ||
+        id.includes("babbage") ||  // Old completion models
+        id.includes("davinci") ||  // Old completion models (except gpt-4-davinci)
+        id.includes("curie") ||    // Old completion models
+        id.includes("ada")         // Old completion models
+      )
+
+      if (isExcluded && !id.startsWith("gpt")) {
         return false
       }
-      // Include chat-capable models
-      return (
-        id.startsWith("gpt-") ||       // GPT-3.5, GPT-4, GPT-4.5, GPT-5, etc.
+
+      // Include anything that looks like a chat model
+      // This is intentionally very permissive to catch new model names
+      const isIncluded = (
+        id.startsWith("gpt") ||         // All GPT models (gpt-3, gpt-4, gpt-5, etc.)
         id.startsWith("o1") ||          // o1 reasoning models
         id.startsWith("o3") ||          // o3 reasoning models
-        id.startsWith("o4") ||          // o4 reasoning models (future)
-        id.startsWith("o5") ||          // o5 reasoning models (future)
-        id.includes("chatgpt")          // ChatGPT models
+        id.startsWith("o4") ||          // o4 reasoning models
+        id.startsWith("o5") ||          // future o5 models
+        id.includes("chatgpt") ||       // ChatGPT models
+        id.includes("turbo") ||         // Turbo variants
+        id.includes("preview") ||       // Preview models
+        id.includes("chat") ||          // Any chat model
+        id.includes("instruct")         // Instruction-tuned models
       )
+
+      return isIncluded
     })
+
+    console.log(`[OpenAI API] Filtered to ${chatModels.length} chat models:`, chatModels.map((m: {id: string}) => m.id))
+
+    // Store debug info for troubleshooting (temporarily)
+    if (typeof global !== "undefined") {
+      (global as Record<string, unknown>).openaiDebug = {
+        allModelsCount: allModels.length,
+        allModelIds: allModels.map((m: {id: string}) => m.id),
+        chatModelsCount: chatModels.length,
+        chatModelIds: chatModels.map((m: {id: string}) => m.id),
+        fetchedAt: new Date().toISOString()
+      }
+    }
 
     return chatModels.map((model: {
       id: string
@@ -373,7 +414,10 @@ export async function GET(request: NextRequest) {
   const userLocalServers = parseLocalServers(searchParams.get("localServers"))
 
   // Parse user cloud provider API keys from query params (for backwards compatibility)
-  const userCloudProviders = parseCloudProviders(searchParams.get("cloudProviders"))
+  const cloudProvidersRaw = searchParams.get("cloudProviders")
+  const userCloudProviders = parseCloudProviders(cloudProvidersRaw)
+  console.log("[Models API] cloudProviders raw:", cloudProvidersRaw?.substring(0, 100))
+  console.log("[Models API] parsed providers:", userCloudProviders.map(p => ({ provider: p.provider, hasKey: !!p.apiKey })))
 
   // Try to get API keys from server-side database (for authenticated users)
   let serverApiKeys: { anthropic?: string; openai?: string; google?: string } | null = null
@@ -403,9 +447,14 @@ export async function GET(request: NextRequest) {
   const allModels: FetchedModel[] = []
   const providerStatus: Record<string, "online" | "offline" | "invalid_key" | "no_key"> = {}
 
-  // Helper to get API key from: 1) server DB, 2) user config, 3) environment
+  // Helper to get API key from: 1) request params (explicit), 2) server DB, 3) environment
   const getApiKey = (providerName: string): string | undefined => {
-    // First priority: Server-side database (authenticated user)
+    // First priority: Request body/query params (when user is explicitly passing a key)
+    // This allows testing new keys before saving them
+    const userKey = userCloudProviders.find(p => p.provider === providerName)?.apiKey
+    if (userKey) return userKey
+
+    // Second priority: Server-side database (authenticated user's saved keys)
     if (serverApiKeys) {
       switch (providerName) {
         case "anthropic":
@@ -419,10 +468,6 @@ export async function GET(request: NextRequest) {
           break
       }
     }
-
-    // Second priority: Request body/query params (backwards compatibility)
-    const userKey = userCloudProviders.find(p => p.provider === providerName)?.apiKey
-    if (userKey) return userKey
 
     // Fall back to environment variables
     switch (providerName) {
@@ -591,6 +636,15 @@ export async function GET(request: NextRequest) {
     ttl: CACHE_TTL
   }
 
+  // Include debug info if requested
+  const debug = searchParams.get("debug") === "true"
+  const openaiDebug = typeof global !== "undefined" ? (global as Record<string, unknown>).openaiDebug : null
+  const debugInfo = debug ? {
+    cloudProvidersRaw: cloudProvidersRaw?.substring(0, 50),
+    parsedProviders: userCloudProviders.map(p => ({ provider: p.provider, keyPrefix: p.apiKey?.substring(0, 10) })),
+    serverApiKeys: serverApiKeys ? Object.keys(serverApiKeys).filter(k => (serverApiKeys as Record<string, string>)[k]) : []
+  } : null
+
   return NextResponse.json({
     models: allModels,
     cached: false,
@@ -609,7 +663,9 @@ export async function GET(request: NextRequest) {
         ollama: allModels.filter(m => m.provider === "ollama").length,
         "claude-code": allModels.filter(m => m.provider === "claude-code").length
       }
-    }
+    },
+    ...(debug && openaiDebug ? { openaiDebug } : {}),
+    ...(debug && debugInfo ? { debugInfo } : {})
   })
 }
 

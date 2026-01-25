@@ -184,21 +184,86 @@ function transformPacket(raw: N8NPacket): Packet {
 }
 
 /**
- * Load packets from .local-storage build plan files
- * These files contain build plans with packet definitions
+ * Load packets from .local-storage directory
+ * Reads from:
+ * - packets.json (central storage)
+ * - *-build-plan.json files (legacy)
  */
 function loadPacketsFromLocalStorage(): Packet[] {
   const packets: Packet[] = []
+  const seenIds = new Set<string>()
 
   try {
-    // Path to .local-storage directory relative to project root
     const localStorageDir = path.join(process.cwd(), ".local-storage")
 
     if (!fs.existsSync(localStorageDir)) {
       return packets
     }
 
-    // Find all build plan JSON files
+    // 1. First, read from central packets.json file
+    const packetsFile = path.join(localStorageDir, "packets.json")
+    if (fs.existsSync(packetsFile)) {
+      try {
+        const content = fs.readFileSync(packetsFile, "utf-8")
+        const packetsStore = JSON.parse(content)
+
+        // packetsStore.packets is { [projectId]: WorkPacket[] }
+        if (packetsStore.packets && typeof packetsStore.packets === "object") {
+          for (const [projectId, projectPackets] of Object.entries(packetsStore.packets)) {
+            if (Array.isArray(projectPackets)) {
+              for (const wp of projectPackets as Array<{
+                id: string
+                title?: string
+                description?: string
+                status?: string
+                type?: string
+                priority?: string
+                phaseId?: string
+                assignedModel?: string
+                acceptanceCriteria?: string[]
+                dependencies?: string[]
+              }>) {
+                if (seenIds.has(wp.id)) continue
+                seenIds.add(wp.id)
+
+                let packetStatus: PacketStatus = "queued"
+                if (wp.status === "completed") packetStatus = "completed"
+                else if (wp.status === "in_progress" || wp.status === "assigned") packetStatus = "running"
+                else if (wp.status === "blocked") packetStatus = "paused"
+                else if (wp.status === "failed") packetStatus = "failed"
+
+                packets.push({
+                  id: wp.id,
+                  planRunID: wp.phaseId || "",
+                  projectID: projectId,
+                  packetID: wp.id,
+                  title: wp.title || `Packet ${wp.id}`,
+                  summary: wp.description || "",
+                  issueIDs: [],
+                  assignedWorker: wp.assignedModel || "",
+                  status: packetStatus,
+                  issues: [],
+                  acceptanceCriteria: wp.acceptanceCriteria || [],
+                  risks: [],
+                  dependencies: wp.dependencies || [],
+                  feedback: null,
+                  feedbackComment: null,
+                  startedAt: null,
+                  completedAt: null,
+                  createdAt: null,
+                  updatedAt: packetsStore.lastUpdated || null,
+                  workerOutput: null
+                })
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to parse packets.json:", error)
+      }
+    }
+
+    // 2. Also check build plan JSON files (legacy support)
     const files = fs.readdirSync(localStorageDir)
     const buildPlanFiles = files.filter(f => f.endsWith("-build-plan.json") || f.includes("build-plan"))
 
@@ -212,9 +277,12 @@ function loadPacketsFromLocalStorage(): Packet[] {
         const projectName = buildPlan.projectName || file.replace("-build-plan.json", "")
         const projectId = buildPlan.projectId || projectName.toLowerCase().replace(/\s+/g, "-")
 
-        // Extract packets from build plan
+        // Extract packets from build plan (skip if already seen from packets.json)
         if (buildPlan.packets && Array.isArray(buildPlan.packets)) {
           for (const wp of buildPlan.packets) {
+            if (seenIds.has(wp.id)) continue
+            seenIds.add(wp.id)
+
             // Map status from WorkPacket to Packet status
             let packetStatus: PacketStatus = "queued"
             if (wp.status === "completed") packetStatus = "completed"

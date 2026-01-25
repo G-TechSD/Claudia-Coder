@@ -832,6 +832,47 @@ export async function POST(request: NextRequest) {
       console.warn("[initialize-folder] Could not create status file")
     }
 
+    // Save packets to server-side central storage
+    // This ensures packets are available via /api/projects/[id]/packets
+    if (project && packets.length > 0) {
+      try {
+        const STORAGE_DIR = path.join(process.cwd(), ".local-storage")
+        const PACKETS_FILE = path.join(STORAGE_DIR, "packets.json")
+
+        // Ensure storage directory exists
+        if (!existsSync(STORAGE_DIR)) {
+          await mkdir(STORAGE_DIR, { recursive: true })
+        }
+
+        // Read existing packets store
+        let packetsStore: { packets: Record<string, unknown[]>; lastUpdated: string } = {
+          packets: {},
+          lastUpdated: new Date().toISOString()
+        }
+        if (existsSync(PACKETS_FILE)) {
+          try {
+            const data = await import("fs/promises").then(fs => fs.readFile(PACKETS_FILE, "utf-8"))
+            packetsStore = JSON.parse(data)
+          } catch {
+            // File exists but couldn't read, start fresh
+          }
+        }
+
+        // Save packets for this project
+        packetsStore.packets[project.id] = packets.map(p => ({
+          ...p,
+          status: p.status || "queued"
+        }))
+        packetsStore.lastUpdated = new Date().toISOString()
+
+        await writeFile(PACKETS_FILE, JSON.stringify(packetsStore, null, 2), "utf-8")
+        console.log(`[initialize-folder] Saved ${packets.length} packets to server storage for project ${project.id}`)
+      } catch (error) {
+        console.error("[initialize-folder] Failed to save packets to server storage:", error)
+        errors.push("Failed to save packets to central storage")
+      }
+    }
+
     const response: InitializeResponse = {
       success: true,
       workingDirectory,

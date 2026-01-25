@@ -85,12 +85,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Module description is required" }, { status: 400 })
     }
 
-    const module = registerModule(body)
+    const newModule = registerModule(body)
 
     return NextResponse.json({
       success: true,
-      module,
-      message: `Emergent module "${module.name}" has been created!`,
+      module: newModule,
+      message: `Emergent module "${newModule.name}" has been created!`,
     })
   } catch (error) {
     console.error("[emergent-modules] POST error:", error)

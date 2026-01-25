@@ -19,62 +19,39 @@ interface DashboardMetrics {
   budgetPercent: number
 }
 
-function loadMetrics(userId: string | undefined): DashboardMetrics {
+function loadProjectMetrics(userId: string | undefined): { activeProjects: number } {
   if (typeof window === "undefined" || !userId) {
-    return {
-      activeProjects: 0,
-      activePackets: 0,
-      completedToday: 0,
-      blocked: 0,
-      budgetRemaining: 35,
-      budgetPercent: 100
-    }
+    return { activeProjects: 0 }
   }
 
   try {
-    // Load projects using user-scoped storage
     const projects = getAllProjects({ userId })
     const activeProjects = projects.filter((p) =>
       p.status === "active" || p.status === "planning"
     ).length
-
-    // Load packets - stored as { [projectId]: WorkPacket[] }
-    const packetsData = localStorage.getItem("claudia_packets")
-    const packetsRecord = packetsData ? JSON.parse(packetsData) : {}
-    const packets = Object.values(packetsRecord).flat() as Array<{ status: string }>
-    const activePackets = packets.filter((p) =>
-      p.status === "queued" || p.status === "in_progress"
-    ).length
-
-    // Load execution results for today
-    const resultsData = localStorage.getItem("claudia_execution_results")
-    const results = resultsData ? JSON.parse(resultsData) : []
-    const today = new Date().toDateString()
-    const completedToday = results.filter((r: { completedAt: string }) =>
-      new Date(r.completedAt).toDateString() === today
-    ).length
-
-    // Count blocked
-    const blocked = packets.filter((p) => p.status === "blocked").length
-
-    return {
-      activeProjects,
-      activePackets,
-      completedToday,
-      blocked,
-      budgetRemaining: 35,  // Would come from settings/costs
-      budgetPercent: 100
-    }
+    return { activeProjects }
   } catch {
-    return {
-      activeProjects: 0,
-      activePackets: 0,
-      completedToday: 0,
-      blocked: 0,
-      budgetRemaining: 35,
-      budgetPercent: 100
-    }
+    return { activeProjects: 0 }
   }
+}
+
+async function loadPacketMetrics(): Promise<{ activePackets: number; completedToday: number; blocked: number }> {
+  try {
+    const response = await fetch("/api/packets")
+    const data = await response.json()
+    if (data.success && data.packets) {
+      const packets = data.packets as Array<{ status: string }>
+      const activePackets = packets.filter((p) =>
+        p.status === "queued" || p.status === "in_progress"
+      ).length
+      const blocked = packets.filter((p) => p.status === "blocked").length
+      // TODO: completedToday would need timestamp tracking
+      return { activePackets, completedToday: 0, blocked }
+    }
+  } catch (error) {
+    console.error("[Dashboard] Failed to load packet metrics:", error)
+  }
+  return { activePackets: 0, completedToday: 0, blocked: 0 }
 }
 
 export default function Dashboard() {
@@ -93,13 +70,24 @@ export default function Dashboard() {
     const loadDashboardMetrics = async () => {
       if (!userId) return
 
-      // Show cached data immediately
-      setMetrics(loadMetrics(userId))
+      // Load project metrics from cache
+      const projectMetrics = loadProjectMetrics(userId)
+      setMetrics(prev => ({ ...prev, activeProjects: projectMetrics.activeProjects }))
 
-      // Fetch fresh data from server
+      // Fetch packet metrics from server
+      const packetMetrics = await loadPacketMetrics()
+      setMetrics(prev => ({
+        ...prev,
+        activePackets: packetMetrics.activePackets,
+        completedToday: packetMetrics.completedToday,
+        blocked: packetMetrics.blocked
+      }))
+
+      // Fetch fresh project data from server
       try {
-        await fetchProjects(userId) // This updates the cache
-        setMetrics(loadMetrics(userId)) // Re-read from updated cache
+        await fetchProjects(userId)
+        const updatedProjectMetrics = loadProjectMetrics(userId)
+        setMetrics(prev => ({ ...prev, activeProjects: updatedProjectMetrics.activeProjects }))
       } catch (error) {
         console.error("[Dashboard] Failed to fetch projects:", error)
       }

@@ -99,6 +99,13 @@ export function TouchdownSection({
   const [processedPacketsCount, setProcessedPacketsCount] = React.useState<number | null>(null)
   const [processedMessage, setProcessedMessage] = React.useState<string | null>(null)
 
+  // Auto-iteration state
+  const [iterationCount, setIterationCount] = React.useState(0)
+  const [maxIterations, setMaxIterations] = React.useState(5)
+  const [autoIterate, setAutoIterate] = React.useState(false)
+  const [isAutoIterating, setIsAutoIterating] = React.useState(false)
+  const [autoIterateLog, setAutoIterateLog] = React.useState<string[]>([])
+
   // Options
   const [mode, setMode] = React.useState<"auto" | "local" | "cloud">("auto")
   const [runQualityGates, setRunQualityGates] = React.useState(true)
@@ -204,6 +211,116 @@ export function TouchdownSection({
     } finally {
       setIsProcessingRefinements(false)
     }
+
+    return { success: !result?.qualityGates || result.allGatesPassing }
+  }
+
+  // Auto-iterate: Run touchdown + process refinements repeatedly until gates pass
+  const handleAutoIterate = async () => {
+    if (!workingDirectory) {
+      setError("No working directory configured for this project")
+      return
+    }
+
+    setIsAutoIterating(true)
+    setAutoIterateLog([])
+    setIterationCount(0)
+    setError(null)
+
+    const addLog = (msg: string) => {
+      setAutoIterateLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`])
+    }
+
+    addLog("Starting auto-iteration...")
+
+    for (let iteration = 1; iteration <= maxIterations; iteration++) {
+      setIterationCount(iteration)
+      addLog(`--- Iteration ${iteration}/${maxIterations} ---`)
+
+      // Step 1: Run touchdown
+      addLog("Running quality gates and analysis...")
+      setIsRunning(true)
+      try {
+        const response = await fetch(`/api/projects/${projectId}/touchdown`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workingDirectory,
+            packets,
+            mode,
+            runQualityGates: true,
+            generateAnalysis: true,
+            project: { id: projectId, name: projectName, description: projectDescription },
+          }),
+        })
+
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || "Touchdown failed")
+
+        setResult(data)
+
+        // Check if all gates pass
+        if (data.allGatesPassing) {
+          addLog("All quality gates PASSED! Project is ready.")
+          setIsRunning(false)
+          break
+        }
+
+        const failedGates: string[] = []
+        if (!data.qualityGates?.tests?.passed) failedGates.push("tests")
+        if (!data.qualityGates?.typeCheck?.passed) failedGates.push("TypeScript")
+        if (!data.qualityGates?.build?.passed) failedGates.push("build")
+        addLog(`Failed gates: ${failedGates.join(", ")}`)
+
+        setIsRunning(false)
+
+        // Step 2: Process refinements into packets
+        addLog("Processing issues into refinement packets...")
+        setIsProcessingRefinements(true)
+
+        const processResponse = await fetch(`/api/projects/${projectId}/touchdown/process`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId,
+            projectName,
+            qualityGates: data.qualityGates,
+            aiAnalysis: data.aiAnalysis,
+            touchdownMarkdown: data.touchdownMarkdown,
+          }),
+        })
+
+        const processData = await processResponse.json()
+        setIsProcessingRefinements(false)
+
+        if (processData.packets && processData.packets.length > 0) {
+          addLog(`Created ${processData.packets.length} fix packets`)
+          onPacketsGenerated?.(processData.packets)
+          setProcessedPacketsCount(processData.packets.length)
+        } else {
+          addLog("No actionable fix packets could be generated")
+          if (iteration === maxIterations) {
+            addLog("Max iterations reached. Manual intervention may be needed.")
+          }
+        }
+
+        // Brief pause before next iteration
+        if (iteration < maxIterations) {
+          addLog("Waiting before next iteration...")
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
+
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "Unknown error"
+        addLog(`ERROR: ${errorMsg}`)
+        setError(errorMsg)
+        break
+      }
+    }
+
+    setIsAutoIterating(false)
+    addLog("Auto-iteration complete")
+    onTouchdownComplete?.()
   }
 
   // Check if there are issues that could become refinement packets
@@ -362,6 +479,46 @@ export function TouchdownSection({
               </div>
             </div>
           </div>
+
+          {/* Auto-Iterate Section */}
+          <div className="pt-3 border-t border-gray-700 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-medium text-orange-400">Auto-Iterate to 100%</h4>
+                <p className="text-xs text-muted-foreground">
+                  Automatically run touchdown and generate fix packets until all gates pass
+                </p>
+              </div>
+              <Select
+                value={String(maxIterations)}
+                onValueChange={(v) => setMaxIterations(parseInt(v))}
+                disabled={isAutoIterating}
+              >
+                <SelectTrigger className="w-24 bg-gray-900 border-gray-800">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="3">3 max</SelectItem>
+                  <SelectItem value="5">5 max</SelectItem>
+                  <SelectItem value="10">10 max</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {isAutoIterating && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-orange-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Iteration {iterationCount}/{maxIterations}
+                </div>
+                <ScrollArea className="h-32 rounded-lg border border-orange-500/20 bg-orange-950/20 p-2">
+                  <pre className="text-xs text-orange-200 font-mono whitespace-pre-wrap">
+                    {autoIterateLog.join("\n")}
+                  </pre>
+                </ScrollArea>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Error Display */}
@@ -415,6 +572,24 @@ export function TouchdownSection({
               Download
             </Button>
           )}
+
+          <Button
+            onClick={handleAutoIterate}
+            disabled={isAutoIterating || isRunning || !workingDirectory}
+            className="bg-orange-600 hover:bg-orange-500 text-white"
+          >
+            {isAutoIterating ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Iterating...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Auto-Iterate
+              </>
+            )}
+          </Button>
         </div>
 
         {/* Process Refinements Button - appears after touchdown completes with issues */}

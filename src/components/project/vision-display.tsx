@@ -117,68 +117,62 @@ export function VisionDisplay({ projectId, className }: VisionDisplayProps) {
       return
     }
 
-    try {
-      const storedPackets = localStorage.getItem("claudia_packets")
-      if (storedPackets) {
-        const allPackets = JSON.parse(storedPackets)
-        const projectPackets = allPackets[projectId] || []
+    // Fetch vision packet from server
+    const loadVision = async () => {
+      try {
+        const response = await fetch(`/api/projects/${projectId}/packets`)
+        const data = await response.json()
+        if (data.success && Array.isArray(data.packets)) {
+          // Find vision packet - it has type: "vision" or metadata.isVisionPacket: true
+          const vision = data.packets.find((p: VisionPacket) =>
+            p.type === "vision" || p.metadata?.isVisionPacket === true
+          )
 
-        // Find vision packet - it has type: "vision" or metadata.isVisionPacket: true
-        const vision = projectPackets.find((p: VisionPacket) =>
-          p.type === "vision" || p.metadata?.isVisionPacket === true
-        )
-
-        if (vision) {
-          setVisionPacket(vision)
-          // Initialize editable content from the packet
-          setEditedContent({
-            tagline: vision.metadata?.tagline || "",
-            storeDescription: vision.metadata?.storeDescription || "",
-            keyFeatures: [...(vision.metadata?.keyFeatures || [])],
-            uniqueSellingPoints: [...(vision.metadata?.uniqueSellingPoints || [])],
-            targetAudience: vision.metadata?.targetAudience || ""
-          })
+          if (vision) {
+            setVisionPacket(vision)
+            // Initialize editable content from the packet
+            setEditedContent({
+              tagline: vision.metadata?.tagline || "",
+              storeDescription: vision.metadata?.storeDescription || "",
+              keyFeatures: [...(vision.metadata?.keyFeatures || [])],
+              uniqueSellingPoints: [...(vision.metadata?.uniqueSellingPoints || [])],
+              targetAudience: vision.metadata?.targetAudience || ""
+            })
+          }
         }
+      } catch (error) {
+        console.error("[VisionDisplay] Failed to load vision packet:", error)
+      } finally {
+        setLoading(false)
       }
-    } catch (error) {
-      console.error("[VisionDisplay] Failed to load vision packet:", error)
-    } finally {
-      setLoading(false)
     }
+    loadVision()
   }, [projectId])
 
-  // Save vision packet to localStorage
-  const saveVisionPacket = useCallback((updatedMetadata: Partial<VisionPacketMetadata>) => {
+  // Save vision packet to server
+  const saveVisionPacket = useCallback(async (updatedMetadata: Partial<VisionPacketMetadata>) => {
     if (!visionPacket || !projectId) return
 
     try {
-      const storedPackets = localStorage.getItem("claudia_packets")
-      if (!storedPackets) return
+      // Use PATCH to update just this packet's metadata
+      await fetch(`/api/projects/${projectId}/packets`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          packetId: visionPacket.id,
+          updates: { metadata: { ...visionPacket.metadata, ...updatedMetadata } }
+        })
+      })
 
-      const allPackets = JSON.parse(storedPackets)
-      const projectPackets = allPackets[projectId] || []
-
-      // Find and update the vision packet
-      const visionIndex = projectPackets.findIndex((p: VisionPacket) =>
-        p.id === visionPacket.id
-      )
-
-      if (visionIndex !== -1) {
-        projectPackets[visionIndex] = {
-          ...projectPackets[visionIndex],
-          metadata: {
-            ...projectPackets[visionIndex].metadata,
-            ...updatedMetadata
-          }
+      // Update local state
+      setVisionPacket({
+        ...visionPacket,
+        metadata: {
+          ...visionPacket.metadata,
+          ...updatedMetadata
         }
-
-        allPackets[projectId] = projectPackets
-        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
-
-        // Update local state
-        setVisionPacket(projectPackets[visionIndex])
-        console.log("[VisionDisplay] Vision packet saved successfully")
-      }
+      })
+      console.log("[VisionDisplay] Vision packet saved successfully")
     } catch (error) {
       console.error("[VisionDisplay] Failed to save vision packet:", error)
     }

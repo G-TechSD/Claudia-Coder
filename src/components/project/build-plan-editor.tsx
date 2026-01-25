@@ -242,7 +242,6 @@ export function BuildPlanEditor({
   const [planType, setPlanType] = useState<string>("auto")
   const [isGeneratingPackets, setIsGeneratingPackets] = useState(false)
   const [packetGenerationStatus, setPacketGenerationStatus] = useState("")
-  const [userDefaultModel, setUserDefaultModel] = useState<EnabledInstance | null>(null)
   const [autoResearchPriorArt, setAutoResearchPriorArt] = useState(true)  // Auto-research prior art on acceptance
 
   // Dynamic model options (built from project-enabled models and global default)
@@ -339,7 +338,6 @@ export function BuildPlanEditor({
 
         // Get project's default model (may be different from global)
         const projectDefaultModel = getProjectDefaultModel(projectId)
-        setUserDefaultModel(projectDefaultModel)
 
         // Debug logging
         console.log("[build-plan-editor] Loading model options for project:", projectId)
@@ -637,27 +635,20 @@ export function BuildPlanEditor({
         console.warn("[build-plan-editor] API fetch failed, falling back to localStorage:", apiError)
       }
 
-      // Also include packets from client-side localStorage (may have newer packets not yet synced)
-      const localWorkPackets = getPacketsForProject(projectId)
-      const localPackets: ExistingPacketInfo[] = localWorkPackets.map(p => ({
-        id: p.id,
-        title: p.title,
-        description: p.description,
-        type: p.type,
-        status: p.status,
-        source: "localStorage"
-      }))
-
-      // Merge packets, avoiding duplicates by ID
-      const seenIds = new Set(existingPackets.map(p => p.id))
-      for (const packet of localPackets) {
-        if (!seenIds.has(packet.id)) {
-          existingPackets.push(packet)
-          seenIds.add(packet.id)
-        }
+      // Get packets from server if API didn't return any (server is source of truth)
+      if (existingPackets.length === 0) {
+        const serverPackets = await getPacketsForProject(projectId)
+        existingPackets = serverPackets.map(p => ({
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          type: p.type,
+          status: p.status,
+          source: "server"
+        }))
       }
 
-      console.log(`[build-plan-editor] Total ${existingPackets.length} existing packets for project ${projectId} (after merging localStorage)`)
+      console.log(`[build-plan-editor] Total ${existingPackets.length} existing packets for project ${projectId}`)
 
       setGenerationStatus(`Generating with ${selectedModelOption.label}...`)
 
@@ -913,10 +904,10 @@ export function BuildPlanEditor({
           }
         })
 
-      setPacketGenerationStatus(`Saving ${workPackets.length} packets to queue...`)
+      setPacketGenerationStatus(`Saving ${workPackets.length} packets to server...`)
 
-      // Save packets to storage
-      savePackets(projectId, workPackets)
+      // Save packets to server (no localStorage)
+      await await savePackets(projectId, workPackets)
 
       // Notify parent that plan was approved and packets were generated
       onPlanApproved?.()
@@ -1023,24 +1014,17 @@ export function BuildPlanEditor({
         console.warn("[build-plan-editor] API fetch failed, falling back to localStorage:", apiError)
       }
 
-      // Also include packets from client-side localStorage (may have newer packets not yet synced)
-      const localWorkPackets = getPacketsForProject(projectId)
-      const localPackets: ExistingPacketInfo[] = localWorkPackets.map(p => ({
-        id: p.id,
-        title: p.title,
-        description: p.description,
-        type: p.type,
-        status: p.status,
-        source: "localStorage"
-      }))
-
-      // Merge packets, avoiding duplicates by ID
-      const seenIds = new Set(existingPackets.map(p => p.id))
-      for (const packet of localPackets) {
-        if (!seenIds.has(packet.id)) {
-          existingPackets.push(packet)
-          seenIds.add(packet.id)
-        }
+      // Get packets from server if API didn't return any (server is source of truth)
+      if (existingPackets.length === 0) {
+        const serverPackets = await getPacketsForProject(projectId)
+        existingPackets = serverPackets.map(p => ({
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          type: p.type,
+          status: p.status,
+          source: "server"
+        }))
       }
 
       console.log(`[build-plan-editor] Regenerating with ${existingPackets.length} total existing packets for project ${projectId}`)
@@ -1225,7 +1209,7 @@ export function BuildPlanEditor({
   }
 
   // Delete packet handler
-  const handleDeletePacket = (packetId: string, packetTitle: string) => {
+  const handleDeletePacket = async (packetId: string, packetTitle: string) => {
     if (isLocked) return
 
     // Confirm before deleting
@@ -1233,13 +1217,7 @@ export function BuildPlanEditor({
       return
     }
 
-    // Delete from storage
-    const deleted = deletePacket(projectId, packetId)
-    if (!deleted) {
-      console.warn(`[build-plan-editor] Failed to delete packet ${packetId} from storage`)
-    }
-
-    // Update local build plan state
+    // Update local build plan state first for responsive UI
     if (buildPlan) {
       const updatedPackets = buildPlan.packets.filter(p => p.id !== packetId)
       setBuildPlan({
@@ -1261,6 +1239,12 @@ export function BuildPlanEditor({
       updated.delete(packetId)
       return updated
     })
+
+    // Delete from server storage
+    const deleted = await deletePacket(projectId, packetId)
+    if (!deleted) {
+      console.warn(`[build-plan-editor] Failed to delete packet ${packetId} from server`)
+    }
   }
 
   // Vision packet metadata save handler
@@ -1287,30 +1271,17 @@ export function BuildPlanEditor({
       packets: updatedPackets
     })
 
-    // Also save to localStorage (claudia_packets) for persistence
-    try {
-      const storedPackets = localStorage.getItem("claudia_packets")
-      if (storedPackets) {
-        const allPackets = JSON.parse(storedPackets)
-        const projectPackets = allPackets[projectId] || []
-
-        const packetIndex = projectPackets.findIndex((p: { id: string }) => p.id === packetId)
-        if (packetIndex !== -1) {
-          projectPackets[packetIndex] = {
-            ...projectPackets[packetIndex],
-            metadata: {
-              ...projectPackets[packetIndex].metadata,
-              ...updatedMetadata
-            }
-          }
-          allPackets[projectId] = projectPackets
-          localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
-          console.log("[BuildPlanEditor] Vision packet saved to localStorage")
-        }
-      }
-    } catch (error) {
-      console.error("[BuildPlanEditor] Failed to save vision packet:", error)
-    }
+    // Save to server using PATCH
+    fetch(`/api/projects/${projectId}/packets`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        packetId,
+        updates: { metadata: updatedMetadata }
+      })
+    })
+      .then(() => console.log("[BuildPlanEditor] Vision packet saved to server"))
+      .catch(error => console.error("[BuildPlanEditor] Failed to save vision packet:", error))
 
     setHasUnsavedChanges(true)
   }, [buildPlan, isLocked, projectId])

@@ -17,6 +17,67 @@ import {
 // Legacy storage key (kept for migration purposes)
 const LEGACY_STORAGE_KEY = "claudia_packet_runs"
 
+// Server sync helpers
+async function syncRunToServer(run: PacketRun): Promise<void> {
+  try {
+    await fetch("/api/packet-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(run)
+    })
+  } catch (error) {
+    console.warn("[packet-runs] Failed to sync to server:", error)
+  }
+}
+
+async function updateRunOnServer(runId: string, updates: Partial<PacketRun>): Promise<void> {
+  try {
+    await fetch("/api/packet-runs", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: runId, ...updates })
+    })
+  } catch (error) {
+    console.warn("[packet-runs] Failed to update on server:", error)
+  }
+}
+
+/**
+ * Fetch runs from server and merge with localStorage
+ * Call this on app init to sync from server
+ */
+export async function syncRunsFromServer(userId: string): Promise<void> {
+  try {
+    const response = await fetch("/api/packet-runs")
+    const data = await response.json()
+    if (data.success && Array.isArray(data.runs)) {
+      // Merge server runs with local runs
+      const localRuns = getStoredRunsForUser(userId)
+      const serverRunIds = new Set(data.runs.map((r: PacketRun) => r.id))
+
+      // Add local runs that aren't on server
+      for (const localRun of localRuns) {
+        if (!serverRunIds.has(localRun.id)) {
+          syncRunToServer(localRun)
+        }
+      }
+
+      // Update local with server runs
+      const mergedMap = new Map<string, PacketRun>()
+      for (const run of localRuns) {
+        mergedMap.set(run.id, run)
+      }
+      for (const run of data.runs) {
+        mergedMap.set(run.id, run)
+      }
+
+      saveRunsForUser(userId, Array.from(mergedMap.values()))
+    }
+  } catch (error) {
+    console.warn("[packet-runs] Failed to sync from server:", error)
+  }
+}
+
 // ============ Helper Functions ============
 
 /**
@@ -158,6 +219,9 @@ export function createPacketRun(packetId: string, projectId: string, userId?: st
     saveRuns(runs)
   }
 
+  // Sync to server asynchronously
+  syncRunToServer(run)
+
   return run
 }
 
@@ -186,6 +250,9 @@ export function updatePacketRun(runId: string, updates: Partial<PacketRun>, user
   } else {
     saveRuns(runs)
   }
+
+  // Sync to server asynchronously
+  updateRunOnServer(runId, allowedUpdates)
 
   return runs[index]
 }

@@ -168,7 +168,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
   try {
     const body = await request.json()
-    const { packetId, updates, bulkUpdates } = body
+    const { packetId, bulkUpdates } = body
+
+    // Support both "updates: {status, ...}" format and direct fields like "status: ..."
+    // This makes the API more flexible for different clients
+    let updates = body.updates
+    if (!updates && !bulkUpdates) {
+      // Extract potential update fields from the top level
+      const { status, tasks, metadata } = body
+      if (status || tasks || metadata) {
+        updates = { status, tasks, metadata }
+      }
+    }
 
     const store = await readPacketsFile()
     const packets = store.packets[projectId] || []
@@ -199,6 +210,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Handle single packet update
     if (!packetId) {
       return NextResponse.json({ error: "packetId is required" }, { status: 400 })
+    }
+
+    if (!updates || typeof updates !== "object") {
+      return NextResponse.json({ error: "updates object is required" }, { status: 400 })
     }
 
     const packetIndex = packets.findIndex((p: WorkPacket) => p.id === packetId)
