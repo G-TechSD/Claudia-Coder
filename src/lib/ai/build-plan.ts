@@ -815,6 +815,49 @@ export function parseBuildPlanResponse(
       })
     }
 
+    // FALLBACK: If we have phases with packetIds but no actual packets,
+    // generate stub packets from the phase information
+    // This handles cases where the LLM generates packetIds in phases but forgets the packets array
+    if (buildPackets.length === 0 && buildPhases.length > 0) {
+      const allPacketIds = new Set<string>()
+      buildPhases.forEach(phase => {
+        phase.packetIds?.forEach(id => allPacketIds.add(id))
+      })
+
+      if (allPacketIds.size > 0) {
+        console.log(`[build-plan] Generating ${allPacketIds.size} stub packets from phase packetIds`)
+
+        // Generate stub packets from the packetIds
+        let packetIndex = 0
+        for (const phase of buildPhases) {
+          for (const packetId of phase.packetIds || []) {
+            if (!buildPackets.find(p => p.id === packetId)) {
+              buildPackets.push({
+                id: packetId,
+                phaseId: phase.id,
+                title: `${phase.name} - Task ${++packetIndex}`,
+                description: `Work packet for ${phase.name} phase. Review and update with specific requirements.`,
+                type: "feature" as PacketType,
+                priority: "medium" as const,
+                status: "queued" as const,
+                existing: false,
+                tasks: [
+                  { id: `${packetId}-task-1`, description: "Define specific requirements", completed: false, order: 1 },
+                  { id: `${packetId}-task-2`, description: "Implement the feature", completed: false, order: 2 },
+                  { id: `${packetId}-task-3`, description: "Test and validate", completed: false, order: 3 }
+                ],
+                suggestedTaskType: "coding",
+                blockedBy: [],
+                blocks: [],
+                estimatedTokens: 5000,
+                acceptanceCriteria: ["Requirements met", "Tests passing"]
+              })
+            }
+          }
+        }
+      }
+    }
+
     // Parse packet summary from LLM response or calculate from packets
     const llmPacketSummary = parsed.packetSummary as Record<string, unknown> | undefined
     const existingCount = buildPackets.filter(p => p.existing).length
