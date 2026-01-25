@@ -129,7 +129,7 @@ async function readDocsIndex(projectId: string): Promise<ProjectDocMetadata[]> {
     const indexPath = getDocsIndexPath(projectId)
     const content = await fs.readFile(indexPath, "utf-8")
     return JSON.parse(content)
-  } catch (err) {
+  } catch (_err) {
     // Index doesn't exist yet, return empty array
     return []
   }
@@ -214,7 +214,7 @@ export async function getDoc(projectId: string, docId: string): Promise<ProjectD
     const mdPath = getDocFilePath(projectId, docId)
     const content = await fs.readFile(mdPath, "utf-8")
     return parseMarkdownWithFrontmatter(projectId, docId, content)
-  } catch (err) {
+  } catch (_err) {
     console.log(`[project-docs] Doc not found: ${projectId}/${docId}`)
     return null
   }

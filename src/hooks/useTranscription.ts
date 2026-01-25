@@ -94,7 +94,7 @@ export function useTranscription(): UseTranscriptionReturn {
         if (!audio.paused && !audio.ended) {
           try {
             recognition.start()
-          } catch (e) {
+          } catch (_e) {
             // Ignore if already started
           }
         }
@@ -133,7 +133,7 @@ export function useTranscription(): UseTranscriptionReturn {
       try {
         recognition.start()
         audio.play()
-      } catch (err) {
+      } catch (_err) {
         setError("Failed to start transcription")
         setIsTranscribing(false)
         resolve(null)

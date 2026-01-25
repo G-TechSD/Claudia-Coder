@@ -51,7 +51,7 @@ export function PoppedOutTerminal({ terminalId }: PoppedOutTerminalProps) {
       } else {
         setError("Terminal not found")
       }
-    } catch (err) {
+    } catch (_err) {
       setError("Failed to load terminal data")
     } finally {
       setIsLoading(false)

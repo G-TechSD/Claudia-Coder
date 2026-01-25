@@ -12,7 +12,7 @@ const SCOPES = [
   "profile"
 ].join(" ")
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   // Return auth URL for user to visit
   const clientId = process.env.GOOGLE_CLIENT_ID
   const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/gemini/callback`
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
         picture: userInfo.picture
       }
     })
-  } catch (error) {
+  } catch (_error) {
     return NextResponse.json({ error: "Token exchange failed" }, { status: 500 })
   }
 }

@@ -69,7 +69,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
       setTimeout(() => {
         handleClose()
       }, 1500)
-    } catch (error) {
+    } catch (_error) {
       setResult("error")
       setTimeout(() => setResult(null), 3000)
     } finally {

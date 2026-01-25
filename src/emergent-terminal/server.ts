@@ -51,7 +51,7 @@ function loadOrCreateToken(): string {
       const data = JSON.parse(fs.readFileSync(TOKEN_FILE, "utf-8")) as TokenData
       return data.token
     }
-  } catch (err) {
+  } catch (_err) {
     console.error("[Emergent] Error loading token, generating new one")
   }
 
@@ -95,7 +95,7 @@ function loadSessions(): SessionStore {
     if (fs.existsSync(SESSIONS_FILE)) {
       return JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf-8"))
     }
-  } catch (err) {
+  } catch (_err) {
     console.error("[Emergent] Error loading sessions")
   }
   return { sessions: [] }

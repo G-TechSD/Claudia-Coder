@@ -134,7 +134,7 @@ async function scanProjectFolder(folderPath: string): Promise<RecoveredProject |
 /**
  * GET - Scan and return all recoverable projects
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     // Get list of project folders
     const entries = await fs.readdir(PROJECTS_BASE, { withFileTypes: true })

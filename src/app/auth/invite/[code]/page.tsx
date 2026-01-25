@@ -58,7 +58,7 @@ export default function InviteRedemptionPage() {
             setEmail(data.invitedEmail)
           }
         }
-      } catch (err) {
+      } catch (_err) {
         setInviteData({ valid: false, error: "Failed to validate invite code" })
       } finally {
         setIsValidating(false)
@@ -102,7 +102,7 @@ export default function InviteRedemptionPage() {
           // All complete, go to dashboard
           router.push("/")
         }
-      } catch (err) {
+      } catch (_err) {
         setError("An error occurred while processing your invite")
         setIsLoading(false)
       }
@@ -147,7 +147,7 @@ export default function InviteRedemptionPage() {
       // Account created, the useEffect will handle the rest
       // by redeeming the invite and checking NDA
       router.refresh()
-    } catch (err) {
+    } catch (_err) {
       setError("An unexpected error occurred")
       setIsLoading(false)
     }

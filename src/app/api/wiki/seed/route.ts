@@ -1961,7 +1961,7 @@ For detailed release notes, see individual commit messages in the repository.
   },
 ]
 
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {

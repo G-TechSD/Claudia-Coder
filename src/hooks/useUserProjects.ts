@@ -15,7 +15,7 @@ import {
   getProject,
   getTrashedProjects as getTrashedProjectsBase,
 } from "@/lib/data/projects"
-import type { Project, ProjectFilter } from "@/lib/data/types"
+import type { Project } from "@/lib/data/types"
 
 /**
  * Hook that provides user-scoped project management

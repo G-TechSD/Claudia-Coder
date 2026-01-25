@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
         model,
         source: "api_key"
       })
-    } catch (error) {
+    } catch (_error) {
       return NextResponse.json({ error: "Gemini API call failed" }, { status: 500 })
     }
   } else {
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       model,
       source: "oauth"
     })
-  } catch (error) {
+  } catch (_error) {
     return NextResponse.json({ error: "Gemini API call failed" }, { status: 500 })
   }
 }

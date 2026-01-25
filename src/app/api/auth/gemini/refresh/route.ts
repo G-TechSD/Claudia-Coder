@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
       access_token: tokens.access_token,
       expires_in: tokens.expires_in
     })
-  } catch (error) {
+  } catch (_error) {
     return NextResponse.json({ error: "Token refresh failed" }, { status: 500 })
   }
 }

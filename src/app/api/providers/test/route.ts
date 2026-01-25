@@ -78,7 +78,7 @@ async function testAnthropicKey(apiKey: string): Promise<{ valid: boolean; error
     }
 
     return { valid: false, error: `API returned status ${response.status}` }
-  } catch (err) {
+  } catch (_err) {
     return { valid: false, error: "Connection failed" }
   }
 }
@@ -104,7 +104,7 @@ async function testOpenAIKey(apiKey: string): Promise<{ valid: boolean; error?: 
     }
 
     return { valid: false, error: `API returned status ${response.status}` }
-  } catch (err) {
+  } catch (_err) {
     return { valid: false, error: "Connection failed" }
   }
 }
@@ -124,7 +124,7 @@ async function testGoogleKey(apiKey: string): Promise<{ valid: boolean; error?: 
     }
 
     return { valid: false, error: `API returned status ${response.status}` }
-  } catch (err) {
+  } catch (_err) {
     return { valid: false, error: "Connection failed" }
   }
 }

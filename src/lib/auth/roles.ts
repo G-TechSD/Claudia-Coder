@@ -319,7 +319,7 @@ export function ensureAdminRole(): void {
 // Ensure admin role is set on module load
 try {
   ensureAdminRole()
-} catch (error) {
+} catch (_error) {
   // Database may not be ready yet during initial setup
   console.log("[Roles] Deferred admin role check (database not ready)")
 }

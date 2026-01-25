@@ -81,7 +81,7 @@ function clearPid(): void {
 }
 
 // POST - Start the server
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
 }
 
 // DELETE - Stop the server
-export async function DELETE(request: NextRequest) {
+export async function DELETE(_request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -239,7 +239,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 // GET - Check server status
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {

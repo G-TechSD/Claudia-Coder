@@ -124,7 +124,7 @@ export function GitActionModal({
         setResult(null)
         setComment("")
       }, 1500)
-    } catch (error) {
+    } catch (_error) {
       setResult("error")
       setTimeout(() => setResult(null), 3000)
     } finally {
@@ -268,7 +268,7 @@ interface GitActionButtonsProps {
   showApproval?: boolean
 }
 
-export function GitActionButtons({ target, onAction, compact = false, showApproval = false }: GitActionButtonsProps) {
+export function GitActionButtons({ target: _target, onAction, compact = false, showApproval = false }: GitActionButtonsProps) {
   if (compact) {
     return (
       <div className="flex items-center gap-1">
