@@ -218,17 +218,24 @@ export async function POST(
     const createdFiles: { path: string; description: string }[] = []
     const errors: string[] = []
 
-    // Generate KICKOFF.md
+    // Generate KICKOFF.md (only if it doesn't exist)
     try {
       const kickoffPath = path.join(workingDirectory, "KICKOFF.md")
-      const kickoffContent = generateKickoffMarkdown(
-        project as Parameters<typeof generateKickoffMarkdown>[0],
-        buildPlan as Parameters<typeof generateKickoffMarkdown>[1],
-        currentPacket as Parameters<typeof generateKickoffMarkdown>[2]
-      )
-      await fs.writeFile(kickoffPath, kickoffContent, "utf-8")
-      createdFiles.push({ path: kickoffPath, description: "Project kickoff summary for Claude Code" })
-      console.log(`[generate-kickoff] Generated KICKOFF.md at: ${kickoffPath}`)
+
+      // Check if KICKOFF.md already exists
+      if (existsSync(kickoffPath)) {
+        console.log(`[generate-kickoff] KICKOFF.md already exists at: ${kickoffPath} - skipping to avoid overwriting`)
+        createdFiles.push({ path: kickoffPath, description: "Project kickoff summary (existing, not modified)" })
+      } else {
+        const kickoffContent = generateKickoffMarkdown(
+          project as Parameters<typeof generateKickoffMarkdown>[0],
+          buildPlan as Parameters<typeof generateKickoffMarkdown>[1],
+          currentPacket as Parameters<typeof generateKickoffMarkdown>[2]
+        )
+        await fs.writeFile(kickoffPath, kickoffContent, "utf-8")
+        createdFiles.push({ path: kickoffPath, description: "Project kickoff summary for Claude Code" })
+        console.log(`[generate-kickoff] Generated KICKOFF.md at: ${kickoffPath}`)
+      }
     } catch (error) {
       const msg = `Failed to generate KICKOFF.md: ${error instanceof Error ? error.message : "Unknown error"}`
       errors.push(msg)

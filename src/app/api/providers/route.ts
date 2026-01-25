@@ -2,9 +2,15 @@
  * Providers API
  * Returns available AI providers and their status
  * Checks both local LLM servers and cloud API configurations
+ *
+ * API keys are fetched from (in order of priority):
+ * 1. Server-side settings database (for authenticated users)
+ * 2. Environment variables
  */
 
 import { NextResponse } from "next/server"
+import { verifyApiAuth } from "@/lib/auth/api-helpers"
+import { getUserApiKeysFromDb } from "@/lib/settings/settings-db"
 
 export interface ProviderInfo {
   name: string
@@ -80,8 +86,10 @@ async function checkLocalServer(url: string, type: "lmstudio" | "ollama"): Promi
 
 /**
  * Test cloud provider connectivity by making a minimal API call
+ * @param provider - The provider to test
+ * @param apiKey - The API key to use (from DB or environment)
  */
-async function testCloudProvider(provider: "anthropic" | "openai" | "google"): Promise<{
+async function testCloudProvider(provider: "anthropic" | "openai" | "google", apiKey: string): Promise<{
   online: boolean
   models?: string[]
   error?: string
@@ -89,13 +97,10 @@ async function testCloudProvider(provider: "anthropic" | "openai" | "google"): P
   try {
     switch (provider) {
       case "anthropic": {
-        const key = process.env.ANTHROPIC_API_KEY
-        if (!key) return { online: false, error: "No API key" }
-
         // Test with models endpoint
         const response = await fetch("https://api.anthropic.com/v1/models", {
           headers: {
-            "x-api-key": key,
+            "x-api-key": apiKey,
             "anthropic-version": "2023-06-01"
           },
           signal: AbortSignal.timeout(10000)
@@ -110,11 +115,8 @@ async function testCloudProvider(provider: "anthropic" | "openai" | "google"): P
       }
 
       case "openai": {
-        const key = process.env.OPENAI_API_KEY
-        if (!key) return { online: false, error: "No API key" }
-
         const response = await fetch("https://api.openai.com/v1/models", {
-          headers: { "Authorization": `Bearer ${key}` },
+          headers: { "Authorization": `Bearer ${apiKey}` },
           signal: AbortSignal.timeout(10000)
         })
 
@@ -131,11 +133,8 @@ async function testCloudProvider(provider: "anthropic" | "openai" | "google"): P
       }
 
       case "google": {
-        const key = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY
-        if (!key) return { online: false, error: "No API key" }
-
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`,
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
           { signal: AbortSignal.timeout(10000) }
         )
 
@@ -186,6 +185,30 @@ async function detectLoadedLMStudioModel(url: string): Promise<string | undefine
 
 export async function GET() {
   const providers: ProviderInfo[] = []
+
+  // Try to get API keys from server-side database (for authenticated users)
+  let dbApiKeys: { anthropic?: string; openai?: string; google?: string } | null = null
+  try {
+    const auth = await verifyApiAuth()
+    if (auth?.user?.id) {
+      dbApiKeys = getUserApiKeysFromDb(auth.user.id)
+    }
+  } catch {
+    // Not authenticated or error - continue with environment variables
+  }
+
+  // Helper to get API key from DB first, then environment
+  const getApiKey = (provider: "anthropic" | "openai" | "google"): string | undefined => {
+    if (dbApiKeys) {
+      const dbKey = dbApiKeys[provider]
+      if (dbKey) return dbKey
+    }
+    switch (provider) {
+      case "anthropic": return process.env.ANTHROPIC_API_KEY
+      case "openai": return process.env.OPENAI_API_KEY
+      case "google": return process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY
+    }
+  }
 
   // Check local LM Studio servers
   const lmstudioServer1 = process.env.NEXT_PUBLIC_LMSTUDIO_SERVER_1
@@ -241,13 +264,17 @@ export async function GET() {
   }
 
   // Cloud Providers - actually test connectivity, don't just check for API keys
+  // Get API keys from DB or environment
+  const anthropicKey = getApiKey("anthropic")
+  const openaiKey = getApiKey("openai")
+  const googleKey = getApiKey("google")
 
   // Test all cloud providers in parallel for faster response
   const notConfigured = { online: false, models: undefined, error: "No API key" }
   const [anthropicStatus, openaiStatus, googleStatus] = await Promise.all([
-    process.env.ANTHROPIC_API_KEY ? testCloudProvider("anthropic") : Promise.resolve(notConfigured),
-    process.env.OPENAI_API_KEY ? testCloudProvider("openai") : Promise.resolve(notConfigured),
-    (process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY) ? testCloudProvider("google") : Promise.resolve(notConfigured)
+    anthropicKey ? testCloudProvider("anthropic", anthropicKey) : Promise.resolve(notConfigured),
+    openaiKey ? testCloudProvider("openai", openaiKey) : Promise.resolve(notConfigured),
+    googleKey ? testCloudProvider("google", googleKey) : Promise.resolve(notConfigured)
   ])
 
   // Anthropic (Claude) - only show if online with fetched models

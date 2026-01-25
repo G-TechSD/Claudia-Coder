@@ -54,6 +54,7 @@ interface BuildPlanReviewProps {
   onRegenerate: (model?: string) => void
   onCancel: () => void
   isRegenerating?: boolean
+  isSubmitting?: boolean  // Parent is creating the project
   className?: string
 }
 
@@ -99,6 +100,7 @@ export function BuildPlanReview({
   onRegenerate,
   onCancel,
   isRegenerating = false,
+  isSubmitting = false,
   className
 }: BuildPlanReviewProps) {
   // Editable state
@@ -609,9 +611,9 @@ export function BuildPlanReview({
                 size="lg"
                 className="bg-green-600 hover:bg-green-700 text-white gap-2 px-8"
                 onClick={handleApproveAndStart}
-                disabled={isApproving || totalPackets === 0}
+                disabled={isApproving || isSubmitting || totalPackets === 0}
               >
-                {isApproving ? (
+                {(isApproving || isSubmitting) ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
                   <Rocket className="h-5 w-5" />

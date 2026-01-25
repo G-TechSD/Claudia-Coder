@@ -5,6 +5,8 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { generateWithLocalLLM } from "@/lib/llm/local-llm"
+import { verifyApiAuth } from "@/lib/auth/api-helpers"
+import { getUserApiKeysFromDb } from "@/lib/settings/settings-db"
 import {
   BUILD_PLAN_SYSTEM_PROMPT,
   parseBuildPlanResponse,
@@ -37,8 +39,51 @@ export async function POST(request: NextRequest) {
       originalPlan,
       userFeedback,
       preferredProvider,
-      preferredModel = null  // Specific model ID to use (e.g., "gpt-oss-20b")
+      preferredModel = null,  // Specific model ID to use (e.g., "gpt-oss-20b")
+      // Cloud provider API keys from user settings (backwards compatibility)
+      cloudProviders = [] as Array<{ provider: string; apiKey: string }>
     } = await request.json()
+
+    // Try to get API keys from server-side database (for authenticated users)
+    let serverApiKeys: { anthropic?: string; openai?: string; google?: string } | null = null
+    try {
+      const auth = await verifyApiAuth()
+      if (auth?.user?.id) {
+        serverApiKeys = getUserApiKeysFromDb(auth.user.id)
+      }
+    } catch {
+      // Not authenticated or error - continue with other sources
+    }
+
+    // Helper to get API key: 1) server DB, 2) request body, 3) environment
+    const getApiKey = (providerName: string): string | undefined => {
+      // First priority: Server-side database (authenticated user)
+      if (serverApiKeys) {
+        switch (providerName) {
+          case "anthropic":
+            if (serverApiKeys.anthropic) return serverApiKeys.anthropic
+            break
+          case "openai":
+            if (serverApiKeys.openai) return serverApiKeys.openai
+            break
+          case "google":
+            if (serverApiKeys.google) return serverApiKeys.google
+            break
+        }
+      }
+
+      // Second priority: Request body (backwards compatibility)
+      const userKey = cloudProviders.find((p: { provider: string }) => p.provider === providerName)?.apiKey
+      if (userKey) return userKey
+
+      // Fall back to environment variables
+      switch (providerName) {
+        case "anthropic": return process.env.ANTHROPIC_API_KEY
+        case "openai": return process.env.OPENAI_API_KEY
+        case "google": return process.env.GOOGLE_AI_API_KEY
+        default: return undefined
+      }
+    }
 
     if (!projectName || !projectDescription || !originalPlan) {
       return NextResponse.json(
@@ -69,7 +114,7 @@ Return the plan in the same JSON format as before.`
     // Only pass preferredServer for local providers (local-llm-server, local-llm-server-2, etc.)
     // Paid providers need to be handled separately
     const localPreferredServer = preferredProvider &&
-      !["anthropic", "chatgpt", "gemini", "paid_claudecode"].includes(preferredProvider)
+      !["anthropic", "chatgpt", "gemini", "google", "paid_claudecode", "claude-code"].includes(preferredProvider)
         ? preferredProvider
         : undefined
 
@@ -111,11 +156,12 @@ Return the plan in the same JSON format as before.`
     }
 
     // Try Anthropic as fallback
-    if (process.env.ANTHROPIC_API_KEY) {
+    const anthropicKey = getApiKey("anthropic")
+    if (anthropicKey) {
       try {
         const Anthropic = (await import("@anthropic-ai/sdk")).default
         const anthropic = new Anthropic({
-          apiKey: process.env.ANTHROPIC_API_KEY
+          apiKey: anthropicKey
         })
 
         const response = await anthropic.messages.create({
@@ -149,6 +195,57 @@ Return the plan in the same JSON format as before.`
         }
       } catch (error) {
         console.error("Anthropic revision failed:", error)
+      }
+    }
+
+    // Try Google Gemini as fallback
+    const googleKey = getApiKey("google")
+    if (googleKey) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${googleKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{
+                  text: `${REVISION_SYSTEM_PROMPT}\n\n${userPrompt}`
+                }]
+              }],
+              generationConfig: {
+                temperature: 0.5,
+                maxOutputTokens: 4096
+              }
+            })
+          }
+        )
+
+        if (response.ok) {
+          const data = await response.json()
+          const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
+
+          const result = parseBuildPlanResponse(
+            content,
+            projectId,
+            "google:gemini-2.5-pro"
+          )
+
+          if (result) {
+            const validation = validateBuildPlan(result.plan)
+            return NextResponse.json({
+              plan: result.plan,
+              packetSummary: result.packetSummary,
+              validation,
+              source: "google",
+              server: "Google Gemini",
+              model: "gemini-2.5-pro",
+              isRevision: true
+            })
+          }
+        }
+      } catch (error) {
+        console.error("Google Gemini revision failed:", error)
       }
     }
 

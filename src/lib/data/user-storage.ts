@@ -66,9 +66,10 @@ export function getUserStorageItem<T>(userId: string, baseKey: string): T | null
   try {
     const key = getUserStorageKey(userId, baseKey)
     const stored = localStorage.getItem(key)
+    console.log(`[user-storage] getUserStorageItem - key: ${key}, exists: ${!!stored}, length: ${stored?.length || 0}`)
     return stored ? JSON.parse(stored) : null
   } catch (error) {
-    console.error(`Failed to get user storage item: ${baseKey}`, error)
+    console.error(`[user-storage] Failed to get user storage item: ${baseKey}`, error)
     return null
   }
 }
@@ -84,9 +85,15 @@ export function setUserStorageItem<T>(userId: string, baseKey: string, data: T):
 
   try {
     const key = getUserStorageKey(userId, baseKey)
-    localStorage.setItem(key, JSON.stringify(data))
+    const serialized = JSON.stringify(data)
+    console.log(`[user-storage] setUserStorageItem - key: ${key}, data length: ${serialized.length}`)
+    localStorage.setItem(key, serialized)
+
+    // Verify it was saved
+    const verify = localStorage.getItem(key)
+    console.log(`[user-storage] setUserStorageItem - verify saved: ${!!verify}, length: ${verify?.length || 0}`)
   } catch (error) {
-    console.error(`Failed to set user storage item: ${baseKey}`, error)
+    console.error(`[user-storage] Failed to set user storage item: ${baseKey}`, error)
     throw error
   }
 }
@@ -314,6 +321,8 @@ export function canUserAccessItem(
   // TODO: Remove this after migration is complete
   if (!item.userId) return true
 
+  // If we get here, access is denied
+  console.log(`[user-storage] canUserAccessItem DENIED - userId: ${userId}, item.userId: ${item.userId}`)
   return false
 }
 

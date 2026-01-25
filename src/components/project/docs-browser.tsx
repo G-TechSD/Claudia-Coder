@@ -23,8 +23,10 @@ import {
   Lightbulb,
   ClipboardList,
   FileCode,
-  Sparkles
+  Sparkles,
+  Download
 } from "lucide-react"
+import { DocExportButton } from "@/components/export/pdf-export-button"
 import { cn } from "@/lib/utils"
 
 // Document template types
@@ -640,14 +642,21 @@ export function DocsBrowser({
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleStartEdit}
-                    >
-                      <Edit2 className="h-4 w-4 mr-1" />
-                      Edit
-                    </Button>
+                    <>
+                      <DocExportButton
+                        docContent={selectedDoc.content}
+                        docTitle={selectedDoc.name.replace(/\.md$/, "")}
+                        projectName={projectId}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleStartEdit}
+                      >
+                        <Edit2 className="h-4 w-4 mr-1" />
+                        Edit
+                      </Button>
+                    </>
                   )}
                   <Badge variant={isEditing ? "default" : "secondary"}>
                     {isEditing ? (

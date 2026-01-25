@@ -59,6 +59,136 @@ Each response should be a single, conversational question or brief comment follo
 
 export const PROJECT_CREATION_OPENER = "In one paragraph, describe what you want to build."
 
+// ============ Ideation Interview ============
+
+export const IDEATION_SYSTEM_PROMPT = `You are Claudia, a creative AI assistant helping brainstorm and explore ideas. Your goal is to help the user think through possibilities, generate options, and explore solutions WITHOUT jumping to building software.
+
+**Personality:**
+- Be curious, creative, and exploratory
+- Encourage divergent thinking - explore many options
+- Ask thought-provoking questions that expand possibilities
+- Help organize and categorize ideas
+- Be supportive of wild ideas - they often lead somewhere
+
+**This is an IDEATION session, NOT a software development session:**
+- Focus on WHAT problems could be solved, not HOW to code them
+- Generate lists of viable approaches and solutions
+- Explore market opportunities, use cases, and possibilities
+- Create organized research topics and areas to investigate
+- Output will be markdown documents with ideas, NOT code packets
+
+**Interview Flow:**
+1. Understand the domain/challenge they're exploring
+2. Ask about their constraints, resources, and goals
+3. Brainstorm multiple approaches (aim for 5-10 distinct ideas)
+4. Explore pros/cons of each approach
+5. Identify which ideas merit further exploration
+6. Suggest research topics and next steps
+7. Ask if any ideas should become coding projects
+
+**Key Areas to Explore:**
+- What problem space or opportunity are they exploring?
+- What constraints do they have (time, budget, skills, etc.)?
+- What has been tried before? What worked/didn't?
+- Who would benefit from solutions in this space?
+- What are unconventional approaches to consider?
+- What would a minimal viable test look like?
+- What research would help validate ideas?
+
+**Output Format:**
+Your deliverable will be a well-organized markdown document containing:
+- Problem/opportunity statement
+- List of viable ideas (with brief descriptions)
+- Pros/cons for top ideas
+- Research topics to investigate
+- Recommended next steps
+- Any ideas worth turning into coding projects
+
+**IMPORTANT:**
+- Do NOT assume they want to build software
+- Do NOT generate code packets or technical specs
+- Focus on ideation, exploration, and research
+- Be comfortable with ambiguity - that's the point!`
+
+export const IDEATION_OPENER = "What problem space or opportunity are you exploring? Share any context, constraints, or initial thoughts."
+
+// Contextual opener for ideation when user has provided initial text
+export function getIdeationContextualOpener(description: string): string {
+  return `I see you're exploring ideas around this topic. This looks like a great brainstorming opportunity!\n\nLet's explore the possibilities together. I'll help you generate ideas, consider different approaches, and organize your thinking into useful deliverables.\n\nFirst, what's the core challenge or opportunity you're trying to address?`
+}
+
+// ============ Ideation Detection ============
+
+/**
+ * Detect if user input suggests ideation/exploration vs building software
+ * Returns true if this seems like an exploration/brainstorming session
+ */
+export function detectIdeationIntent(description: string): boolean {
+  const lowerDesc = description.toLowerCase()
+
+  // Strong signals for ideation/exploration
+  const ideationSignals = [
+    // Explicit exploration phrases
+    /\b(explore|exploring|brainstorm|ideas|options|possibilities)\b/,
+    /\b(research|investigate|look into|thinking about)\b/,
+    /\b(what.*options|what.*could|what.*might|what.*should)\b/,
+    /\b(not sure|uncertain|considering|wondering)\b/,
+    /\b(help.*think|help.*figure out|help.*decide)\b/,
+    /\b(pros.*cons|advantages|disadvantages|tradeoffs)\b/,
+    // Conversation/context pasting (like chat logs)
+    /\b(can we|could we|should we|what if)\b/,
+    /\b(you sent|charles|i want to|he wants)\b/i,
+    // Questions without clear answers
+    /\bwhat.*best way\b/,
+    /\bhow.*approach\b/,
+    // Business/market exploration
+    /\b(market|opportunity|potential|viable)\b/,
+    /\b(showcase|demo|presentation|trade show)\b/,
+  ]
+
+  // Strong signals for building software (these override ideation)
+  const buildingSignals = [
+    /\b(build|create|develop|make|implement)\s+(a|an|the|my)\s+(app|website|api|system|tool|platform)/i,
+    /\b(i want to build|i need to build|let'?s build)\b/i,
+    /\b(tech stack|framework|database|backend|frontend)\b/i,
+    /\b(react|vue|angular|node|python|typescript|javascript)\s+(app|project|code)/i,
+  ]
+
+  // Count signals
+  let ideationScore = 0
+  let buildingScore = 0
+
+  for (const signal of ideationSignals) {
+    if (signal.test(lowerDesc)) {
+      ideationScore++
+    }
+  }
+
+  for (const signal of buildingSignals) {
+    if (signal.test(lowerDesc)) {
+      buildingScore += 2 // Building signals are weighted higher
+    }
+  }
+
+  // If clearly building, return false
+  if (buildingScore > ideationScore) {
+    return false
+  }
+
+  // If strong ideation signals, return true
+  if (ideationScore >= 2) {
+    return true
+  }
+
+  // Check for conversation/context pasting (multiple speakers, timestamps, etc.)
+  const hasConversationMarkers = /\b(you sent|charles|added|:\d{2})/i.test(description)
+  if (hasConversationMarkers && buildingScore === 0) {
+    return true
+  }
+
+  return false
+}
+
 // Contextual opener when user has already provided a description
 export function getProjectCreationContextualOpener(description: string): string {
   // Extract a concise summary of what they want to build
@@ -446,6 +576,18 @@ export function buildInterviewContext(
       opener: initialDescription && initialDescription.trim()
         ? getProjectCreationContextualOpener(initialDescription.trim())
         : PROJECT_CREATION_OPENER
+    }
+  }
+
+  if (type === "ideation") {
+    // Ideation/brainstorming mode - focus on ideas, not code
+    const initialDescription = context?.initialDescription as string | undefined
+
+    return {
+      systemPrompt: IDEATION_SYSTEM_PROMPT,
+      opener: initialDescription && initialDescription.trim()
+        ? getIdeationContextualOpener(initialDescription.trim())
+        : IDEATION_OPENER
     }
   }
 

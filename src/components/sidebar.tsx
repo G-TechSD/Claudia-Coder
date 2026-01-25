@@ -50,6 +50,8 @@ import {
   Film,
   Puzzle,
   Loader2,
+  BookOpen,
+  Zap,
   type LucideIcon,
 } from "lucide-react"
 import { useEmergentModules } from "@/hooks/useEmergentModules"
@@ -81,8 +83,10 @@ const projectsItems: NavItem[] = [
 // Tools category items
 const toolsItems: NavItem[] = [
   { title: "Claude Code", href: "/claude-code", icon: Terminal },
+  { title: "Emergent Terminal", href: "/emergent-terminal", icon: Zap },
   { title: "Ganesha AI", href: "/dev-tools/ganesha", icon: Sparkles },
   { title: "VS Code", href: "/dev-tools/vscode", icon: Code2 },
+  { title: "Wiki", href: "/wiki", icon: BookOpen },
   { title: "Run History", href: "/run-history", icon: History },
   { title: "Processes", href: "/processes", icon: Rocket },
 ]

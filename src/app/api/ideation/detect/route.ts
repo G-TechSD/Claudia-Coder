@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from "next/server"
+import { generate, parseLLMJson } from "@/lib/llm"
 
 const DETECTION_SYSTEM_PROMPT = `You analyze user input to understand what they're exploring and extract key insights.
 Return structured JSON with a proper understanding of their input - not just word extraction.
 Be intelligent about parsing conversational context, chat logs, and free-form descriptions.
+
+IMPORTANT: Generate contextual, specific content based on what the user actually wrote.
+Do NOT use generic or hardcoded responses. Every field should directly relate to the user's input.
 
 Return JSON only, no markdown.`
 
 interface DetectionRequest {
   input: string
   projectName?: string
+  allowPaidFallback?: boolean
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: DetectionRequest = await request.json()
-    const { input, projectName } = body
+    const { input, projectName, allowPaidFallback = true } = body
 
     if (!input) {
       return NextResponse.json(
@@ -32,113 +37,87 @@ ${input}
 
 ${projectName ? `Project Name: ${projectName}` : ""}
 
+CRITICAL INSTRUCTIONS:
+1. Read the user's input carefully and ACTUALLY understand what they're describing
+2. Generate a summary that INTERPRETS their input, not just truncates it
+3. Extract KEY POINTS that are SPECIFIC to what they mentioned (not generic)
+4. Generate QUESTIONS that are SPECIFIC to their context (e.g., if they mention LEDs, ask about their specific LED use case; if they mention collaboration, ask about the collaboration details)
+5. Do NOT use hardcoded or generic questions - every question must relate to what the user actually wrote
+
 Return a JSON object with:
 {
-  "title": "A clear, descriptive title for this exploration (5-10 words)",
-  "summary": "A 2-3 sentence summary that captures what the user is exploring. Don't just truncate their input - actually summarize and interpret it.",
+  "title": "A clear, descriptive title for this exploration based on what they described (5-10 words)",
+  "summary": "A 2-3 sentence summary that captures what the user is exploring. Interpret and synthesize their input - what are they really trying to accomplish?",
   "keyPoints": [
-    "Key insight or element from the input (be specific and meaningful)",
-    "Another key point that captures important context",
-    "Continue with 3-5 total meaningful points"
+    "Specific insight extracted from their input",
+    "Another specific detail or concept they mentioned",
+    "3-6 total points that capture the essence of their description"
   ],
   "entities": {
-    "people": ["Names of people mentioned"],
-    "places": ["Locations mentioned"],
-    "technologies": ["Technologies or technical concepts"],
-    "businesses": ["Companies or business concepts"],
+    "people": ["Names of specific people mentioned, if any"],
+    "places": ["Specific locations mentioned, if any"],
+    "technologies": ["Technologies or technical concepts they mentioned"],
+    "businesses": ["Companies or business concepts mentioned"],
     "products": ["Products or product types mentioned"]
   },
   "questions": [
-    "Clarifying question based on what's unclear in the input",
-    "Another relevant question to help narrow focus"
+    "A clarifying question SPECIFIC to what they described - reference their actual input",
+    "Another SPECIFIC question based on gaps in their description",
+    "2-4 total questions that would help narrow down THEIR specific concept"
   ],
-  "type": "ideation or build",
-  "confidence": 0.0-1.0,
-  "suggestedApproach": "Brief description of recommended next steps"
+  "type": "ideation",
+  "confidence": 0.6,
+  "suggestedApproach": "Brief description of recommended next steps based on their input"
 }
 
-Be intelligent about:
-- Parsing chat logs and conversation format
-- Identifying business opportunities
-- Understanding technical requirements
-- Recognizing people, places, and products mentioned
-- Summarizing rather than just truncating`
+Remember: Every field must be generated based on the actual user input, not generic templates.`
 
-    // Try local LLM first
-    try {
-      const localResponse = await fetch("http://localhost:1234/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "local-model",
-          messages: [
-            { role: "system", content: DETECTION_SYSTEM_PROMPT },
-            { role: "user", content: prompt }
-          ],
-          temperature: 0.3,
-          max_tokens: 2000
-        }),
-        signal: AbortSignal.timeout(30000)
-      })
+    console.log("[ideation/detect] Calling unified LLM service...")
+    const llmResponse = await generate({
+      systemPrompt: DETECTION_SYSTEM_PROMPT,
+      userPrompt: prompt,
+      temperature: 0.4,
+      max_tokens: 2000,
+      allowPaidFallback
+    })
 
-      if (localResponse.ok) {
-        const data = await localResponse.json()
-        const content = data.choices?.[0]?.message?.content || ""
-
-        try {
-          const jsonMatch = content.match(/\{[\s\S]*\}/)
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0])
-            return NextResponse.json(formatResponse(parsed, input))
-          }
-        } catch (parseError) {
-          console.warn("Failed to parse local LLM response:", parseError)
+    if (llmResponse.content && !llmResponse.error) {
+      console.log(`[ideation/detect] LLM responded via ${llmResponse.source}`)
+      const parsed = parseLLMJson<{
+        title?: string
+        summary?: string
+        keyPoints?: string[]
+        entities?: {
+          people?: string[]
+          places?: string[]
+          technologies?: string[]
+          businesses?: string[]
+          products?: string[]
         }
-      }
-    } catch (localError) {
-      console.warn("Local LLM not available:", localError)
-    }
+        questions?: string[]
+        type?: string
+        confidence?: number
+        suggestedApproach?: string
+      }>(llmResponse.content)
 
-    // Try Anthropic API
-    const anthropicKey = process.env.ANTHROPIC_API_KEY
-    if (anthropicKey) {
-      try {
-        const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": anthropicKey,
-            "anthropic-version": "2023-06-01"
-          },
-          body: JSON.stringify({
-            model: "claude-3-haiku-20240307",
-            max_tokens: 2000,
-            system: DETECTION_SYSTEM_PROMPT,
-            messages: [{ role: "user", content: prompt }]
-          })
+      if (parsed && parsed.summary) {
+        return NextResponse.json({
+          ...formatResponse(parsed, input),
+          llmSource: llmResponse.source,
+          llmServer: llmResponse.server,
+          llmModel: llmResponse.model
         })
-
-        if (anthropicResponse.ok) {
-          const data = await anthropicResponse.json()
-          const content = data.content?.[0]?.text || ""
-
-          try {
-            const jsonMatch = content.match(/\{[\s\S]*\}/)
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0])
-              return NextResponse.json(formatResponse(parsed, input))
-            }
-          } catch (parseError) {
-            console.warn("Failed to parse Anthropic response:", parseError)
-          }
-        }
-      } catch (anthropicError) {
-        console.warn("Anthropic API failed:", anthropicError)
+      } else {
+        console.warn("[ideation/detect] LLM response missing required fields")
       }
+    } else {
+      console.log("[ideation/detect] LLM failed:", llmResponse.error || "No content")
     }
 
-    // Fallback to intelligent local generation
-    return NextResponse.json(generateSmartFallback(input))
+    // Minimal fallback - only used when ALL LLM backends fail
+    // This should be rare - mostly just returns what the user typed with minimal processing
+    console.log("[ideation/detect] Using minimal fallback")
+    return NextResponse.json(generateMinimalFallback(input))
 
   } catch (error) {
     console.error("[ideation/detect] Error:", error)
@@ -160,192 +139,59 @@ function formatResponse(parsed: Record<string, unknown>, input: string) {
     type: parsed.type === "build" ? "build" : "ideation",
     confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
     suggestedApproach: parsed.suggestedApproach || "Explore options",
-    suggestedPackets: generateSuggestedPackets(input, parsed)
+    suggestedPackets: generateSuggestedPackets(input)
   }
 }
 
 // Generate suggested research packets based on context
-function generateSuggestedPackets(input: string, analysis: Record<string, unknown>) {
-  const packets = []
-  const entities = analysis.entities as Record<string, string[]> || {}
-
-  // Core ideation packet
-  packets.push({
+function generateSuggestedPackets(input: string) {
+  // Just one generic packet - the actual content will come from the fractal ideation flow
+  return [{
     id: `ideation-${Date.now()}-1`,
-    title: "Generate Ideas List",
-    description: "Brainstorm 10-15 viable approaches based on the context",
+    title: "Explore Ideas",
+    description: "Use the fractal ideation flow to narrow down what you want to build",
     type: "brainstorm",
     outputFormat: "list",
-    prompt: `Based on the following context, generate a comprehensive list of 10-15 viable ideas or approaches. For each idea, include:
-- A clear title
-- 2-3 sentence description
-- Key benefits
-- Potential challenges
-
-Context:
-${input}
-
-Output as a well-formatted markdown list.`
-  })
-
-  // Market analysis if business-related
-  if (/\b(market|business|customer|revenue|sell|monetize|trade show|distributor|reseller)\b/i.test(input)) {
-    packets.push({
-      id: `ideation-${Date.now()}-2`,
-      title: "Market Opportunity Analysis",
-      description: "Analyze market potential and competitive landscape",
-      type: "analysis",
-      outputFormat: "markdown",
-      prompt: `Analyze the market opportunity for the following concept. Include:
-- Target market segments
-- Competitive landscape
-- Potential revenue models
-- Key success factors
-
-Context:
-${input}`
-    })
-  }
-
-  // Technical approaches if tech-related
-  if (/\b(ai|technology|software|system|platform|app|led|3d|resolution|interactive)\b/i.test(input)) {
-    packets.push({
-      id: `ideation-${Date.now()}-3`,
-      title: "Technical Approaches",
-      description: "Explore technical implementation options",
-      type: "research",
-      outputFormat: "comparison",
-      prompt: `For the following concept, outline 3-5 different technical approaches. For each approach:
-- Describe the technical solution
-- List required technologies/skills
-- Estimate complexity (low/medium/high)
-- Note pros and cons
-
-Context:
-${input}`
-    })
-  }
-
-  return packets
+    prompt: `Based on the following context, help the user explore and narrow down their project idea:\n\n${input}`
+  }]
 }
 
-// Intelligent fallback without LLM
-function generateSmartFallback(input: string) {
-  // Parse conversation format
-  const lines = input.split(/\n/).filter(l => l.trim())
+// Minimal fallback - only used when ALL LLM backends fail
+// This intentionally does NOT have hardcoded questions or suggestions
+// It just presents what the user wrote and directs them to the explore flow
+function generateMinimalFallback(input: string) {
+  // Extract first few words for a basic title
+  const words = input.trim().split(/\s+/).slice(0, 6)
+  const title = words.length > 0 ? words.join(" ") + "..." : "New Project"
 
-  // Extract actual content sentences (not UI text)
-  const meaningfulLines = lines.filter(line => {
-    const l = line.trim().toLowerCase()
-    // Filter out UI elements and short lines
-    return l.length > 20 &&
-           !l.startsWith("click") &&
-           !l.startsWith("what direction") &&
-           !l.includes("quick win") &&
-           !l.includes("core solution")
-  })
+  // Use input as summary (truncated if needed)
+  const summary = input.length > 300
+    ? input.slice(0, 297) + "..."
+    : input
 
-  // Extract people (names in conversation format like "Charles Can we do")
-  const people: string[] = []
-  const namePattern = /^([A-Z][a-z]+)(?:\s|:)/gm
-  let match
-  while ((match = namePattern.exec(input)) !== null) {
-    const name = match[1]
-    if (!["You", "The", "This", "That", "What", "How", "Can", "Quick", "Core", "Ideas"].includes(name)) {
-      if (!people.includes(name)) people.push(name)
-    }
-  }
-
-  // Extract places
-  const places: string[] = []
-  const placePatterns = [
-    /\b(Shenzhen|Beijing|Shanghai|Hong Kong|China|Japan|Korea|Taiwan|Singapore|USA|UK|Europe|Asia)\b/gi,
-    /\b([A-Z][a-z]+ City|[A-Z][a-z]+ Province)\b/g
-  ]
-  for (const pattern of placePatterns) {
-    const matches = input.match(pattern) || []
-    for (const m of matches) {
-      if (!places.includes(m)) places.push(m)
-    }
-  }
-
-  // Extract technologies/products
-  const technologies: string[] = []
-  const techPatterns = /\b(LED|AI|3D|HD|4K|software|app|platform|technology|resolution|interactive|panels?|displays?|screens?|drones?|walls?)\b/gi
-  const techMatches = input.match(techPatterns) || []
-  for (const t of techMatches) {
-    const clean = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase()
-    if (!technologies.includes(clean)) technologies.push(clean)
-  }
-
-  // Generate intelligent title
-  let title = "Ideas Exploration"
-  if (people.length > 0 && technologies.length > 0) {
-    title = `${people[0]}'s ${technologies[0]} Project`
-  } else if (people.length > 0 && places.length > 0) {
-    title = `${people[0]} in ${places[0]}`
-  } else if (technologies.length > 0) {
-    title = `${technologies[0]} Exploration`
-  }
-
-  // Generate intelligent summary
-  let summary = ""
-  if (people.length > 0) {
-    summary += `This involves ${people.join(" and ")}. `
-  }
-  if (places.length > 0) {
-    summary += `Location context: ${places.join(", ")}. `
-  }
-  if (technologies.length > 0) {
-    summary += `Technologies mentioned: ${technologies.join(", ")}. `
-  }
-
-  // Add context from first meaningful line
-  if (meaningfulLines.length > 0) {
-    const firstLine = meaningfulLines[0].slice(0, 150)
-    summary += firstLine + (meaningfulLines[0].length > 150 ? "..." : "")
-  }
-
-  // Generate meaningful key points (not just word extraction)
-  const keyPoints: string[] = []
-  if (people.length > 0) {
-    keyPoints.push(`Involves collaboration with ${people.join(", ")}`)
-  }
-  if (places.length > 0) {
-    keyPoints.push(`Geographic context: ${places.join(", ")}`)
-  }
-  if (technologies.length > 0) {
-    keyPoints.push(`Technologies: ${technologies.join(", ")}`)
-  }
-  if (/trade show|roadshow|exhibition|demo|showcase/i.test(input)) {
-    keyPoints.push("Trade show/exhibition context - interactive demos needed")
-  }
-  if (/reseller|distributor|sell|customer/i.test(input)) {
-    keyPoints.push("Business/sales context")
-  }
-  if (/interactive|audience|engagement/i.test(input)) {
-    keyPoints.push("Interactive/audience engagement focus")
-  }
+  // Extract any capitalized terms as potential key points
+  const capitalizedTerms = input.match(/\b[A-Z][a-zA-Z]+\b/g) || []
+  const uniqueTerms = [...new Set(capitalizedTerms)]
+    .filter(t => !["I", "The", "This", "That", "What", "How", "Can", "We", "You", "It", "And", "Or", "But", "For"].includes(t))
+    .slice(0, 5)
 
   return {
     title,
-    summary: summary || input.slice(0, 300),
-    keyPoints: keyPoints.length > 0 ? keyPoints : ["Exploration project - needs further clarification"],
+    summary,
+    keyPoints: uniqueTerms.length > 0 ? uniqueTerms : ["Your project idea"],
     entities: {
-      people,
-      places,
-      technologies,
+      people: [],
+      places: [],
+      technologies: [],
       businesses: [],
       products: []
     },
-    questions: [
-      "What specific outcome are you hoping to achieve?",
-      "What's the timeline or deadline?",
-      "What resources are available?"
-    ],
+    // No hardcoded questions - the fractal ideation flow will generate them dynamically
+    questions: [],
     type: "ideation" as const,
-    confidence: 0.6,
-    suggestedApproach: "Generate ideas and explore options",
-    suggestedPackets: generateSuggestedPackets(input, { entities: { people, places, technologies } })
+    confidence: 0.5,
+    suggestedApproach: "Use the Explore & Narrow Down option to discover what you want to build",
+    suggestedPackets: generateSuggestedPackets(input),
+    llmSource: "fallback"
   }
 }

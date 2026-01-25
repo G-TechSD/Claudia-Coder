@@ -23,6 +23,9 @@ const nextConfig: NextConfig = {
           '**/.git/**',
           '**/~/**',
           '**/~/claudia-projects/**',
+          '**/.local-storage/**',
+          '**/auth.db',
+          '**/auth.db-journal',
         ],
       };
     }

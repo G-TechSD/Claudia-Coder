@@ -40,6 +40,37 @@ import {
   createStoryFromLinearExtraction,
   type ProjectDoc
 } from "@/lib/data/project-docs"
+import {
+  extractFeaturesFromLinearIssue,
+  postProcessForGranularity,
+  type ExtractedLinearFeature as LinearFeature
+} from "@/lib/ai/linear-analysis"
+
+/**
+ * Represents a feature extracted from a Linear issue for more granular packet creation.
+ * When provided, each feature becomes its own work packet, allowing a single Linear issue
+ * to be broken down into multiple implementable units.
+ */
+export interface ExtractedLinearFeature {
+  /** Unique identifier for this feature within the issue */
+  id: string
+  /** Short, descriptive title for this specific feature */
+  title: string
+  /** Detailed description of what this feature entails */
+  description: string
+  /** Type of work this feature represents */
+  type: "feature" | "bugfix" | "refactor" | "test" | "docs" | "config" | "research"
+  /** Priority relative to other features from the same issue */
+  priority: "critical" | "high" | "medium" | "low"
+  /** Specific tasks needed to complete this feature */
+  tasks: string[]
+  /** Acceptance criteria for this feature */
+  acceptanceCriteria: string[]
+  /** IDs of other features this depends on (within the same issue) */
+  dependencies: string[]
+  /** Estimated complexity (tokens) */
+  estimatedTokens?: number
+}
 
 interface WorkPacket {
   id: string
@@ -125,11 +156,116 @@ function formatCommentsForContext(comments: LinearComment[]): string {
     .join("\n\n")
 }
 
-function issueToPacket(
+/**
+ * Convert a Linear issue into one or more work packets.
+ *
+ * If extractedFeatures is provided, creates one packet per feature for more
+ * granular work breakdown. Each packet references the parent Linear issue.
+ *
+ * If no extractedFeatures are provided, falls back to creating a single packet
+ * from the issue (original behavior).
+ *
+ * @param issue - The Linear issue to convert
+ * @param phaseId - The phase ID to assign to the packets
+ * @param extractedFeatures - Optional array of extracted features for granular packets
+ * @returns Array of work packets (one per feature, or single packet if no features)
+ */
+function issueToPackets(
   issue: LinearIssue,
   phaseId: string,
-  extractedNuance?: ExtractedNuance
-): WorkPacket {
+  extractedFeatures?: ExtractedLinearFeature[]
+): WorkPacket[] {
+  // Map comments to metadata format (shared across all packets from this issue)
+  const linearComments = issue.comments?.map(c => ({
+    id: c.id,
+    body: c.body,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    author: c.user?.name || c.user?.email
+  }))
+
+  // Build base metadata that all packets from this issue will share
+  const baseMetadata = {
+    source: "linear" as const,
+    linearId: issue.id,
+    linearIdentifier: issue.identifier,
+    linearState: issue.state.name,
+    linearLabels: issue.labels.nodes.map(l => l.name),
+    linearAssignee: issue.assignee?.email,
+    linearParentId: issue.parent?.id,
+    linearComments
+  }
+
+  // If extractedFeatures provided, create one packet per feature
+  if (extractedFeatures && extractedFeatures.length > 0) {
+    return extractedFeatures.map((feature, index) => {
+      // Build tasks from feature tasks
+      const tasks: WorkPacket["tasks"] = feature.tasks.map((taskDesc, taskIndex) => ({
+        id: `task-${generateId()}`,
+        description: taskDesc,
+        completed: false,
+        order: taskIndex
+      }))
+
+      // If no tasks, create one from the feature title
+      if (tasks.length === 0) {
+        tasks.push({
+          id: `task-${generateId()}`,
+          description: feature.title,
+          completed: false,
+          order: 0
+        })
+      }
+
+      // Build acceptance criteria
+      const acceptanceCriteria = feature.acceptanceCriteria.length > 0
+        ? feature.acceptanceCriteria
+        : [`Complete: ${feature.title}`]
+
+      // Estimate tokens
+      const estimatedTokens = feature.estimatedTokens || 2000
+
+      // Build description with parent issue context
+      let description = feature.description
+      description += `\n\n---\n## Parent Linear Issue\n`
+      description += `**Issue:** ${issue.identifier} - ${issue.title}\n`
+      if (issue.description) {
+        description += `**Original Description:**\n${issue.description.substring(0, 500)}${issue.description.length > 500 ? "..." : ""}\n`
+      }
+
+      // Map feature dependencies to packet dependency format
+      // Feature dependencies reference other features from the same issue
+      const dependencies = feature.dependencies.map(depId => `feature:${issue.id}:${depId}`)
+      // Also add parent issue dependency if exists
+      if (issue.parent) {
+        dependencies.push(`linear:${issue.parent.id}`)
+      }
+
+      return {
+        id: `packet-${generateId()}`,
+        phaseId,
+        title: `[${issue.identifier}] ${feature.title}`,
+        description,
+        type: feature.type,
+        priority: feature.priority,
+        status: mapLinearState(issue.state.type),
+        tasks,
+        suggestedTaskType: "code",
+        acceptanceCriteria,
+        estimatedTokens,
+        dependencies,
+        metadata: {
+          ...baseMetadata,
+          // Feature-specific metadata
+          extractedFeatureId: feature.id,
+          extractedFeatureIndex: index,
+          totalFeaturesFromIssue: extractedFeatures.length
+        }
+      }
+    })
+  }
+
+  // Fallback: No extracted features, create single packet from issue (original behavior)
   // Parse description for task list items
   const tasks: WorkPacket["tasks"] = []
   if (issue.description) {
@@ -142,25 +278,6 @@ function issueToPacket(
           id: `task-${generateId()}`,
           description: checkboxMatch[2].trim(),
           completed: checkboxMatch[1].toLowerCase() === "x",
-          order: order++
-        })
-      }
-    }
-  }
-
-  // Add action items from nuance extraction as tasks
-  if (extractedNuance?.actionItems && extractedNuance.actionItems.length > 0) {
-    let order = tasks.length
-    for (const action of extractedNuance.actionItems) {
-      // Only add if not already present (simple string check)
-      const exists = tasks.some(t =>
-        t.description.toLowerCase().includes(action.toLowerCase().substring(0, 20))
-      )
-      if (!exists) {
-        tasks.push({
-          id: `task-${generateId()}`,
-          description: `[From discussion] ${action}`,
-          completed: false,
           order: order++
         })
       }
@@ -189,19 +306,6 @@ function issueToPacket(
     }
   }
 
-  // Add requirements from nuance extraction as acceptance criteria
-  if (extractedNuance?.requirements && extractedNuance.requirements.length > 0) {
-    for (const req of extractedNuance.requirements) {
-      // Only add if not already present
-      const exists = acceptanceCriteria.some(ac =>
-        ac.toLowerCase().includes(req.toLowerCase().substring(0, 20))
-      )
-      if (!exists) {
-        acceptanceCriteria.push(`[From discussion] ${req}`)
-      }
-    }
-  }
-
   if (acceptanceCriteria.length === 0) {
     acceptanceCriteria.push(`Complete: ${issue.title}`)
   }
@@ -213,14 +317,6 @@ function issueToPacket(
   } else if (issue.description && issue.description.length > 500) {
     estimatedTokens = 4000
   }
-  // Add more tokens if there's extracted nuance (more context to process)
-  if (extractedNuance && (
-    extractedNuance.decisions.length > 0 ||
-    extractedNuance.requirements.length > 0 ||
-    extractedNuance.concerns.length > 0
-  )) {
-    estimatedTokens += 1000
-  }
 
   // Build description with comments context if available
   let description = issue.description || issue.title
@@ -229,24 +325,7 @@ function issueToPacket(
     description += `\n\n---\n## Discussion Notes\n${commentsContext}`
   }
 
-  // Add extracted nuance summary to description
-  if (extractedNuance) {
-    const nuanceFormatted = formatNuanceForPacketGeneration(extractedNuance)
-    if (nuanceFormatted) {
-      description += `\n\n---\n## Extracted Context\n${nuanceFormatted}`
-    }
-  }
-
-  // Map comments to metadata format
-  const linearComments = issue.comments?.map(c => ({
-    id: c.id,
-    body: c.body,
-    createdAt: c.createdAt,
-    updatedAt: c.updatedAt,
-    author: c.user?.name || c.user?.email
-  }))
-
-  return {
+  return [{
     id: `packet-${generateId()}`,
     phaseId,
     title: issue.title,
@@ -259,18 +338,8 @@ function issueToPacket(
     acceptanceCriteria,
     estimatedTokens,
     dependencies: issue.parent ? [`linear:${issue.parent.id}`] : [],
-    metadata: {
-      source: "linear",
-      linearId: issue.id,
-      linearIdentifier: issue.identifier,
-      linearState: issue.state.name,
-      linearLabels: issue.labels.nodes.map(l => l.name),
-      linearAssignee: issue.assignee?.email,
-      linearParentId: issue.parent?.id,
-      linearComments,
-      extractedNuance
-    }
-  }
+    metadata: baseMetadata
+  }]
 }
 
 export async function POST(request: NextRequest) {
@@ -285,6 +354,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     // Default syncComments to TRUE - always import comments for maximum context
     // extractNuance - when true, uses AI to extract key decisions/requirements from comments
+    // analyzeComments - when true, uses AI to extract features from issues with comments (creates multiple packets per issue)
     // generateVision - when true, generates a vision packet for game/creative projects
     // generateImplementationPackets - when true, generates detailed implementation work packets for game projects
     // saveToMarkdown - when true, saves vision/story content to markdown files
@@ -294,6 +364,7 @@ export async function POST(request: NextRequest) {
       claudiaProjectId,  // The Claudia project ID where markdown docs will be saved
       syncComments = true,
       extractNuance = false,
+      analyzeComments,  // When true, extract features from issues with comments (default: true when syncComments is true)
       generateVision = true,  // Auto-generate vision packets for game/creative projects
       generateImplementationPackets = true, // Auto-generate implementation packets for game projects
       saveToMarkdown = true,  // Save vision/story as markdown documents
@@ -302,6 +373,9 @@ export async function POST(request: NextRequest) {
       explicitCategory  // Optional: explicit project category to override keyword detection
                         // Values: "game", "vr", "creative", "interactive", "web", "mobile", "desktop", "api", "library", "tool", "standard"
     } = body
+
+    // Default analyzeComments to true when syncComments is enabled
+    const shouldAnalyzeComments = analyzeComments ?? syncComments
 
     // Support both single projectId (legacy) and multiple projectIds
     const idsToImport: string[] = projectIds || (projectId ? [projectId] : [])
@@ -315,7 +389,7 @@ export async function POST(request: NextRequest) {
 
     // Import all selected projects in parallel
     // Pass syncComments to fetch all comments with pagination
-    console.log(`[Linear Import] Starting import of ${idsToImport.length} project(s), syncComments: ${syncComments}, extractNuance: ${extractNuance}, generateVision: ${generateVision}, generateImplementationPackets: ${generateImplementationPackets}`)
+    console.log(`[Linear Import] Starting import of ${idsToImport.length} project(s), syncComments: ${syncComments}, extractNuance: ${extractNuance}, analyzeComments: ${shouldAnalyzeComments}, generateVision: ${generateVision}, generateImplementationPackets: ${generateImplementationPackets}`)
     const importResults = await Promise.all(
       idsToImport.map(id => importProject(id, { includeComments: syncComments }))
     )
@@ -399,9 +473,100 @@ export async function POST(request: NextRequest) {
     }
 
     // Convert issues to work packets (with nuance if available)
-    const packets: WorkPacket[] = allIssues.map(issue =>
-      issueToPacket(issue, defaultPhaseId, nuanceMap.get(issue.id))
-    )
+    // When analyzeComments is enabled, use AI to extract features from issues with comments
+    const packets: WorkPacket[] = []
+    const featureExtractionStats = {
+      issuesAnalyzed: 0,
+      featuresExtracted: 0,
+      failed: 0,
+      issuesWithoutComments: 0
+    }
+
+    if (shouldAnalyzeComments && syncComments) {
+      console.log(`[Linear Import] Starting feature extraction for issues with comments...`)
+
+      // Separate issues with and without comments
+      const issuesWithComments = allIssues.filter(i => i.comments && i.comments.length > 0)
+      const issuesWithoutComments = allIssues.filter(i => !i.comments || i.comments.length === 0)
+
+      featureExtractionStats.issuesWithoutComments = issuesWithoutComments.length
+
+      // Process issues with comments in batches of 2-3 to avoid LLM overload
+      const BATCH_SIZE = 2
+      for (let i = 0; i < issuesWithComments.length; i += BATCH_SIZE) {
+        const batch = issuesWithComments.slice(i, i + BATCH_SIZE)
+
+        const batchResults = await Promise.all(
+          batch.map(async (issue) => {
+            try {
+              // Extract features from the issue using AI
+              const analysisResult = await extractFeaturesFromLinearIssue(issue, {
+                preferredServer,
+                preferredModel,
+                maxRetries: 2
+              })
+
+              const features = analysisResult.items
+              if (features && features.length > 0) {
+                // Post-process features to decompose large ones into smaller packets
+                console.log(`[Linear Import] Running granularity post-processing for ${issue.identifier} (${features.length} features)`)
+                const granularityResult = await postProcessForGranularity(
+                  features,
+                  issue.id,
+                  issue.identifier,
+                  { preferredServer, preferredModel, maxRetries: 2 }
+                )
+
+                // Convert granularity-processed packets to ExtractedLinearFeature format
+                const extractedFeatures: ExtractedLinearFeature[] = granularityResult.packets.map((p, idx) => ({
+                  id: `feature-${idx}`,
+                  title: p.title,
+                  description: p.description,
+                  type: p.type === "bug" || p.type === "bugfix" ? "bugfix" as const : p.type as ExtractedLinearFeature["type"],
+                  priority: p.priority,
+                  tasks: p.tasks?.map(t => t.description) || [],
+                  acceptanceCriteria: p.acceptanceCriteria || [],
+                  dependencies: [],
+                  estimatedTokens: Math.round(p.estimatedHours.realistic * 2000) // ~2000 tokens/hour
+                }))
+
+                // Use local issueToPackets with extracted features
+                const issuePackets = issueToPackets(issue, defaultPhaseId, extractedFeatures)
+                featureExtractionStats.issuesAnalyzed++
+                featureExtractionStats.featuresExtracted += granularityResult.packets.length
+                console.log(`[Linear Import] Extracted ${features.length} features -> ${granularityResult.packets.length} packets from ${issue.identifier} (${granularityResult.summary.decomposedCount} decomposed)`)
+                return issuePackets
+              } else {
+                // Fall back to single packet if no features extracted
+                return issueToPackets(issue, defaultPhaseId)
+              }
+            } catch (error) {
+              console.error(`[Linear Import] Feature extraction failed for ${issue.identifier}:`, error)
+              featureExtractionStats.failed++
+              // Fall back to single packet on error
+              return issueToPackets(issue, defaultPhaseId)
+            }
+          })
+        )
+
+        // Flatten batch results and add to packets
+        for (const issuePackets of batchResults) {
+          packets.push(...issuePackets)
+        }
+      }
+
+      // Add packets for issues without comments (no AI analysis needed)
+      for (const issue of issuesWithoutComments) {
+        packets.push(...issueToPackets(issue, defaultPhaseId))
+      }
+
+      console.log(`[Linear Import] Feature extraction complete: ${featureExtractionStats.issuesAnalyzed} issues analyzed, ${featureExtractionStats.featuresExtracted} total features extracted, ${featureExtractionStats.failed} failed`)
+    } else {
+      // No feature extraction - convert issues directly to packets
+      for (const issue of allIssues) {
+        packets.push(...issueToPackets(issue, defaultPhaseId))
+      }
+    }
 
     // Generate vision packet for game/creative projects
     let visionPacket: VisionPacket | null = null
@@ -710,6 +875,14 @@ export async function POST(request: NextRequest) {
           issuesWithComments: nuanceStats.withComments,
           processed: nuanceStats.processed,
           failed: nuanceStats.failed
+        } : { enabled: false },
+        // Feature extraction results (when analyzeComments is enabled)
+        featureExtraction: shouldAnalyzeComments && syncComments ? {
+          enabled: true,
+          issuesAnalyzed: featureExtractionStats.issuesAnalyzed,
+          totalFeaturesExtracted: featureExtractionStats.featuresExtracted,
+          failed: featureExtractionStats.failed,
+          issuesWithoutComments: featureExtractionStats.issuesWithoutComments
         } : { enabled: false },
         // Game/creative project detection results
         gameDetection: {

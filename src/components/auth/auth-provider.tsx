@@ -102,8 +102,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [betaLimits, setBetaLimits] = React.useState<BetaLimits | null>(null)
   const [roleSynced, setRoleSynced] = React.useState(false)
 
+  // DEBUG: Log auth state on every render
+  console.log(`[AuthProvider] Render - isPending: ${isPending}, AUTH_BYPASS_MODE: ${AUTH_BYPASS_MODE}, realSession: ${realSession ? 'exists' : 'null'}`)
+
   // Use dev bypass session if no real session and in dev mode
   const session = realSession || (AUTH_BYPASS_MODE ? BYPASS_SESSION : null)
+
+  console.log(`[AuthProvider] Session resolved - userId: ${session?.user?.id}, sessionExists: ${!!session}`)
 
   // Sync role cookie when session changes
   React.useEffect(() => {
@@ -164,7 +169,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // In dev bypass mode with no real session, skip the loading state
   const isLoading = AUTH_BYPASS_MODE && !realSession ? false : isPending
 
-  const value = React.useMemo<AuthContextType>(() => ({
+  console.log(`[AuthProvider] isLoading computed: ${isLoading} (AUTH_BYPASS_MODE: ${AUTH_BYPASS_MODE}, realSession: ${!!realSession}, isPending: ${isPending})`)
+
+  const value = React.useMemo<AuthContextType>(() => {
+    console.log(`[AuthProvider] useMemo - computing context value with userId: ${session?.user?.id}, isLoading: ${isLoading}`)
+    return {
     user: session?.user ? {
       id: session.user.id,
       name: session.user.name,
@@ -199,7 +208,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isBetaTester,
     betaLimits,
     refreshBetaLimits,
-  }), [session, isLoading, userRole, isBetaTester, betaLimits, refreshBetaLimits])
+  }
+  }, [session, isLoading, userRole, isBetaTester, betaLimits, refreshBetaLimits])
 
   return (
     <AuthContext.Provider value={value}>

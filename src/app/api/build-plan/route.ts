@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { spawn } from "child_process"
 import { generateWithLocalLLM, getAllServersWithStatus } from "@/lib/llm/local-llm"
+import { verifyApiAuth } from "@/lib/auth/api-helpers"
+import { getUserApiKeysFromDb } from "@/lib/settings/settings-db"
 import {
   BUILD_PLAN_SYSTEM_PROMPT,
   BUILD_PLAN_SIMPLE_SYSTEM_PROMPT,
@@ -151,8 +153,21 @@ async function generateBusinessDevAnalysis(
   buildPlanSpec: { name?: string; description?: string; objectives?: string[]; techStack?: string[] } | undefined,
   preferredProvider: string | null,
   preferredModel: string | null,
-  allowPaidFallback: boolean
+  allowPaidFallback: boolean,
+  cloudProviders: Array<{ provider: string; apiKey: string }> = []
 ): Promise<BusinessDev | null> {
+  // Helper to get API key (user-provided takes priority over environment)
+  const getApiKey = (providerName: string): string | undefined => {
+    const userKey = cloudProviders.find(p => p.provider === providerName)?.apiKey
+    if (userKey) return userKey
+    switch (providerName) {
+      case "anthropic": return process.env.ANTHROPIC_API_KEY
+      case "openai": return process.env.OPENAI_API_KEY
+      case "google": return process.env.GOOGLE_AI_API_KEY
+      default: return undefined
+    }
+  }
+
   const businessDevPrompt = generateBusinessDevPrompt(
     projectName,
     projectDescription,
@@ -160,13 +175,14 @@ async function generateBusinessDevAnalysis(
   )
 
   // Try OpenAI
-  if (preferredProvider === "chatgpt" && process.env.OPENAI_API_KEY) {
+  const openaiKey = getApiKey("openai")
+  if (preferredProvider === "chatgpt" && openaiKey) {
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+          "Authorization": `Bearer ${openaiKey}`
         },
         body: JSON.stringify({
           model: "gpt-4o",
@@ -189,11 +205,12 @@ async function generateBusinessDevAnalysis(
     }
   }
 
-  // Try Gemini
-  if (preferredProvider === "gemini" && process.env.GOOGLE_AI_API_KEY) {
+  // Try Gemini (provider name can be "google" or "gemini")
+  const geminiKey = getApiKey("google")
+  if ((preferredProvider === "gemini" || preferredProvider === "google") && geminiKey) {
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -222,11 +239,12 @@ async function generateBusinessDevAnalysis(
   }
 
   // Try Anthropic
-  if ((preferredProvider === "anthropic" || preferredProvider === "paid_claudecode") && process.env.ANTHROPIC_API_KEY) {
+  const anthropicKey = getApiKey("anthropic")
+  if ((preferredProvider === "anthropic" || preferredProvider === "paid_claudecode") && anthropicKey) {
     try {
       const Anthropic = (await import("@anthropic-ai/sdk")).default
       const anthropic = new Anthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY
+        apiKey: anthropicKey
       })
 
       const response = await anthropic.messages.create({
@@ -248,7 +266,7 @@ async function generateBusinessDevAnalysis(
 
   // Try local LLM
   const localPreferredServer = preferredProvider &&
-    !["anthropic", "chatgpt", "gemini", "paid_claudecode", "claude-code"].includes(preferredProvider)
+    !["anthropic", "chatgpt", "gemini", "google", "paid_claudecode", "claude-code"].includes(preferredProvider)
       ? preferredProvider
       : undefined
 
@@ -270,11 +288,11 @@ async function generateBusinessDevAnalysis(
   }
 
   // Fallback to Anthropic if allowed
-  if (allowPaidFallback && process.env.ANTHROPIC_API_KEY) {
+  if (allowPaidFallback && anthropicKey) {
     try {
       const Anthropic = (await import("@anthropic-ai/sdk")).default
       const anthropic = new Anthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY
+        apiKey: anthropicKey
       })
 
       const response = await anthropic.messages.create({
@@ -337,8 +355,51 @@ export async function POST(request: NextRequest) {
         interviewData: true
       } as { existingPackets?: boolean; userUploads?: boolean; interviewData?: boolean },
       userUploads = [] as Array<{ filename: string; content?: string }>,
-      interviewSessions = [] as Array<{ sessionId: string; title?: string; summary?: string }>
+      interviewSessions = [] as Array<{ sessionId: string; title?: string; summary?: string }>,
+      // Cloud provider API keys from user settings (backwards compatibility)
+      cloudProviders = [] as Array<{ provider: string; apiKey: string }>
     } = body
+
+    // Try to get API keys from server-side database (for authenticated users)
+    let serverApiKeys: { anthropic?: string; openai?: string; google?: string } | null = null
+    try {
+      const auth = await verifyApiAuth()
+      if (auth?.user?.id) {
+        serverApiKeys = getUserApiKeysFromDb(auth.user.id)
+      }
+    } catch {
+      // Not authenticated or error - continue with other sources
+    }
+
+    // Helper to get API key: 1) server DB, 2) request body, 3) environment
+    const getApiKey = (providerName: string): string | undefined => {
+      // First priority: Server-side database (authenticated user)
+      if (serverApiKeys) {
+        switch (providerName) {
+          case "anthropic":
+            if (serverApiKeys.anthropic) return serverApiKeys.anthropic
+            break
+          case "openai":
+            if (serverApiKeys.openai) return serverApiKeys.openai
+            break
+          case "google":
+            if (serverApiKeys.google) return serverApiKeys.google
+            break
+        }
+      }
+
+      // Second priority: Request body (backwards compatibility)
+      const userKey = cloudProviders.find((p: { provider: string }) => p.provider === providerName)?.apiKey
+      if (userKey) return userKey
+
+      // Fall back to environment variables
+      switch (providerName) {
+        case "anthropic": return process.env.ANTHROPIC_API_KEY
+        case "openai": return process.env.OPENAI_API_KEY
+        case "google": return process.env.GOOGLE_AI_API_KEY
+        default: return undefined
+      }
+    }
 
     // Build sourcesUsed tracking object
     const sourcesUsed = {
@@ -437,13 +498,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Handle ChatGPT / OpenAI
-    if (preferredProvider === "chatgpt" && process.env.OPENAI_API_KEY) {
+    const openaiApiKey = getApiKey("openai")
+    if (preferredProvider === "chatgpt" && openaiApiKey) {
       try {
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+            "Authorization": `Bearer ${openaiApiKey}`
           },
           body: JSON.stringify({
             model: "gpt-4o",
@@ -475,7 +537,8 @@ export async function POST(request: NextRequest) {
                 result.plan.spec,
                 preferredProvider,
                 preferredModel,
-                allowPaidFallback
+                allowPaidFallback,
+                cloudProviders
               )
             }
 
@@ -503,11 +566,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Handle Google Gemini
-    if (preferredProvider === "gemini" && process.env.GOOGLE_AI_API_KEY) {
+    // Handle Google Gemini (provider name can be "google" or "gemini")
+    const googleApiKey = getApiKey("google")
+    if ((preferredProvider === "gemini" || preferredProvider === "google") && googleApiKey) {
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${googleApiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -544,7 +608,8 @@ export async function POST(request: NextRequest) {
                 result.plan.spec,
                 preferredProvider,
                 preferredModel,
-                allowPaidFallback
+                allowPaidFallback,
+                cloudProviders
               )
             }
 
@@ -561,7 +626,21 @@ export async function POST(request: NextRequest) {
               mergeStats: result.mergeStats,
               ...(businessDev && { businessDev })
             })
+          } else {
+            // Parse returned content but couldn't extract plan
+            console.error("[build-plan] Google API returned content but parsing failed")
+            return NextResponse.json({
+              error: "Failed to parse build plan from Google response",
+              source: "google"
+            }, { status: 500 })
           }
+        } else {
+          const errorText = await response.text()
+          console.error(`[build-plan] Google API error response: ${response.status} - ${errorText.slice(0, 500)}`)
+          return NextResponse.json({
+            error: `Google Gemini API error: ${response.status}`,
+            source: "google"
+          }, { status: 503 })
         }
       } catch (error) {
         console.error("Gemini build plan failed:", error)
@@ -632,11 +711,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Handle paid_claudecode - uses Anthropic Claude Opus API
-    if (preferredProvider === "paid_claudecode" && process.env.ANTHROPIC_API_KEY) {
+    const anthropicApiKey = getApiKey("anthropic")
+    if (preferredProvider === "paid_claudecode" && anthropicApiKey) {
       try {
         const Anthropic = (await import("@anthropic-ai/sdk")).default
         const anthropic = new Anthropic({
-          apiKey: process.env.ANTHROPIC_API_KEY
+          apiKey: anthropicApiKey
         })
 
         const response = await anthropic.messages.create({
@@ -693,11 +773,11 @@ export async function POST(request: NextRequest) {
     }
 
     // If Anthropic is explicitly requested and available
-    if (preferredProvider === "anthropic" && process.env.ANTHROPIC_API_KEY) {
+    if (preferredProvider === "anthropic" && anthropicApiKey) {
       try {
         const Anthropic = (await import("@anthropic-ai/sdk")).default
         const anthropic = new Anthropic({
-          apiKey: process.env.ANTHROPIC_API_KEY
+          apiKey: anthropicApiKey
         })
 
         const response = await anthropic.messages.create({
@@ -762,7 +842,7 @@ export async function POST(request: NextRequest) {
     // Only pass preferredServer for local providers (local-llm-server, local-llm-server-2, etc.)
     // Paid providers are handled above and return early
     const localPreferredServer = preferredProvider &&
-      !["anthropic", "chatgpt", "gemini", "paid_claudecode", "claude-code"].includes(preferredProvider)
+      !["anthropic", "chatgpt", "gemini", "google", "paid_claudecode", "claude-code"].includes(preferredProvider)
         ? preferredProvider
         : undefined
 
@@ -914,11 +994,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Local failed or returned invalid plan - try Anthropic if allowed
-    if (allowPaidFallback && process.env.ANTHROPIC_API_KEY) {
+    if (allowPaidFallback && anthropicApiKey) {
       try {
         const Anthropic = (await import("@anthropic-ai/sdk")).default
         const anthropic = new Anthropic({
-          apiKey: process.env.ANTHROPIC_API_KEY
+          apiKey: anthropicApiKey
         })
 
         const response = await anthropic.messages.create({

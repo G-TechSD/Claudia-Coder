@@ -40,26 +40,36 @@ export function useAvailableModels(): UseAvailableModelsResult {
     setError(null)
 
     try {
-      // Get local servers from global settings to pass to API
+      // Get settings from global settings to pass to API
+      // Note: API keys are now stored server-side, so we just pass enabled providers
+      // The server will check for keys in DB, then fall back to env vars
       const globalSettings = getGlobalSettings()
       const enabledLocalServers = globalSettings.localServers.filter(s => s.enabled)
+      const enabledCloudProviders = globalSettings.cloudProviders.filter(p => p.enabled)
 
-      const params = new URLSearchParams()
-      if (forceRefresh) params.set("refresh", "true")
-
-      // Pass local server URLs as JSON array
+      // Use POST to pass cloud provider API keys securely (not in URL)
+      const body: Record<string, unknown> = {}
+      if (forceRefresh) body.refresh = true
       if (enabledLocalServers.length > 0) {
-        const serverUrls = enabledLocalServers.map(s => ({
+        body.localServers = enabledLocalServers.map(s => ({
           id: s.id,
           name: s.name,
           type: s.type,
           baseUrl: s.baseUrl
         }))
-        params.set("localServers", JSON.stringify(serverUrls))
+      }
+      if (enabledCloudProviders.length > 0) {
+        body.cloudProviders = enabledCloudProviders.map(p => ({
+          provider: p.provider,
+          apiKey: p.apiKey
+        }))
       }
 
-      const url = `/api/models${params.toString() ? `?${params.toString()}` : ""}`
-      const response = await fetch(url)
+      const response = await fetch("/api/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      })
 
       if (!response.ok) {
         throw new Error(`Failed to fetch models: ${response.status}`)
@@ -133,25 +143,38 @@ export async function fetchAvailableModels(
   refresh = false
 ): Promise<AvailableModel[]> {
   try {
-    const params = new URLSearchParams()
-    if (provider) params.set("provider", provider)
-    if (refresh) params.set("refresh", "true")
-
-    // Get local servers from global settings to pass to API
+    // Get settings from global settings to pass to API
+    // Note: API keys are now stored server-side
     const globalSettings = getGlobalSettings()
     const enabledLocalServers = globalSettings.localServers.filter(s => s.enabled)
+    const enabledCloudProviders = globalSettings.cloudProviders.filter(p => p.enabled)
+
+    // Build request body for POST
+    const body: Record<string, unknown> = {}
+    if (provider) body.provider = provider
+    if (refresh) body.refresh = true
 
     if (enabledLocalServers.length > 0) {
-      const serverUrls = enabledLocalServers.map(s => ({
+      body.localServers = enabledLocalServers.map(s => ({
         id: s.id,
         name: s.name,
         type: s.type,
         baseUrl: s.baseUrl
       }))
-      params.set("localServers", JSON.stringify(serverUrls))
     }
 
-    const response = await fetch(`/api/models?${params}`)
+    if (enabledCloudProviders.length > 0) {
+      body.cloudProviders = enabledCloudProviders.map(p => ({
+        provider: p.provider,
+        apiKey: p.apiKey
+      }))
+    }
+
+    const response = await fetch("/api/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
     if (!response.ok) return []
 
     const data = await response.json()

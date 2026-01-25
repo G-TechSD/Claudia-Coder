@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import { ArrowRight, FolderOpen, Layers } from "lucide-react"
 import Link from "next/link"
 import { ProjectStatus } from "@/lib/data/types"
-import { getAllProjects } from "@/lib/data/projects"
+import { getAllProjects, fetchProjects } from "@/lib/data/projects"
 import { useAuth } from "@/components/auth/auth-provider"
 
 interface ProjectPreviewItem {
@@ -65,16 +65,25 @@ export function ProjectsPreview() {
   const [projects, setProjects] = useState<ProjectPreviewItem[]>([])
 
   useEffect(() => {
-    if (userId) {
+    const loadProjects = async () => {
+      if (!userId) return
+
+      // Show cached data immediately
       setProjects(loadActiveProjects(userId))
+
+      // Fetch fresh data from server
+      try {
+        await fetchProjects(userId) // This updates the cache
+        setProjects(loadActiveProjects(userId)) // Re-read from updated cache
+      } catch (error) {
+        console.error("[ProjectsPreview] Failed to fetch projects:", error)
+      }
     }
 
+    loadProjects()
+
     // Refresh periodically (30s to avoid interrupting user flow)
-    const interval = setInterval(() => {
-      if (userId) {
-        setProjects(loadActiveProjects(userId))
-      }
-    }, 30000)
+    const interval = setInterval(loadProjects, 30000)
 
     return () => clearInterval(interval)
   }, [userId])

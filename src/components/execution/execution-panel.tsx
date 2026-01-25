@@ -13,6 +13,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectSe
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useAvailableModels, AvailableModel } from "@/hooks/useAvailableModels"
+import { useActivityPersistence } from "@/hooks/useActivityPersistence"
 import { updatePacket } from "@/lib/ai/build-plan"
 
 type ExecutionMode = "local" | "turbo" | "auto" | "n8n"
@@ -35,7 +36,7 @@ export interface WorkPacket {
   type: string
   priority: string
   status: string
-  tasks: Array<{ id: string; description: string; completed: boolean }>
+  tasks: Array<{ id: string; description: string; completed: boolean; order?: number }>
   acceptanceCriteria: string[]
   // Phase/Milestone info (optional, for milestone-grouped execution)
   phaseId?: string
@@ -106,12 +107,16 @@ interface ExecutionPanelProps {
   onSessionChange?: (sessionId: string | null) => void
   /** Callback to reset all packets back to queued status */
   onResetPackets?: () => void
+  /** Callback to reset only failed/blocked packets back to queued status (preserves completed packets) */
+  onRetryFailedPackets?: () => void
   /** Build plan phases for milestone-grouped execution */
   phases?: BuildPhase[]
   /** Enable milestone-grouped execution mode */
   milestoneMode?: boolean
   /** Callback when packets are updated after milestone re-evaluation */
   onPacketsUpdated?: (updatedPackets: WorkPacket[]) => void
+  /** Callback when a packet's status changes (for parent state sync) */
+  onPacketStatusChange?: (packetId: string, status: string, tasks?: Array<{ id: string; description: string; completed: boolean; order?: number }>) => void
 }
 
 // Milestone execution statistics - exported for parent components
@@ -151,7 +156,7 @@ interface PacketCounts {
  * - Error handling with recovery options
  */
 export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanelProps>(
-  function ExecutionPanel({ project, packets, className, restoredSession, onSessionChange, onResetPackets, phases, milestoneMode = false, onPacketsUpdated }, ref) {
+  function ExecutionPanel({ project, packets, className, restoredSession, onSessionChange, onResetPackets, onRetryFailedPackets, phases, milestoneMode = false, onPacketsUpdated, onPacketStatusChange }, ref) {
   const { user, isBetaTester, betaLimits, refreshBetaLimits } = useAuth()
 
   // Determine initial status based on packet states
@@ -168,7 +173,13 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
 
   const [status, setStatus] = React.useState<ExecutionStatus>(getInitialStatus)
   const [progress, setProgress] = React.useState(0)
-  const [events, setEvents] = React.useState<ActivityEvent[]>([])
+  // Use activity persistence hook for project-scoped event storage
+  const {
+    events,
+    addEvent: addPersistentEvent,
+    setEvents,
+    isLoading: eventsLoading
+  } = useActivityPersistence(project.id)
   const [error, setError] = React.useState<string | null>(null)
   const [refinementCount, setRefinementCount] = React.useState(0)
   const [isRefining, setIsRefining] = React.useState(false)
@@ -394,40 +405,23 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
     }
   }, [packets, status])
 
-  // Persist events to localStorage whenever they change
-  React.useEffect(() => {
-    if (events.length > 0) {
-      const persistedEvents = events.map(event => ({
-        id: event.id,
-        type: event.type,
-        message: event.message,
-        timestamp: event.timestamp instanceof Date ? event.timestamp.toISOString() : event.timestamp,
-        projectId: project.id
-      }))
-      localStorage.setItem("claudia_activity_events", JSON.stringify(persistedEvents))
-    }
-  }, [events, project.id])
+  // Note: Events are now persisted automatically by useActivityPersistence hook
+  // The hook handles localStorage with project-scoped keys and cross-tab sync
 
   // Filter to executable packets - include "queued" for Linear-imported issues
   const readyPackets = packets.filter(p =>
     p.status === "ready" || p.status === "pending" || p.status === "queued"
   )
 
-  const addEvent = (
+  // Wrapper for addEvent that uses the persistence hook
+  const addEvent = React.useCallback((
     type: ActivityEvent["type"],
     message: string,
     detail?: string,
     extra?: Partial<ActivityEvent>
   ) => {
-    setEvents(prev => [...prev, {
-      id: `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      type,
-      timestamp: new Date(),
-      message,
-      detail,
-      ...extra
-    }])
-  }
+    addPersistentEvent(type, message, detail, extra)
+  }, [addPersistentEvent])
 
   // Helper function to update session on the server
   const updateSession = async (
@@ -808,6 +802,8 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
               failedPackets.push(packet.title)
               // IMPORTANT: Update packet status to blocked in localStorage
               updatePacket(project.id, packet.id, { status: "blocked" })
+              // Notify parent of status change so React state stays in sync
+              onPacketStatusChange?.(packet.id, "blocked")
 
               const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : currentProvider
               addEvent("error", `Failed: ${packet.title}`, result.error, {
@@ -835,8 +831,11 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
                 status: "completed"
               })
 
-              // IMPORTANT: Update packet status to completed in localStorage
-              updatePacket(project.id, packet.id, { status: "completed" })
+              // IMPORTANT: Update packet status AND tasks to completed in localStorage
+              const completedTasks = packet.tasks.map((t, i) => ({ ...t, completed: true, order: t.order ?? i }))
+              updatePacket(project.id, packet.id, { status: "completed", tasks: completedTasks })
+              // Notify parent of status change so React state stays in sync
+              onPacketStatusChange?.(packet.id, "completed", completedTasks)
 
               const isUnverified = result.unverified || skipQualityGates
               if (isUnverified) unverifiedPackets.push(packet.title)
@@ -1062,6 +1061,8 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
           failedPackets.push(packet.title)
           // IMPORTANT: Update packet status to blocked (not "failed" which isn't a valid status)
           updatePacket(project.id, packet.id, { status: "blocked" })
+          // Notify parent of status change so React state stays in sync
+          onPacketStatusChange?.(packet.id, "blocked")
 
           // Use mode from result if available, otherwise use current provider info
           const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode || currentProvider
@@ -1148,8 +1149,11 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
           unverifiedPackets.push(packet.title)
         }
 
-        // IMPORTANT: Update packet status in localStorage so it persists
-        updatePacket(project.id, packet.id, { status: "completed" })
+        // IMPORTANT: Update packet status AND tasks in localStorage so it persists
+        const completedTasks = packet.tasks.map((t, i) => ({ ...t, completed: true, order: t.order ?? i }))
+        updatePacket(project.id, packet.id, { status: "completed", tasks: completedTasks })
+        // Notify parent of status change so React state stays in sync
+        onPacketStatusChange?.(packet.id, "completed", completedTasks)
 
         const completedProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode || currentProvider
         const completionMessage = isUnverified
@@ -1272,6 +1276,21 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
             { type: "warning", message: `Partial completion: ${completedPackets.length} succeeded, ${errorParts.join(", ")}` }
           )
           await completeSession(activeSessionId, "complete")
+
+          // Auto-generate work summary even for partial completions
+          if (completedPackets.length > 0) {
+            try {
+              fetch(`/api/projects/${project.id}/generate-docs`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  type: "work-summary",
+                  executionSessionId: activeSessionId,
+                  useAI: false
+                })
+              }).catch(() => {/* Ignore errors */})
+            } catch {/* Non-fatal */}
+          }
         }
       } else if (allSucceeded) {
         // All packets succeeded (complete = passed quality gates OR marked unverified)
@@ -1292,6 +1311,28 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
             { type: "success", message: "All packets completed!" }
           )
           await completeSession(activeSessionId, "complete")
+
+          // Auto-generate work summary document (fire-and-forget)
+          try {
+            fetch(`/api/projects/${project.id}/generate-docs`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                type: "work-summary",
+                executionSessionId: activeSessionId,
+                useAI: false // Work summaries don't need AI
+              })
+            }).then(res => {
+              if (res.ok) {
+                console.log("[ExecutionPanel] Work summary generated")
+              }
+            }).catch(err => {
+              console.warn("[ExecutionPanel] Failed to generate work summary:", err)
+            })
+          } catch (docErr) {
+            // Non-fatal - don't fail execution for doc generation issues
+            console.warn("[ExecutionPanel] Doc generation error:", docErr)
+          }
         }
       } else {
         // Some packets remain (shouldn't normally happen)
@@ -1318,6 +1359,38 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
   // Keep ref updated with latest handleGo
   handleGoRef.current = handleGo
 
+  // Handle retry - only retries failed/blocked packets, keeping completed ones
+  const handleRetryFailed = () => {
+    // Call the parent's retry failed packets callback if available
+    // This resets only failed/blocked packets to "queued" status
+    if (onRetryFailedPackets) {
+      onRetryFailedPackets()
+    }
+
+    // Reset UI state to ready for execution
+    setStatus("ready")
+    setError(null)
+    setIsPaused(false)
+    isPausedRef.current = false
+
+    // Count of failed packets that will be retried
+    const failedPacketCount = packets.filter(p =>
+      p.status === "blocked" || p.status === "failed"
+    ).length
+
+    // Update packet counts to reflect only failed packets being retried
+    const completedCount = packets.filter(p => p.status === "completed").length
+    setPacketCounts(prev => ({
+      ...prev,
+      failedCount: 0,
+      remainingCount: failedPacketCount,
+      // Keep the completed count from before
+      successCount: completedCount,
+      totalCount: packets.length
+    }))
+  }
+
+  // Simple retry that just clears the error (for non-packet-related errors)
   const handleRetry = () => {
     setStatus("ready")
     setError(null)
@@ -1861,9 +1934,17 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
                 <p className="text-sm text-red-400 font-medium">Processing Error</p>
                 <p className="text-xs text-red-400/70 mt-1">{error}</p>
               </div>
-              <Button variant="ghost" size="sm" onClick={handleRetry}>
-                Retry
-              </Button>
+              {/* Show "Retry Failed" button if there are failed/blocked packets and callback is available */}
+              {onRetryFailedPackets && packets.some(p => p.status === "blocked" || p.status === "failed") ? (
+                <Button variant="ghost" size="sm" onClick={handleRetryFailed} className="gap-1">
+                  <RotateCcw className="h-3 w-3" />
+                  Retry Failed
+                </Button>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={handleRetry}>
+                  Retry
+                </Button>
+              )}
             </div>
           )}
 

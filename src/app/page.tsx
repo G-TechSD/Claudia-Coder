@@ -7,7 +7,7 @@ import { ProjectsPreview } from "@/components/dashboard/projects-preview"
 import { AgentGrid } from "@/components/dashboard/agent-grid"
 import { SetupGuide } from "@/components/setup/setup-guide"
 import { Package, CheckCircle, AlertTriangle, Layers } from "lucide-react"
-import { getAllProjects } from "@/lib/data/projects"
+import { getAllProjects, fetchProjects } from "@/lib/data/projects"
 import { useAuth } from "@/components/auth/auth-provider"
 
 interface DashboardMetrics {
@@ -90,16 +90,25 @@ export default function Dashboard() {
   })
 
   useEffect(() => {
-    if (userId) {
+    const loadDashboardMetrics = async () => {
+      if (!userId) return
+
+      // Show cached data immediately
       setMetrics(loadMetrics(userId))
+
+      // Fetch fresh data from server
+      try {
+        await fetchProjects(userId) // This updates the cache
+        setMetrics(loadMetrics(userId)) // Re-read from updated cache
+      } catch (error) {
+        console.error("[Dashboard] Failed to fetch projects:", error)
+      }
     }
 
+    loadDashboardMetrics()
+
     // Refresh metrics periodically (30s to avoid interrupting user flow)
-    const interval = setInterval(() => {
-      if (userId) {
-        setMetrics(loadMetrics(userId))
-      }
-    }, 30000)
+    const interval = setInterval(loadDashboardMetrics, 30000)
 
     return () => clearInterval(interval)
   }, [userId])

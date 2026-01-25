@@ -1,0 +1,340 @@
+[
+  {
+    "id": "e9d5ca21-37e4-4b4b-aaf6-d847d47d3f4a",
+    "name": "AutoBiography AI Movie Maker",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/autobiography-ai-movie-maker-e9d5ca21",
+    "basePath": "/home/bill/claudia-projects/autobiography-ai-movie-maker-e9d5ca21",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-21T11:20:46.083Z",
+    "updatedAt": "2026-01-21T11:20:46.083Z"
+  },
+  {
+    "id": "da946c14-d610-4648-af93-f079d01d0ec2",
+    "name": "VR Game - Zombie Jumpscare",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/vr-game-zombie-jumpscare-da946c14",
+    "basePath": "/home/bill/claudia-projects/vr-game-zombie-jumpscare-da946c14",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-21T11:07:39.133Z",
+    "updatedAt": "2026-01-21T11:07:39.133Z"
+  },
+  {
+    "id": "f9db3e02-ce49-417e-bced-cee68adfe994",
+    "name": "iFlyCameras",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/iflycameras-f9db3e02",
+    "basePath": "/home/bill/claudia-projects/iflycameras-f9db3e02",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-21T10:59:34.210Z",
+    "updatedAt": "2026-01-21T10:59:34.210Z"
+  },
+  {
+    "id": "498e8087-303d-4048-852a-9e080d225092",
+    "name": "Fresh Prints of La Mesa",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/fresh-prints-of-la-mesa-498e8087",
+    "basePath": "/home/bill/claudia-projects/fresh-prints-of-la-mesa-498e8087",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-21T10:41:42.773Z",
+    "updatedAt": "2026-01-21T10:41:42.773Z"
+  },
+  {
+    "id": "8dc14089-f3a8-4d79-90f4-e1b635413451",
+    "name": "Fresh Prints Portal",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/fresh-prints-portal-8dc14089",
+    "basePath": "/home/bill/claudia-projects/fresh-prints-portal-8dc14089",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-21T10:37:38.864Z",
+    "updatedAt": "2026-01-21T10:37:38.864Z"
+  },
+  {
+    "id": "d1caf1b4-5f46-41d2-a64b-66b1966f2e2d",
+    "name": "LazLo",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/lazlo-d1caf1b4",
+    "basePath": "/home/bill/claudia-projects/lazlo-d1caf1b4",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-21T09:27:50.459Z",
+    "updatedAt": "2026-01-21T09:27:50.459Z"
+  },
+  {
+    "id": "7bb1c4cb-738b-45bc-8399-6ebdf9deb392",
+    "name": "PiCar Pro Xbox Controller Dashboard",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/picar-pro-xbox-controller-dashboard-7bb1c4cb",
+    "basePath": "/home/bill/claudia-projects/picar-pro-xbox-controller-dashboard-7bb1c4cb",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-21T08:07:01.010Z",
+    "updatedAt": "2026-01-21T08:07:01.010Z"
+  },
+  {
+    "id": "3314202b-8b00-49a5-a2be-8d59c87ed053",
+    "name": "HyperHealth",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/hyperhealth-3314202b",
+    "basePath": "/home/bill/claudia-projects/hyperhealth-3314202b",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-20T15:41:45.961Z",
+    "updatedAt": "2026-01-20T15:41:45.961Z"
+  },
+  {
+    "id": "f9158ff4-9504-40fa-878b-66960c49da4d",
+    "name": "Aquarium AI",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/aquarium-ai-f9158ff4",
+    "basePath": "/home/bill/claudia-projects/aquarium-ai-f9158ff4",
+    "repos": [],
+    "packetIds": [
+      "pkt-req",
+      "pkt-video",
+      "pkt-water",
+      "pkt-behavior",
+      "pkt-interaction",
+      "pkt-deploy"
+    ],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-20T12:15:02.224Z",
+    "updatedAt": "2026-01-20T12:15:09.441Z"
+  },
+  {
+    "id": "13edfcd5-296e-4b43-83b6-6b0890f27182",
+    "name": "Baseball Card Little",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/baseball-card-little-13edfcd5",
+    "basePath": "/home/bill/claudia-projects/baseball-card-little-13edfcd5",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-19T02:01:01.685Z",
+    "updatedAt": "2026-01-19T02:01:01.685Z"
+  },
+  {
+    "id": "a7375799-47b6-4da9-9f12-02b5b13e284f",
+    "name": "GoldenEye",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/goldeneye-a7375799",
+    "basePath": "/home/bill/claudia-projects/goldeneye-a7375799",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-19T00:02:01.512Z",
+    "updatedAt": "2026-01-19T00:02:01.512Z"
+  },
+  {
+    "id": "8a0ccd16-73c2-4935-9227-1b87b0171cfe",
+    "name": "Claudia Coder",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/claudia-coder-8a0ccd16",
+    "basePath": "/home/bill/claudia-projects/claudia-coder-8a0ccd16",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-19T00:02:01.427Z",
+    "updatedAt": "2026-01-19T00:02:01.427Z"
+  },
+  {
+    "id": "d068f059-d319-4395-b7bb-8a0f61fc569a",
+    "name": "SimpleCalc",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/simplecalc",
+    "basePath": "/home/bill/claudia-projects/simplecalc",
+    "repos": [],
+    "packetIds": [],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-19T00:01:59.095Z",
+    "updatedAt": "2026-01-19T00:01:59.095Z"
+  },
+  {
+    "id": "project-1768715720499-za5khexsy",
+    "name": "Playwright Demo",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/playwright-demo-project-",
+    "basePath": "/home/bill/claudia-projects/playwright-demo-project-",
+    "repos": [],
+    "packetIds": [
+      "pkt-1",
+      "pkt-2",
+      "pkt-3",
+      "pkt-4",
+      "pkt-5",
+      "pkt-6",
+      "pkt-7"
+    ],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-18T05:55:20.499Z",
+    "updatedAt": "2026-01-18T05:55:20.545Z"
+  },
+  {
+    "id": "project-1768626625897-sn8rqyqzi",
+    "name": "Playwright Test Demo",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/playwright-test-demo-project-",
+    "basePath": "/home/bill/claudia-projects/playwright-test-demo-project-",
+    "repos": [],
+    "packetIds": [
+      "PK1",
+      "PK2",
+      "PK3",
+      "PK4",
+      "PK5",
+      "PK6"
+    ],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-17T05:10:25.897Z",
+    "updatedAt": "2026-01-17T05:10:25.919Z"
+  },
+  {
+    "id": "4e58a8fa-4f19-4a4a-a876-3178959950af",
+    "name": "Bicycle Gps Route",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/bicycle-gps-route-4e58a8fa",
+    "basePath": "/home/bill/claudia-projects/bicycle-gps-route-4e58a8fa",
+    "repos": [],
+    "packetIds": [
+      "pkt-req-design",
+      "pkt-gps-ingest",
+      "pkt-map-trace",
+      "pkt-kml-export",
+      "pkt-testing",
+      "pkt-deployment",
+      "packet-1768041822607-zy87ekkav",
+      "new-pkt-1"
+    ],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-10T10:44:52.434Z",
+    "updatedAt": "2026-01-10T10:45:15.853Z"
+  },
+  {
+    "id": "fd85b344-0ce5-425d-b697-a6d812e3bb7e",
+    "name": "TaskFlow",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/taskflow-benchmark",
+    "basePath": "/home/bill/claudia-projects/taskflow-benchmark",
+    "repos": [],
+    "packetIds": [
+      "pkt-1",
+      "pkt-2",
+      "pkt-3",
+      "pkt-4",
+      "pkt-5",
+      "pkt-6",
+      "pkt-7",
+      "pkt-8",
+      "pkt-9",
+      "pkt-10",
+      "pkt-11",
+      "pkt-12"
+    ],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-09T10:26:59.118Z",
+    "updatedAt": "2026-01-09T11:35:00.000Z"
+  },
+  {
+    "id": "9c03da26-652f-447a-bf3c-054cbf363785",
+    "name": "A Flutter App",
+    "description": "Recovered from disk",
+    "status": "active",
+    "priority": "medium",
+    "workingDirectory": "/home/bill/claudia-projects/a-flutter-app-9c03da26",
+    "basePath": "/home/bill/claudia-projects/a-flutter-app-9c03da26",
+    "repos": [],
+    "packetIds": [
+      "pkt-setup",
+      "pkt-motion",
+      "pkt-fs",
+      "pkt-ui",
+      "pkt-flash"
+    ],
+    "tags": [
+      "recovered"
+    ],
+    "createdAt": "2026-01-09T10:55:40.438Z",
+    "updatedAt": "2026-01-09T10:55:45.908Z"
+  }
+]

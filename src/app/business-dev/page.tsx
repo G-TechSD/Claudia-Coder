@@ -62,7 +62,7 @@ import {
   getAllBusinessDevs,
   getBusinessDev
 } from "@/lib/data/business-dev"
-import { getAllProjects, getProject } from "@/lib/data/projects"
+import { getAllProjects, fetchProjects, getProject } from "@/lib/data/projects"
 import { useAuth } from "@/components/auth/auth-provider"
 import type { BusinessDev, BusinessDevStatus, Project } from "@/lib/data/types"
 
@@ -285,7 +285,7 @@ export default function BusinessDevPage() {
 
   // ============ Data Loading ============
 
-  const loadData = () => {
+  const loadData = async () => {
     setIsLoading(true)
 
     // Load business devs
@@ -301,9 +301,19 @@ export default function BusinessDevPage() {
     )
     setBusinessDevs(enrichedDevs)
 
-    // Load projects for dropdown
-    const allProjects = getAllProjects({ userId: user?.id, includeTrashed: false })
-    setProjects(allProjects)
+    // Show cached projects immediately
+    const cachedProjects = getAllProjects({ userId: user?.id, includeTrashed: false })
+    setProjects(cachedProjects)
+
+    // Fetch fresh data from server
+    if (user?.id) {
+      try {
+        const serverProjects = await fetchProjects(user.id, { includeTrashed: false })
+        setProjects(serverProjects)
+      } catch (error) {
+        console.error("[BusinessDev] Failed to fetch projects:", error)
+      }
+    }
 
     setIsLoading(false)
   }

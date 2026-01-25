@@ -59,12 +59,15 @@ export interface UserSettings {
 // ============ Encryption Utilities ============
 
 /**
+ * @deprecated Use server-side encryption via /api/settings endpoints instead.
+ * These client-side encryption functions are kept for backwards compatibility
+ * during migration, but new code should use the server API.
+ *
  * Simple encryption for client-side storage.
  * Uses base64 encoding with a user-specific salt.
  *
  * Note: This is NOT cryptographically secure for sensitive data.
- * For production, use proper encryption with a server-side key.
- * This provides basic obfuscation to prevent casual snooping.
+ * Server-side encryption with AES-256-GCM is now used for API keys.
  */
 const ENCRYPTION_VERSION = "v1"
 
@@ -447,4 +450,195 @@ export function subscribeToUserSettings(
 
   window.addEventListener("user-settings-changed", handler)
   return () => window.removeEventListener("user-settings-changed", handler)
+}
+
+// ============ Server Sync Functions ============
+
+const SETTINGS_SERVER_SYNC_KEY = "claudia_user_settings_synced_at"
+
+/**
+ * Fetch user settings from the server
+ * Returns null if fetch fails or user is not authenticated
+ */
+export async function fetchUserSettingsFromServer(userId: string): Promise<UserSettings | null> {
+  if (typeof window === "undefined") return null
+
+  try {
+    const response = await fetch("/api/settings", {
+      method: "GET",
+      credentials: "include"
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        console.log("[UserSettings] Not authenticated, using localStorage")
+        return null
+      }
+      throw new Error(`Server returned ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (!data.success || !data.exists) {
+      return null
+    }
+
+    // Convert server format to UserSettings format
+    const globalSettings = data.globalSettings || {}
+    const appSettings = data.appSettings || {}
+
+    // Extract API keys from global settings cloud providers
+    const apiKeys: UserApiKeys = {}
+    if (globalSettings.cloudProviders) {
+      for (const provider of globalSettings.cloudProviders) {
+        if (provider.apiKey) {
+          switch (provider.provider) {
+            case "anthropic":
+              apiKeys.anthropic = provider.apiKey
+              break
+            case "openai":
+              apiKeys.openai = provider.apiKey
+              break
+            case "google":
+              apiKeys.google = provider.apiKey
+              break
+          }
+        }
+      }
+    }
+
+    // Build user settings from server data
+    const userSettings: UserSettings = {
+      id: userId,
+      n8n: appSettings.n8n || {
+        mode: "shared" as N8NInstanceMode,
+        sharedNamespace: {
+          prefix: `user-${userId.slice(0, 8)}`,
+          tag: `claudia-user-${userId.slice(0, 8)}`,
+        },
+        autoCreateWorkflows: true,
+        defaultWorkflowTags: ["claudia-managed"],
+      },
+      apiKeys,
+      preferLocalLLM: appSettings.preferLocalLLM ?? true,
+      allowPaidLLM: appSettings.allowPaidLLM ?? false,
+      defaultLocalServer: appSettings.defaultLocalServer,
+      createdAt: data.createdAt || new Date().toISOString(),
+      updatedAt: data.lastUpdated || new Date().toISOString(),
+    }
+
+    // Cache to localStorage
+    saveUserSettings(userSettings)
+
+    // Update sync time
+    localStorage.setItem(SETTINGS_SERVER_SYNC_KEY, new Date().toISOString())
+
+    return userSettings
+  } catch (error) {
+    console.warn("[UserSettings] Failed to fetch from server:", error)
+    return null
+  }
+}
+
+/**
+ * Sync user settings to the server
+ * Returns true if successful, false otherwise
+ */
+export async function syncUserSettingsToServer(settings: UserSettings): Promise<boolean> {
+  if (typeof window === "undefined") return false
+
+  try {
+    // Convert UserSettings to server format
+    // Note: The server stores global settings (including cloud providers) and app settings separately
+    // API keys should be stored in globalSettings.cloudProviders
+
+    const response = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        appSettings: {
+          n8n: settings.n8n,
+          preferLocalLLM: settings.preferLocalLLM,
+          allowPaidLLM: settings.allowPaidLLM,
+          defaultLocalServer: settings.defaultLocalServer,
+        }
+        // Note: API keys are synced via globalSettings, not appSettings
+      })
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        console.log("[UserSettings] Not authenticated, skipping server sync")
+        return false
+      }
+      throw new Error(`Server returned ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (data.success) {
+      localStorage.setItem(SETTINGS_SERVER_SYNC_KEY, new Date().toISOString())
+      return true
+    }
+
+    console.warn("[UserSettings] Server sync failed:", data.error)
+    return false
+  } catch (error) {
+    console.warn("[UserSettings] Failed to sync to server:", error)
+    return false
+  }
+}
+
+/**
+ * Get the last time user settings were synced to the server
+ */
+export function getUserSettingsLastSyncTime(): string | null {
+  if (typeof window === "undefined") return null
+  return localStorage.getItem(SETTINGS_SERVER_SYNC_KEY)
+}
+
+/**
+ * Check if user settings need to be synced
+ */
+export function userSettingsNeedsSync(): boolean {
+  const lastSync = getUserSettingsLastSyncTime()
+  if (!lastSync) return true
+
+  // Consider stale if older than 1 hour
+  const lastSyncDate = new Date(lastSync)
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+  return lastSyncDate < oneHourAgo
+}
+
+/**
+ * Initialize user settings with server sync
+ * Fetches from server if available, falls back to localStorage
+ */
+export async function initializeUserSettingsWithSync(userId: string): Promise<{
+  settings: UserSettings
+  source: "server" | "localStorage"
+}> {
+  // First try to fetch from server
+  const serverSettings = await fetchUserSettingsFromServer(userId)
+
+  if (serverSettings) {
+    return {
+      settings: serverSettings,
+      source: "server"
+    }
+  }
+
+  // Fall back to localStorage
+  const localSettings = getOrCreateUserSettings(userId)
+
+  // Try to sync local settings to server in background
+  syncUserSettingsToServer(localSettings).catch(err => {
+    console.warn("[UserSettings] Background sync failed:", err)
+  })
+
+  return {
+    settings: localSettings,
+    source: "localStorage"
+  }
 }

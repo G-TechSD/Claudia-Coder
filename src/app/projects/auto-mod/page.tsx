@@ -175,7 +175,7 @@ export default function AutoModPage() {
       const project = await createProject({
         name: modificationPlan.name,
         description: modificationPlan.description,
-        status: "active",
+        status: "planning", // Stay in planning until user starts the build
         priority: "medium",
         repos: [],
         tags: ["auto-mod"],

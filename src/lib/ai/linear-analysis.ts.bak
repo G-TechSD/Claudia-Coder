@@ -1,0 +1,1054 @@
+/**
+ * Linear Issue Analysis Module
+ *
+ * Analyzes Linear issues with their comments to extract multiple
+ * distinct features, requirements, bugs, and tasks.
+ *
+ * Uses LLM to identify actionable items from issue discussions
+ * that may contain multiple work items in a single thread.
+ */
+
+import { generateWithLocalLLM } from "@/lib/llm/local-llm"
+import { LinearIssue, LinearComment } from "@/lib/linear/api"
+
+/**
+ * Type of extracted item
+ */
+export type ExtractedItemType = "feature" | "requirement" | "bug" | "task" | "enhancement" | "refactor"
+
+/**
+ * Priority level for extracted items
+ */
+export type ExtractedItemPriority = "critical" | "high" | "medium" | "low"
+
+/**
+ * Source information for traceability
+ */
+export interface ExtractedItemSource {
+  type: "issue" | "comment"
+  id: string
+  author?: string
+  timestamp?: string
+  excerpt?: string // Short excerpt from where this was extracted
+}
+
+/**
+ * A single extracted feature/requirement/bug/task from a Linear issue
+ */
+export interface ExtractedLinearFeature {
+  /** Concise title for the extracted item */
+  title: string
+  /** Detailed description of what needs to be done */
+  description: string
+  /** Type of work item */
+  type: ExtractedItemType
+  /** Priority based on context and explicit mentions */
+  priority: ExtractedItemPriority
+  /** Reasoning for why this was extracted and how priority was determined */
+  reasoning?: string
+  /** Who requested or mentioned this item (from comment authors) */
+  requestedBy?: string[]
+  /** Where this item was found */
+  source: ExtractedItemSource
+  /** Any acceptance criteria mentioned */
+  acceptanceCriteria?: string[]
+  /** Dependencies or blockers mentioned */
+  dependencies?: string[]
+  /** Estimated complexity (if mentioned) */
+  complexity?: "trivial" | "small" | "medium" | "large" | "unknown"
+  /** Original text that led to this extraction (for debugging) */
+  rawContext?: string
+}
+
+/**
+ * Result of analyzing a Linear issue
+ */
+export interface LinearAnalysisResult {
+  /** Original issue identifier */
+  issueId: string
+  issueIdentifier: string
+  issueTitle: string
+  /** All extracted items */
+  items: ExtractedLinearFeature[]
+  /** Summary of the analysis */
+  summary: string
+  /** Any warnings or notes about the extraction */
+  warnings?: string[]
+  /** Processing metadata */
+  metadata: {
+    totalComments: number
+    chunksProcessed: number
+    model?: string
+    processingTimeMs: number
+  }
+}
+
+/**
+ * System prompt for feature extraction - FULL VERSION
+ * Designed for capable models that can handle detailed instructions and large context
+ *
+ * Use this prompt when:
+ * - Working with capable models (GPT-4, Claude, etc.)
+ * - Issue has many comments (50+)
+ * - Need detailed reasoning and attribution
+ */
+export const FEATURE_EXTRACTION_SYSTEM_PROMPT = `You are an expert product analyst extracting actionable items from Linear issues.
+
+Your task is to THOROUGHLY analyze the issue title, description, and ALL comments to extract EVERY distinct actionable item mentioned.
+
+=== CRITICAL INSTRUCTIONS ===
+1. READ EVERY SINGLE COMMENT - Even if there are 50+ comments, analyze each one thoroughly
+2. Extract ALL types of items: features, bugs, tasks, requirements, enhancements, refactors
+3. DEDUPLICATE similar items - If the same thing is mentioned multiple times, combine into ONE item
+4. Track WHO requested each item - Use the comment author's name
+5. Preserve CONTEXT - Include reasoning for why each item matters and how priority was determined
+
+=== HANDLING LARGE COMMENT THREADS (50+ comments) ===
+For issues with many comments:
+- Read chronologically to understand how requirements evolved
+- Note when later comments MODIFY or SUPERSEDE earlier requests
+- If the same person mentions something multiple times, it's ONE item (not duplicates)
+- If DIFFERENT people mention the same thing, note ALL of them in requestedBy
+- Track decision points where direction changed
+- Identify the FINAL agreed-upon requirements (not outdated ones)
+
+=== DEDUPLICATION RULES ===
+- Merge items that describe the same work even if worded differently
+- "Add login" and "implement authentication" = SAME item (merge them)
+- If conflicting requirements exist, note BOTH perspectives in the description
+- If priority differs between mentions, use the HIGHEST mentioned priority
+- List ALL people who mentioned the item in requestedBy array
+- When merging, keep the most detailed description
+
+=== FOR EACH ITEM EXTRACT ===
+- title: Clear, actionable title (imperative form: "Add...", "Fix...", "Implement...")
+- description: Detailed description of what needs to be done, including any nuances from discussion
+- type: One of: "feature", "requirement", "bug", "task", "enhancement", "refactor"
+- priority: One of: "critical", "high", "medium", "low"
+- reasoning: WHY this item was extracted and HOW you determined its priority
+- requestedBy: Array of ALL people who mentioned/requested this (empty if from issue description only)
+- sourceType: "issue" or "comment"
+- sourceExcerpt: Brief quote showing where this was found
+- acceptanceCriteria: Array of criteria if mentioned
+- dependencies: Array of blockers or prerequisites if mentioned
+- complexity: "trivial", "small", "medium", "large", or "unknown"
+
+=== ITEM TYPES ===
+- feature: New functionality or capability (user-facing)
+- requirement: Specific behavior that MUST be implemented (often technical)
+- bug: Issue with EXISTING functionality that needs fixing
+- task: Non-feature work (documentation, cleanup, config, setup)
+- enhancement: Improvement to EXISTING functionality (not new)
+- refactor: Code restructuring WITHOUT behavior change
+
+=== PRIORITY DETERMINATION ===
+- "critical": Explicitly marked urgent, blocking other work, has deadline, or security issue
+- "high": Multiple people requested, stakeholder mentioned, significant user impact
+- "medium": Normal feature request, standard task, single person requested
+- "low": Nice-to-have, future consideration, explicitly deprioritized, or low user impact
+
+When determining priority, consider:
+- How many different people mentioned it?
+- Was urgency explicitly stated?
+- Does it block other work?
+- What's the user/business impact?
+
+=== OUTPUT FORMAT ===
+Respond with valid JSON only (no markdown, no explanation):
+{
+  "items": [
+    {
+      "title": "Add OAuth2 authentication with Google and GitHub",
+      "description": "Implement OAuth2 login flow supporting Google and GitHub as identity providers. User should be able to link multiple providers to one account. This was discussed extensively in comments with consensus on supporting both providers from launch.",
+      "type": "feature",
+      "priority": "high",
+      "reasoning": "Requested by 3 different team members (John, Sarah, Mike). Security-critical feature. Multiple comments emphasized importance.",
+      "requestedBy": ["John Smith", "Sarah Jones", "Mike Chen"],
+      "sourceType": "comment",
+      "sourceExcerpt": "we need OAuth with Google and GitHub support",
+      "acceptanceCriteria": ["User can login with Google", "User can login with GitHub", "Multiple providers can be linked"],
+      "dependencies": ["Database user model must be updated first"],
+      "complexity": "medium"
+    }
+  ],
+  "summary": "Brief 2-3 sentence summary of overall scope and key themes extracted",
+  "stats": {
+    "totalItemsFound": 5,
+    "duplicatesMerged": 2,
+    "commentsAnalyzed": 47
+  }
+}
+
+IMPORTANT:
+- Return ONLY the JSON, no markdown code blocks
+- Start with { and end with }
+- Use double quotes for all strings
+- No trailing commas`
+
+/**
+ * Simplified prompt for smaller/less capable models
+ * More direct instructions, shorter context requirements
+ *
+ * Use this prompt when:
+ * - Working with smaller models (7B-13B parameters)
+ * - Need faster processing
+ * - Issue has fewer comments
+ * - Model struggles with complex JSON output
+ */
+export const FEATURE_EXTRACTION_SIMPLE_PROMPT = `Extract actionable items from this Linear issue and its comments.
+
+READ ALL COMMENTS. Even if there are many, analyze each one.
+
+For each DISTINCT item, extract:
+- title: Clear action title ("Add X", "Fix Y")
+- description: What needs to be done
+- type: feature, bug, task, requirement, enhancement, or refactor
+- priority: critical, high, medium, or low
+- reasoning: Why this priority (1 sentence)
+- requestedBy: Names of people who mentioned this (array)
+- sourceExcerpt: Short quote from where this was found
+
+DEDUPLICATE: If same item mentioned twice, combine into ONE entry with all requesters.
+
+Priority guide:
+- critical = urgent/blocking
+- high = important, multiple requesters
+- medium = normal request
+- low = nice-to-have
+
+Return JSON only:
+{
+  "items": [
+    {
+      "title": "Add user login",
+      "description": "Implement login functionality",
+      "type": "feature",
+      "priority": "high",
+      "reasoning": "Multiple people requested, security critical",
+      "requestedBy": ["John", "Sarah"],
+      "sourceExcerpt": "we need user login"
+    }
+  ],
+  "summary": "Brief summary of items found"
+}
+
+Return ONLY the JSON. No markdown. No extra text.`
+
+/**
+ * Format a Linear issue and its comments for LLM analysis
+ */
+function formatIssueForAnalysis(issue: LinearIssue): string {
+  const parts: string[] = []
+
+  // Issue header
+  parts.push(`ISSUE: ${issue.identifier} - ${issue.title}`)
+  parts.push(`Priority: ${issue.priorityLabel} | State: ${issue.state.name}`)
+  if (issue.labels.nodes.length > 0) {
+    parts.push(`Labels: ${issue.labels.nodes.map(l => l.name).join(", ")}`)
+  }
+  parts.push("")
+
+  // Issue description
+  parts.push("DESCRIPTION:")
+  parts.push(issue.description || "(No description provided)")
+  parts.push("")
+
+  // Comments
+  if (issue.comments && issue.comments.length > 0) {
+    parts.push(`COMMENTS (${issue.comments.length} total):`)
+    parts.push("")
+
+    // Sort comments by date
+    const sortedComments = [...issue.comments].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    )
+
+    for (const comment of sortedComments) {
+      const author = comment.user?.name || comment.user?.email || "Unknown"
+      const date = new Date(comment.createdAt).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      })
+      parts.push(`[${author} - ${date}]:`)
+      parts.push(comment.body)
+      parts.push("---")
+    }
+  } else {
+    parts.push("COMMENTS: None")
+  }
+
+  return parts.join("\n")
+}
+
+/**
+ * Split comments into chunks for issues with many comments
+ * Each chunk will be processed separately, then results merged
+ */
+function chunkComments(comments: LinearComment[], maxCommentsPerChunk: number = 25): LinearComment[][] {
+  const chunks: LinearComment[][] = []
+
+  // Sort by date first
+  const sorted = [...comments].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  )
+
+  for (let i = 0; i < sorted.length; i += maxCommentsPerChunk) {
+    chunks.push(sorted.slice(i, i + maxCommentsPerChunk))
+  }
+
+  return chunks
+}
+
+/**
+ * Parse and validate JSON response from LLM
+ */
+function parseExtractionResponse(response: string): {
+  items: Array<{
+    title: string
+    description: string
+    type: string
+    priority: string
+    reasoning?: string
+    requestedBy?: string[]
+    sourceType?: string
+    sourceExcerpt?: string
+    acceptanceCriteria?: string[]
+    dependencies?: string[]
+    complexity?: string
+  }>
+  summary: string
+  stats?: {
+    totalItemsFound?: number
+    duplicatesMerged?: number
+    commentsAnalyzed?: number
+  }
+} | null {
+  // Try direct parse
+  try {
+    return JSON.parse(response.trim())
+  } catch {
+    // Continue to cleanup
+  }
+
+  // Remove markdown code blocks
+  let cleaned = response
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim()
+
+  // Try to find JSON object
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0])
+    } catch {
+      // Continue to more cleanup
+    }
+  }
+
+  // Try fixing common JSON issues
+  try {
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, "$1") // trailing commas
+    cleaned = cleaned.replace(/\/\/[^\n]*/g, "") // comments
+    cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":') // unquoted keys
+
+    const match = cleaned.match(/\{[\s\S]*\}/)
+    if (match) {
+      return JSON.parse(match[0])
+    }
+  } catch {
+    // All attempts failed
+  }
+
+  return null
+}
+
+/**
+ * Map string type to ExtractedItemType
+ */
+function mapItemType(type: string): ExtractedItemType {
+  const normalized = type.toLowerCase().trim()
+  const validTypes: ExtractedItemType[] = ["feature", "requirement", "bug", "task", "enhancement", "refactor"]
+
+  if (validTypes.includes(normalized as ExtractedItemType)) {
+    return normalized as ExtractedItemType
+  }
+
+  // Map common variations
+  if (normalized.includes("fix") || normalized.includes("issue")) return "bug"
+  if (normalized.includes("improve")) return "enhancement"
+  if (normalized.includes("clean") || normalized.includes("tech debt")) return "refactor"
+  if (normalized.includes("doc")) return "task"
+
+  return "task" // default
+}
+
+/**
+ * Map string priority to ExtractedItemPriority
+ */
+function mapItemPriority(priority: string): ExtractedItemPriority {
+  const normalized = priority.toLowerCase().trim()
+
+  if (normalized.includes("critical") || normalized.includes("urgent")) return "critical"
+  if (normalized.includes("high") || normalized.includes("important")) return "high"
+  if (normalized.includes("low") || normalized.includes("minor")) return "low"
+
+  return "medium" // default
+}
+
+/**
+ * Process a single chunk of an issue
+ */
+async function processIssueChunk(
+  issue: LinearIssue,
+  comments: LinearComment[],
+  chunkIndex: number,
+  totalChunks: number,
+  options?: {
+    preferredServer?: string
+    preferredModel?: string
+    useSimplePrompt?: boolean
+  }
+): Promise<ExtractedLinearFeature[]> {
+  // Create a modified issue with just this chunk's comments
+  const chunkIssue: LinearIssue = {
+    ...issue,
+    comments: comments
+  }
+
+  const formattedIssue = formatIssueForAnalysis(chunkIssue)
+
+  const chunkContext = totalChunks > 1
+    ? `\n\nNOTE: This is chunk ${chunkIndex + 1} of ${totalChunks} for this issue. Focus on items mentioned in these specific comments.`
+    : ""
+
+  const userPrompt = `${formattedIssue}${chunkContext}
+
+Extract ALL distinct actionable items from the above issue and comments.`
+
+  const systemPrompt = options?.useSimplePrompt
+    ? FEATURE_EXTRACTION_SIMPLE_PROMPT
+    : FEATURE_EXTRACTION_SYSTEM_PROMPT
+
+  console.log(`[Linear Analysis] Processing chunk ${chunkIndex + 1}/${totalChunks} for issue ${issue.identifier}`)
+
+  const response = await generateWithLocalLLM(
+    systemPrompt,
+    userPrompt,
+    {
+      temperature: 0.3,
+      max_tokens: 4096,
+      preferredServer: options?.preferredServer,
+      preferredModel: options?.preferredModel
+    }
+  )
+
+  if (response.error) {
+    console.error(`[Linear Analysis] LLM error for chunk ${chunkIndex + 1}:`, response.error)
+    return []
+  }
+
+  const parsed = parseExtractionResponse(response.content)
+
+  if (!parsed || !Array.isArray(parsed.items)) {
+    console.warn(`[Linear Analysis] Failed to parse response for chunk ${chunkIndex + 1}`)
+    return []
+  }
+
+  // Convert parsed items to ExtractedLinearFeature objects
+  return parsed.items.map((item, idx) => {
+    // Try to find which comment this came from
+    let source: ExtractedItemSource = {
+      type: "issue",
+      id: issue.id
+    }
+
+    if (item.sourceType === "comment" && item.sourceExcerpt && comments.length > 0) {
+      // Try to match excerpt to a comment
+      const matchingComment = comments.find(c =>
+        c.body.toLowerCase().includes(item.sourceExcerpt?.toLowerCase().slice(0, 50) || "")
+      )
+      if (matchingComment) {
+        source = {
+          type: "comment",
+          id: matchingComment.id,
+          author: matchingComment.user?.name || matchingComment.user?.email,
+          timestamp: matchingComment.createdAt,
+          excerpt: item.sourceExcerpt
+        }
+      }
+    }
+
+    // Normalize requestedBy - handle both string and array formats
+    let requestedBy: string[] | undefined
+    if (Array.isArray(item.requestedBy) && item.requestedBy.length > 0) {
+      requestedBy = item.requestedBy.filter(r => typeof r === "string" && r.length > 0)
+    } else if (typeof item.requestedBy === "string" && item.requestedBy.length > 0) {
+      requestedBy = [item.requestedBy]
+    } else if (source.author) {
+      // Fall back to source author if no requestedBy provided
+      requestedBy = [source.author]
+    }
+
+    return {
+      title: item.title || `Untitled item ${idx + 1}`,
+      description: item.description || "",
+      type: mapItemType(item.type || "task"),
+      priority: mapItemPriority(item.priority || "medium"),
+      reasoning: item.reasoning || undefined,
+      requestedBy,
+      source,
+      acceptanceCriteria: Array.isArray(item.acceptanceCriteria) ? item.acceptanceCriteria : undefined,
+      dependencies: Array.isArray(item.dependencies) ? item.dependencies : undefined,
+      complexity: ["trivial", "small", "medium", "large", "unknown"].includes(item.complexity || "")
+        ? item.complexity as ExtractedLinearFeature["complexity"]
+        : "unknown",
+      rawContext: item.sourceExcerpt
+    }
+  })
+}
+
+/**
+ * Deduplicate items that might have been extracted from multiple chunks
+ * Merges requestedBy arrays and keeps the most detailed description
+ */
+function deduplicateItems(items: ExtractedLinearFeature[]): ExtractedLinearFeature[] {
+  const seen = new Map<string, ExtractedLinearFeature>()
+
+  for (const item of items) {
+    // Create a key based on title similarity
+    const normalizedTitle = item.title.toLowerCase().replace(/[^a-z0-9]/g, "")
+
+    // Check if we have a similar item
+    let isDuplicate = false
+    for (const [key, existing] of seen.entries()) {
+      // Check for similar titles (Levenshtein would be better, but this is simpler)
+      if (normalizedTitle === key ||
+          normalizedTitle.includes(key) ||
+          key.includes(normalizedTitle)) {
+
+        // Merge the items - keep the one with more detail but merge requestedBy
+        const mergedRequestedBy = [
+          ...(existing.requestedBy || []),
+          ...(item.requestedBy || [])
+        ]
+        // Deduplicate requestedBy names (case-insensitive)
+        const uniqueRequesters = [...new Set(
+          mergedRequestedBy.map(r => r.toLowerCase())
+        )].map(lower =>
+          mergedRequestedBy.find(r => r.toLowerCase() === lower) || lower
+        )
+
+        // Merge acceptance criteria
+        const mergedCriteria = [
+          ...(existing.acceptanceCriteria || []),
+          ...(item.acceptanceCriteria || [])
+        ]
+        const uniqueCriteria = [...new Set(mergedCriteria)]
+
+        // Merge dependencies
+        const mergedDeps = [
+          ...(existing.dependencies || []),
+          ...(item.dependencies || [])
+        ]
+        const uniqueDeps = [...new Set(mergedDeps)]
+
+        // Use higher priority
+        const priorityOrder = { critical: 4, high: 3, medium: 2, low: 1 }
+        const higherPriority = priorityOrder[item.priority] > priorityOrder[existing.priority]
+          ? item.priority
+          : existing.priority
+
+        // Merge reasoning if both exist
+        let mergedReasoning = existing.reasoning
+        if (item.reasoning && existing.reasoning && item.reasoning !== existing.reasoning) {
+          mergedReasoning = `${existing.reasoning} Additionally: ${item.reasoning}`
+        } else if (item.reasoning && !existing.reasoning) {
+          mergedReasoning = item.reasoning
+        }
+
+        // Keep the one with more detail, but apply merged fields
+        const baseItem = item.description.length > existing.description.length ? item : existing
+
+        seen.set(key, {
+          ...baseItem,
+          priority: higherPriority,
+          reasoning: mergedReasoning,
+          requestedBy: uniqueRequesters.length > 0 ? uniqueRequesters : undefined,
+          acceptanceCriteria: uniqueCriteria.length > 0 ? uniqueCriteria : undefined,
+          dependencies: uniqueDeps.length > 0 ? uniqueDeps : undefined
+        })
+
+        isDuplicate = true
+        break
+      }
+    }
+
+    if (!isDuplicate) {
+      seen.set(normalizedTitle, item)
+    }
+  }
+
+  return Array.from(seen.values())
+}
+
+/**
+ * Extract features, requirements, bugs, and tasks from a Linear issue
+ *
+ * @param issue - The Linear issue with comments to analyze
+ * @param options - Optional configuration
+ * @returns Array of extracted actionable items
+ */
+export async function extractFeaturesFromLinearIssue(
+  issue: LinearIssue,
+  options?: {
+    preferredServer?: string
+    preferredModel?: string
+    maxCommentsPerChunk?: number
+    maxRetries?: number
+  }
+): Promise<LinearAnalysisResult> {
+  const startTime = Date.now()
+  const maxCommentsPerChunk = options?.maxCommentsPerChunk ?? 25
+  const maxRetries = options?.maxRetries ?? 2
+
+  const comments = issue.comments || []
+  const totalComments = comments.length
+
+  console.log(`[Linear Analysis] Starting analysis of ${issue.identifier}: "${issue.title}" with ${totalComments} comments`)
+
+  // For issues with no comments, just analyze the issue itself
+  if (totalComments === 0) {
+    const items = await processIssueChunk(issue, [], 0, 1, {
+      preferredServer: options?.preferredServer,
+      preferredModel: options?.preferredModel
+    })
+
+    return {
+      issueId: issue.id,
+      issueIdentifier: issue.identifier,
+      issueTitle: issue.title,
+      items,
+      summary: items.length > 0
+        ? `Extracted ${items.length} item(s) from issue description`
+        : "No actionable items found in issue description",
+      metadata: {
+        totalComments: 0,
+        chunksProcessed: 1,
+        processingTimeMs: Date.now() - startTime
+      }
+    }
+  }
+
+  // Chunk comments if there are many
+  const commentChunks = chunkComments(comments, maxCommentsPerChunk)
+  const totalChunks = commentChunks.length
+
+  console.log(`[Linear Analysis] Processing ${totalChunks} chunk(s) for ${issue.identifier}`)
+
+  const allItems: ExtractedLinearFeature[] = []
+  const warnings: string[] = []
+  let model: string | undefined
+
+  // Process first chunk with issue description
+  let attempts = 0
+  let success = false
+
+  while (attempts < maxRetries && !success) {
+    attempts++
+    try {
+      const items = await processIssueChunk(
+        issue,
+        commentChunks[0] || [],
+        0,
+        totalChunks,
+        {
+          preferredServer: options?.preferredServer,
+          preferredModel: options?.preferredModel,
+          useSimplePrompt: attempts > 1
+        }
+      )
+      allItems.push(...items)
+      success = true
+    } catch (error) {
+      console.error(`[Linear Analysis] Attempt ${attempts} failed for chunk 1:`, error)
+      if (attempts >= maxRetries) {
+        warnings.push(`Failed to process first chunk after ${maxRetries} attempts`)
+      }
+    }
+  }
+
+  // Process remaining chunks (comments only, issue description already processed)
+  for (let i = 1; i < commentChunks.length; i++) {
+    try {
+      // For subsequent chunks, create a minimal issue (no description to avoid re-extraction)
+      const chunkIssue: LinearIssue = {
+        ...issue,
+        description: `(See issue description in earlier chunk)`,
+        comments: commentChunks[i]
+      }
+
+      const items = await processIssueChunk(
+        chunkIssue,
+        commentChunks[i],
+        i,
+        totalChunks,
+        {
+          preferredServer: options?.preferredServer,
+          preferredModel: options?.preferredModel
+        }
+      )
+      allItems.push(...items)
+    } catch (error) {
+      console.error(`[Linear Analysis] Failed to process chunk ${i + 1}:`, error)
+      warnings.push(`Failed to process chunk ${i + 1}/${totalChunks}`)
+    }
+  }
+
+  // Deduplicate items
+  const dedupedItems = deduplicateItems(allItems)
+
+  if (dedupedItems.length < allItems.length) {
+    console.log(`[Linear Analysis] Deduplicated ${allItems.length} items to ${dedupedItems.length}`)
+  }
+
+  // Generate summary
+  const typeCounts = dedupedItems.reduce((acc, item) => {
+    acc[item.type] = (acc[item.type] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
+  const typesSummary = Object.entries(typeCounts)
+    .map(([type, count]) => `${count} ${type}${count > 1 ? "s" : ""}`)
+    .join(", ")
+
+  const summary = dedupedItems.length > 0
+    ? `Extracted ${dedupedItems.length} item(s): ${typesSummary}`
+    : "No actionable items found"
+
+  const processingTimeMs = Date.now() - startTime
+  console.log(`[Linear Analysis] Completed ${issue.identifier} in ${processingTimeMs}ms: ${summary}`)
+
+  return {
+    issueId: issue.id,
+    issueIdentifier: issue.identifier,
+    issueTitle: issue.title,
+    items: dedupedItems,
+    summary,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    metadata: {
+      totalComments,
+      chunksProcessed: totalChunks,
+      model,
+      processingTimeMs
+    }
+  }
+}
+
+/**
+ * Batch analyze multiple Linear issues
+ */
+export async function batchAnalyzeLinearIssues(
+  issues: LinearIssue[],
+  options?: {
+    preferredServer?: string
+    preferredModel?: string
+    concurrency?: number
+    onProgress?: (completed: number, total: number, currentIssue: string) => void
+  }
+): Promise<Map<string, LinearAnalysisResult>> {
+  const concurrency = options?.concurrency ?? 2
+  const results = new Map<string, LinearAnalysisResult>()
+
+  console.log(`[Linear Analysis] Batch analyzing ${issues.length} issues with concurrency ${concurrency}`)
+
+  let completed = 0
+
+  // Process in batches
+  for (let i = 0; i < issues.length; i += concurrency) {
+    const batch = issues.slice(i, i + concurrency)
+
+    const batchResults = await Promise.all(
+      batch.map(async (issue) => {
+        options?.onProgress?.(completed, issues.length, issue.identifier)
+
+        const result = await extractFeaturesFromLinearIssue(issue, {
+          preferredServer: options?.preferredServer,
+          preferredModel: options?.preferredModel
+        })
+
+        completed++
+        return { id: issue.id, result }
+      })
+    )
+
+    for (const { id, result } of batchResults) {
+      results.set(id, result)
+    }
+  }
+
+  options?.onProgress?.(completed, issues.length, "Complete")
+
+  // Log summary
+  const totalItems = Array.from(results.values()).reduce(
+    (sum, r) => sum + r.items.length,
+    0
+  )
+  console.log(`[Linear Analysis] Batch complete: ${totalItems} items from ${issues.length} issues`)
+
+  return results
+}
+
+/**
+ * Format extracted features as a structured report
+ */
+export function formatAnalysisReport(result: LinearAnalysisResult): string {
+  const sections: string[] = []
+
+  sections.push(`# Analysis: ${result.issueIdentifier} - ${result.issueTitle}`)
+  sections.push("")
+  sections.push(`**Summary:** ${result.summary}`)
+  sections.push(`**Comments Analyzed:** ${result.metadata.totalComments}`)
+  sections.push(`**Processing Time:** ${result.metadata.processingTimeMs}ms`)
+  sections.push("")
+
+  if (result.warnings && result.warnings.length > 0) {
+    sections.push("## Warnings")
+    result.warnings.forEach(w => sections.push(`- ${w}`))
+    sections.push("")
+  }
+
+  if (result.items.length === 0) {
+    sections.push("_No actionable items extracted._")
+    return sections.join("\n")
+  }
+
+  // Group by type
+  const byType = new Map<ExtractedItemType, ExtractedLinearFeature[]>()
+  for (const item of result.items) {
+    const existing = byType.get(item.type) || []
+    existing.push(item)
+    byType.set(item.type, existing)
+  }
+
+  const typeOrder: ExtractedItemType[] = ["feature", "requirement", "bug", "enhancement", "task", "refactor"]
+
+  for (const type of typeOrder) {
+    const items = byType.get(type)
+    if (!items || items.length === 0) continue
+
+    sections.push(`## ${type.charAt(0).toUpperCase() + type.slice(1)}s`)
+    sections.push("")
+
+    for (const item of items) {
+      sections.push(`### ${item.title}`)
+      sections.push(`**Priority:** ${item.priority} | **Complexity:** ${item.complexity || "unknown"}`)
+
+      if (item.requestedBy && item.requestedBy.length > 0) {
+        sections.push(`**Requested by:** ${item.requestedBy.join(", ")}`)
+      }
+      sections.push("")
+
+      sections.push(item.description)
+      sections.push("")
+
+      if (item.reasoning) {
+        sections.push(`**Reasoning:** ${item.reasoning}`)
+        sections.push("")
+      }
+
+      if (item.acceptanceCriteria && item.acceptanceCriteria.length > 0) {
+        sections.push("**Acceptance Criteria:**")
+        item.acceptanceCriteria.forEach(ac => sections.push(`- ${ac}`))
+        sections.push("")
+      }
+
+      if (item.dependencies && item.dependencies.length > 0) {
+        sections.push("**Dependencies:**")
+        item.dependencies.forEach(d => sections.push(`- ${d}`))
+        sections.push("")
+      }
+
+      if (item.source.excerpt) {
+        sections.push(`_Source: ${item.source.author || "Issue"} - "${item.source.excerpt}"_`)
+        sections.push("")
+      }
+    }
+  }
+
+  return sections.join("\n")
+}
+
+/**
+ * WorkPacket interface for converting extracted features to work packets
+ */
+interface WorkPacket {
+  id: string
+  phaseId: string
+  title: string
+  description: string
+  type: "feature" | "bugfix" | "refactor" | "test" | "docs" | "config" | "research" | "vision"
+  priority: "critical" | "high" | "medium" | "low"
+  status: "queued" | "in_progress" | "completed" | "blocked"
+  tasks: Array<{ id: string; description: string; completed: boolean; order: number }>
+  suggestedTaskType: string
+  acceptanceCriteria: string[]
+  estimatedTokens: number
+  dependencies: string[]
+  metadata: {
+    source: "linear" | "vision-generator" | "feature-extraction"
+    linearId?: string
+    linearIdentifier?: string
+    linearState?: string
+    linearLabels?: string[]
+    linearAssignee?: string
+    linearParentId?: string
+    extractedFeatureTitle?: string
+    extractedFeatureSource?: ExtractedItemSource
+  }
+}
+
+/**
+ * Generate a unique ID for packets and tasks
+ */
+function generatePacketId(): string {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+}
+
+/**
+ * Map ExtractedItemType to WorkPacket type
+ */
+function mapFeatureTypeToPacketType(type: ExtractedItemType): WorkPacket["type"] {
+  switch (type) {
+    case "bug":
+      return "bugfix"
+    case "feature":
+    case "requirement":
+    case "enhancement":
+      return "feature"
+    case "refactor":
+      return "refactor"
+    case "task":
+      return "feature"
+    default:
+      return "feature"
+  }
+}
+
+/**
+ * Convert extracted features from a Linear issue into multiple work packets
+ *
+ * @param issue - The original Linear issue
+ * @param phaseId - The phase ID to assign to packets
+ * @param features - Array of extracted features
+ * @param _nuance - Optional nuance extraction data (unused but kept for API compatibility)
+ * @returns Array of WorkPacket objects
+ */
+export function issueToPackets(
+  issue: LinearIssue,
+  phaseId: string,
+  features: ExtractedLinearFeature[],
+  _nuance?: unknown
+): WorkPacket[] {
+  const packets: WorkPacket[] = []
+
+  for (const feature of features) {
+    // Build tasks from acceptance criteria
+    const tasks: WorkPacket["tasks"] = []
+    let order = 0
+
+    if (feature.acceptanceCriteria && feature.acceptanceCriteria.length > 0) {
+      for (const criteria of feature.acceptanceCriteria) {
+        tasks.push({
+          id: `task-${generatePacketId()}`,
+          description: criteria,
+          completed: false,
+          order: order++
+        })
+      }
+    }
+
+    // If no tasks from criteria, create a default task from the feature title
+    if (tasks.length === 0) {
+      tasks.push({
+        id: `task-${generatePacketId()}`,
+        description: feature.title,
+        completed: false,
+        order: 0
+      })
+    }
+
+    // Build acceptance criteria array
+    const acceptanceCriteria = feature.acceptanceCriteria && feature.acceptanceCriteria.length > 0
+      ? feature.acceptanceCriteria
+      : [`Complete: ${feature.title}`]
+
+    // Estimate tokens based on complexity
+    let estimatedTokens = 2000
+    switch (feature.complexity) {
+      case "trivial":
+        estimatedTokens = 1000
+        break
+      case "small":
+        estimatedTokens = 2000
+        break
+      case "medium":
+        estimatedTokens = 3000
+        break
+      case "large":
+        estimatedTokens = 5000
+        break
+      default:
+        estimatedTokens = 2500
+    }
+
+    // Build dependencies from feature dependencies and parent issue
+    const dependencies: string[] = []
+    if (feature.dependencies && feature.dependencies.length > 0) {
+      dependencies.push(...feature.dependencies.map(d => `feature:${d}`))
+    }
+    if (issue.parent) {
+      dependencies.push(`linear:${issue.parent.id}`)
+    }
+
+    // Build description with source context
+    let description = feature.description
+    if (feature.rawContext) {
+      description += `\n\n---\n**Source:** ${feature.rawContext}`
+    }
+    if (feature.source.excerpt) {
+      description += `\n\n---\n**Original context:** "${feature.source.excerpt}"`
+    }
+
+    const packet: WorkPacket = {
+      id: `packet-${generatePacketId()}`,
+      phaseId,
+      title: feature.title,
+      description,
+      type: mapFeatureTypeToPacketType(feature.type),
+      priority: feature.priority,
+      status: "queued",
+      tasks,
+      suggestedTaskType: "code",
+      acceptanceCriteria,
+      estimatedTokens,
+      dependencies,
+      metadata: {
+        source: "feature-extraction",
+        linearId: issue.id,
+        linearIdentifier: issue.identifier,
+        linearState: issue.state.name,
+        linearLabels: issue.labels.nodes.map(l => l.name),
+        linearAssignee: issue.assignee?.email,
+        linearParentId: issue.parent?.id,
+        extractedFeatureTitle: feature.title,
+        extractedFeatureSource: feature.source
+      }
+    }
+
+    packets.push(packet)
+  }
+
+  return packets
+}

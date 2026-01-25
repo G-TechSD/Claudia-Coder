@@ -441,12 +441,19 @@ export async function POST(request: NextRequest) {
       }
 
       // Try to extract Claude's internal session ID from the output
-      // Claude typically outputs something like "Session: abc123..." or similar
+      // Claude Code CLI outputs: "Resume: claude --resume abc123..." in a box
       if (!sessionIdExtracted && !session.claudeSessionId) {
-        // Look for patterns like "session_id: xyz" or "Session ID: xyz" or just "Session xyz" at start
-        const sessionMatch = data.match(/(?:session[_\s]?id|Session ID|Session)[:\s]+([a-zA-Z0-9_-]+)/i)
-        if (sessionMatch) {
-          session.claudeSessionId = sessionMatch[1]
+        // Pattern 1: Match "claude --resume <session_id>" format
+        const resumeMatch = data.match(/claude\s+--resume\s+([a-zA-Z0-9_-]+)/i)
+        // Pattern 2: Match "session_id: xyz" or "Session ID: xyz" format
+        const sessionIdMatch = data.match(/(?:session[_\s]?id|Session ID)[:\s]+([a-zA-Z0-9_-]+)/i)
+        // Pattern 3: Match "Resuming session <session_id>" format
+        const resumingMatch = data.match(/Resuming\s+(?:session\s+)?([a-zA-Z0-9_-]{6,})/i)
+
+        const extractedId = resumeMatch?.[1] || sessionIdMatch?.[1] || resumingMatch?.[1]
+
+        if (extractedId) {
+          session.claudeSessionId = extractedId
           sessionIdExtracted = true
           updateStoredSession(session)
           console.log(`[claude-code][${id}] Extracted Claude session ID: ${session.claudeSessionId}`)

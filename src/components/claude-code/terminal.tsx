@@ -104,6 +104,7 @@ interface RecentSession {
   projectName: string
   startedAt: string
   lastActiveAt: string
+  workingDirectory?: string     // Working directory for session matching
 }
 
 interface BackgroundSession {
@@ -334,7 +335,8 @@ export function ClaudeCodeTerminal({
         projectId,
         projectName,
         startedAt: new Date().toISOString(),
-        lastActiveAt: new Date().toISOString()
+        lastActiveAt: new Date().toISOString(),
+        workingDirectory, // Include for session matching
       }
 
       try {

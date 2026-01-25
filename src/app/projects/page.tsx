@@ -36,6 +36,7 @@ import {
 } from "lucide-react"
 import {
   getAllProjects,
+  fetchProjects,
   getProjectStats,
   filterProjects,
   trashProject,
@@ -85,8 +86,11 @@ type ViewMode = "list" | "grid"
 const VIEW_MODE_KEY = "claudia_projects_view"
 
 export default function ProjectsPage() {
-  const { user } = useAuth()
+  const { user, isLoading: authLoading } = useAuth()
   const userId = user?.id
+
+  // DEBUG: Log auth state on every render
+  console.log(`[ProjectsPage] RENDER - authLoading: ${authLoading}, userId: ${userId}, user:`, user)
   const [projects, setProjects] = useState<Project[]>([])
   const [filter, setFilter] = useState<ProjectFilter>({})
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all")
@@ -144,20 +148,65 @@ export default function ProjectsPage() {
   // Derive effective view mode (null becomes list for rendering, but we still show loading)
   const effectiveViewMode = viewMode ?? "list"
 
-  const loadProjects = useCallback(() => {
-    if (!userId) return
+  const loadProjects = useCallback(async () => {
+    if (!userId) {
+      console.log(`[ProjectsPage] loadProjects called but no userId yet`)
+      return
+    }
     setIsLoading(true)
-    const allProjects = getAllProjects({ userId })
-    setProjects(allProjects)
-    setIsLoading(false)
+    console.log(`[ProjectsPage] Loading projects for user: ${userId}`)
+
+    // Show cached data immediately for fast UI
+    const cachedProjects = getAllProjects({ userId })
+    if (cachedProjects.length > 0) {
+      setProjects(cachedProjects)
+      console.log(`[ProjectsPage] Showing ${cachedProjects.length} cached projects`)
+    }
+
+    // Fetch fresh data from server (source of truth)
+    try {
+      const serverProjects = await fetchProjects(userId)
+      console.log(`[ProjectsPage] Fetched ${serverProjects.length} projects from server`)
+      setProjects(serverProjects)
+    } catch (error) {
+      console.error(`[ProjectsPage] Failed to fetch from server:`, error)
+      // Keep showing cached data on error
+    } finally {
+      setIsLoading(false)
+    }
   }, [userId])
 
   // Load projects from localStorage (primary storage)
   useEffect(() => {
-    if (userId) {
-      loadProjects()
+    console.log(`[ProjectsPage] useEffect triggered - authLoading: ${authLoading}, userId: ${userId}`)
+
+    // DEBUG: List all localStorage keys that contain "claudia"
+    if (typeof window !== "undefined") {
+      const allKeys = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && key.includes("claudia")) {
+          allKeys.push(key)
+        }
+      }
+      console.log(`[ProjectsPage] DEBUG - All claudia localStorage keys:`, allKeys)
     }
-  }, [userId, loadProjects])
+
+    // Wait for auth to finish loading
+    if (authLoading) {
+      console.log(`[ProjectsPage] Still waiting for auth to load...`)
+      return
+    }
+
+    if (userId) {
+      console.log(`[ProjectsPage] Auth loaded, userId is: ${userId}, calling loadProjects`)
+      loadProjects()
+    } else {
+      // Auth is done loading but no user - show empty state
+      console.log(`[ProjectsPage] Auth loaded but NO USER - showing empty state`)
+      setIsLoading(false)
+    }
+  }, [userId, authLoading, loadProjects])
 
   // Subscribe to storage changes to refresh when projects are created/updated
   useEffect(() => {
@@ -457,7 +506,7 @@ export default function ProjectsPage() {
 
       {/* Projects List/Grid */}
       <div className="flex-1 overflow-auto">
-        {isLoading ? (
+        {(isLoading || authLoading) ? (
           <div className="flex items-center justify-center py-12">
             <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>

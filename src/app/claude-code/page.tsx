@@ -2,17 +2,20 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
   SelectTrigger,
   SelectContent,
   SelectItem,
   SelectSeparator,
+  SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import {
@@ -27,22 +30,43 @@ import {
   Settings2,
   Plug,
   ChevronRight,
+  ChevronDown,
   Globe,
   Loader2,
   Copy,
   Check,
   FolderPlus,
+  LayoutGrid,
+  Sparkles,
+  History,
 } from "lucide-react"
 import Link from "next/link"
 import { useAuth } from "@/components/auth/auth-provider"
 import { getMCPServers } from "@/lib/mcp/storage"
 import { MCPManagedServer } from "@/lib/mcp/types"
-import { getAllProjects, getEffectiveWorkingDirectory, updateProject } from "@/lib/data/projects"
+import { getAllProjects, fetchProjects, getEffectiveWorkingDirectory, updateProject } from "@/lib/data/projects"
 import type { Project } from "@/lib/data/types"
 import { ClaudeCodeTerminal } from "@/components/claude-code/terminal"
+import { MultiTerminalProvider } from "@/components/claude-code/multi/multi-terminal-provider"
+import { MultiTerminalDashboard } from "@/components/claude-code/multi/dashboard"
+import { CLAUDIA_CODER_PROJECT } from "@/lib/emergent-modules/types"
 
-// Special value for custom folder selection
+// Special values for selection
 const CUSTOM_FOLDER_ID = "__custom_folder__"
+const CLAUDIA_CODER_ID = "__claudia_coder__"
+
+// Session storage keys
+const STORAGE_KEY_RECENT_SESSIONS = "claude-code-recent-sessions"
+
+interface RecentSession {
+  id: string
+  claudeSessionId?: string
+  projectId: string
+  projectName: string
+  startedAt: string
+  lastActiveAt: string
+  workingDirectory?: string
+}
 
 // Helper to ensure working directory exists via API
 async function ensureWorkingDirectory(project: Project, userId?: string): Promise<string> {
@@ -74,7 +98,7 @@ async function ensureWorkingDirectory(project: Project, userId?: string): Promis
   return data.workingDirectory
 }
 
-export default function ClaudeCodePage() {
+function SingleTerminalView() {
   const { user } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string>("")
@@ -87,25 +111,73 @@ export default function ClaudeCodePage() {
   const [workDirError, setWorkDirError] = useState<string | null>(null)
   const [resolvedWorkingDirectory, setResolvedWorkingDirectory] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
-  // Custom folder support
+  // Custom folder and Claudia Coder support
   const [useCustomFolder, setUseCustomFolder] = useState(false)
   const [customFolderPath, setCustomFolderPath] = useState("")
+  const [useClaudioCoder, setUseClaudioCoder] = useState(false)
+
+  // Session management
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([])
+  const [selectedSessionId, setSelectedSessionId] = useState<string>("")
+  const [continueSession, setContinueSession] = useState(true) // Default to continue
+
+  // Collapsible project selection panel
+  const [projectSelectionOpen, setProjectSelectionOpen] = useState(true)
 
   // Load projects and MCP servers
   useEffect(() => {
     loadData()
   }, [])
 
-  const loadData = () => {
+  const loadData = async () => {
     setIsLoading(true)
-    const allProjects = getAllProjects({ userId: user?.id })
+
+    // Show cached data immediately
+    const cachedProjects = getAllProjects({ userId: user?.id })
+    setProjects(cachedProjects)
+
     const servers = getMCPServers()
-    setProjects(allProjects)
     setMcpServers(servers)
+
+    // Load recent sessions from localStorage
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_RECENT_SESSIONS)
+        if (saved) {
+          const sessions = JSON.parse(saved) as RecentSession[]
+          setRecentSessions(sessions)
+        }
+      } catch (e) {
+        console.error("Failed to load recent sessions:", e)
+      }
+    }
+
+    // Fetch fresh data from server
+    try {
+      if (user?.id) {
+        const serverProjects = await fetchProjects(user.id)
+        setProjects(serverProjects)
+      }
+    } catch (error) {
+      console.error("[ClaudeCode] Failed to fetch projects:", error)
+    }
+
     setIsLoading(false)
   }
 
   const loadProjects = loadData
+
+  // Get sessions for current project/folder
+  const sessionsForCurrentProject = useMemo(() => {
+    const targetId = useClaudioCoder ? CLAUDIA_CODER_PROJECT.id : useCustomFolder ? "custom" : selectedProjectId
+    return recentSessions.filter(s =>
+      s.projectId === targetId ||
+      (useCustomFolder && s.workingDirectory === customFolderPath)
+    ).slice(0, 5) // Limit to 5 most recent
+  }, [recentSessions, selectedProjectId, useClaudioCoder, useCustomFolder, customFolderPath])
+
+  // Auto-detect if we should resume
+  const hasExistingSession = sessionsForCurrentProject.length > 0
 
   // Get selected project
   const selectedProject = useMemo(() => {
@@ -148,9 +220,15 @@ export default function ClaudeCodePage() {
   const handleProjectChange = useCallback((value: string) => {
     if (value === CUSTOM_FOLDER_ID) {
       setUseCustomFolder(true)
+      setUseClaudioCoder(false)
+      setSelectedProjectId("")
+    } else if (value === CLAUDIA_CODER_ID) {
+      setUseClaudioCoder(true)
+      setUseCustomFolder(false)
       setSelectedProjectId("")
     } else {
       setUseCustomFolder(false)
+      setUseClaudioCoder(false)
       setSelectedProjectId(value)
     }
     // Reset terminal when changing selection
@@ -160,6 +238,15 @@ export default function ClaudeCodePage() {
 
   // Start Claude Code session - ensures working directory exists first
   const handleStartClaudeCode = useCallback(async () => {
+    // Claudia Coder mode
+    if (useClaudioCoder) {
+      setResolvedWorkingDirectory(CLAUDIA_CODER_PROJECT.workingDirectory)
+      setTerminalStarted(true)
+      setProjectSelectionOpen(false) // Collapse to maximize terminal space
+      setTerminalKey(prev => prev + 1)
+      return
+    }
+
     // Custom folder mode
     if (useCustomFolder) {
       if (!customFolderPath.trim()) {
@@ -185,6 +272,7 @@ export default function ClaudeCodePage() {
         }
         setResolvedWorkingDirectory(customFolderPath.trim())
         setTerminalStarted(true)
+        setProjectSelectionOpen(false) // Collapse to maximize terminal space
         setTerminalKey(prev => prev + 1)
       } catch (err) {
         setWorkDirError(err instanceof Error ? err.message : "Failed to access folder")
@@ -207,6 +295,7 @@ export default function ClaudeCodePage() {
 
       // Mark terminal as started (this triggers showing the terminal)
       setTerminalStarted(true)
+      setProjectSelectionOpen(false) // Collapse to maximize terminal space
       // Increment key to reset terminal and start fresh session
       setTerminalKey(prev => prev + 1)
     } catch (err) {
@@ -214,63 +303,87 @@ export default function ClaudeCodePage() {
     } finally {
       setIsPreparingWorkDir(false)
     }
-  }, [selectedProject, useCustomFolder, customFolderPath])
+  }, [selectedProject, useCustomFolder, useClaudioCoder, customFolderPath, user?.id])
 
   // Determine if we can start a session
-  const canStart = useCustomFolder ? customFolderPath.trim().length > 0 : !!selectedProject
+  const canStart = useClaudioCoder || useCustomFolder ? (useCustomFolder ? customFolderPath.trim().length > 0 : true) : !!selectedProject
+
+  // Get display info for current selection (for collapsed header)
+  const getSelectionDisplay = () => {
+    if (useClaudioCoder) {
+      return { name: CLAUDIA_CODER_PROJECT.name }
+    }
+    if (useCustomFolder) {
+      return { name: customFolderPath || "Custom Folder" }
+    }
+    if (selectedProject) {
+      return { name: selectedProject.name }
+    }
+    return null
+  }
+
+  const selectionDisplay = getSelectionDisplay()
 
   return (
-    <div className="flex flex-col gap-6 p-6 h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-            <Terminal className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Claude Code</h1>
-            <p className="text-sm text-muted-foreground">Launch Claude Code CLI for your projects</p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={loadProjects} className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
-
-      {/* Project Selection - Above Terminal */}
-      <Card className="w-full">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Layers className="h-4 w-4" />
-                Project Selection
-              </CardTitle>
-              <CardDescription>Choose a project or custom folder</CardDescription>
+    <div className="flex flex-col gap-6 h-full">
+      {/* Project Selection - Collapsible */}
+      <Collapsible open={projectSelectionOpen} onOpenChange={setProjectSelectionOpen}>
+        <Card className="w-full">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CollapsibleTrigger asChild>
+                <button className="flex items-center gap-2 text-left hover:text-primary transition-colors">
+                  <ChevronDown className={cn(
+                    "h-4 w-4 transition-transform",
+                    !projectSelectionOpen && "-rotate-90"
+                  )} />
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Layers className="h-4 w-4" />
+                      Project Selection
+                      {!projectSelectionOpen && selectionDisplay && (
+                        <span className="text-sm font-normal text-muted-foreground ml-2">
+                          — {selectionDisplay.name}
+                        </span>
+                      )}
+                    </CardTitle>
+                    {projectSelectionOpen && (
+                      <CardDescription>Choose a project or custom folder</CardDescription>
+                    )}
+                  </div>
+                </button>
+              </CollapsibleTrigger>
+              <div className="flex items-center gap-2">
+                {projectSelectionOpen && (
+                  <Button variant="outline" size="sm" onClick={loadProjects} className="gap-2">
+                    <RefreshCw className="h-4 w-4" />
+                    Refresh
+                  </Button>
+                )}
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="gap-2"
+                  disabled={!canStart || isPreparingWorkDir}
+                  onClick={handleStartClaudeCode}
+                >
+                  {isPreparingWorkDir ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Preparing...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4" />
+                      {terminalStarted ? "Restart" : "Start Session"}
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
-            <Button
-              variant="default"
-              size="sm"
-              className="gap-2"
-              disabled={!canStart || isPreparingWorkDir}
-              onClick={handleStartClaudeCode}
-            >
-              {isPreparingWorkDir ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Preparing...
-                </>
-              ) : (
-                <>
-                  <Play className="h-4 w-4" />
-                  Start Session
-                </>
-              )}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent className="space-y-4 pt-0">
           {isLoading ? (
             <div className="flex items-center justify-center py-4">
               <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -279,11 +392,19 @@ export default function ClaudeCodePage() {
             <div className="flex items-start gap-4">
               <div className="flex-1">
                 <Select
-                  value={useCustomFolder ? CUSTOM_FOLDER_ID : selectedProjectId}
+                  value={useClaudioCoder ? CLAUDIA_CODER_ID : useCustomFolder ? CUSTOM_FOLDER_ID : selectedProjectId}
                   onValueChange={handleProjectChange}
                 >
                   <SelectTrigger>
-                    {useCustomFolder ? (
+                    {useClaudioCoder ? (
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        <span className="font-medium">Claudia Coder</span>
+                        <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                          Self-Modify
+                        </Badge>
+                      </div>
+                    ) : useCustomFolder ? (
                       <div className="flex items-center gap-2">
                         <FolderPlus className="h-4 w-4" />
                         <span>Custom Folder</span>
@@ -302,6 +423,18 @@ export default function ClaudeCodePage() {
                     )}
                   </SelectTrigger>
                   <SelectContent>
+                    {/* Claudia Coder option */}
+                    <SelectItem value={CLAUDIA_CODER_ID}>
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        <span className="font-medium">Claudia Coder</span>
+                        <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                          Self-Modify
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectSeparator />
+                    {/* User projects */}
                     {projects.map((project) => (
                       <SelectItem key={project.id} value={project.id}>
                         <div className="flex items-center gap-2">
@@ -340,13 +473,15 @@ export default function ClaudeCodePage() {
           )}
 
           {/* Current selection info */}
-          {(selectedProject || useCustomFolder) && (
+          {(selectedProject || useCustomFolder || useClaudioCoder) && (
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
                 <FolderOpen className="h-4 w-4" />
                 <span className="font-mono text-xs">
                   {useCustomFolder
                     ? (customFolderPath || "Enter path above")
+                    : useClaudioCoder
+                    ? CLAUDIA_CODER_PROJECT.workingDirectory
                     : (workingDirectory || "Will be created on start")}
                 </span>
               </div>
@@ -365,41 +500,105 @@ export default function ClaudeCodePage() {
               {workDirError}
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Terminal - Below Project Selection */}
-      <Card className="w-full flex-1">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Terminal className="h-4 w-4" />
-                Terminal
-              </CardTitle>
-              <CardDescription>Interactive Claude Code session</CardDescription>
+          {/* Session Resume Section - shown when there are existing sessions */}
+          {hasExistingSession && canStart && (
+            <div className="flex items-center gap-4 py-2 px-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-blue-400" />
+                <span className="text-sm text-blue-300">
+                  {sessionsForCurrentProject.length} previous session{sessionsForCurrentProject.length !== 1 ? "s" : ""} found
+                </span>
+              </div>
+              <div className="flex items-center gap-3 ml-auto">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={continueSession}
+                    onCheckedChange={(checked) => setContinueSession(checked as boolean)}
+                    id="continue-session"
+                    className="border-blue-400 data-[state=checked]:bg-blue-600"
+                  />
+                  <Label
+                    htmlFor="continue-session"
+                    className="text-xs text-blue-300 cursor-pointer"
+                  >
+                    Continue last session
+                  </Label>
+                </div>
+                {sessionsForCurrentProject.length > 1 && (
+                  <Select value={selectedSessionId} onValueChange={setSelectedSessionId}>
+                    <SelectTrigger className="h-7 w-48 text-xs bg-transparent border-blue-500/30 text-blue-300">
+                      <SelectValue placeholder="Or select specific session..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">
+                        <span className="text-muted-foreground">Most recent</span>
+                      </SelectItem>
+                      {sessionsForCurrentProject.map((session) => (
+                        <SelectItem key={session.id} value={session.id}>
+                          <div className="flex flex-col">
+                            <span className="text-xs">
+                              {new Date(session.startedAt).toLocaleString()}
+                            </span>
+                            {session.claudeSessionId && (
+                              <span className="text-[10px] text-muted-foreground">
+                                ID: {session.claudeSessionId.slice(0, 12)}...
+                              </span>
+                            )}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
             </div>
-            {(selectedProject || useCustomFolder) && terminalStarted && (
-              <Badge variant="secondary">
-                {useCustomFolder ? "Custom Folder" : selectedProject?.name}
-              </Badge>
-            )}
+          )}
+
+          {/* Options inline */}
+          <div className="flex items-center gap-4 pt-2 border-t">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={bypassPermissions}
+                onCheckedChange={(checked) => setBypassPermissions(checked as boolean)}
+                id="bypass-permissions"
+              />
+              <Label
+                htmlFor="bypass-permissions"
+                className="flex items-center gap-1.5 cursor-pointer text-sm"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />
+                Bypass permissions
+              </Label>
+            </div>
+            <Link href="/claude-code/mcp" className="ml-auto">
+              <Button variant="ghost" size="sm" className="gap-2 text-xs">
+                <Plug className="h-3.5 w-3.5" />
+                MCP Servers ({mcpServers.filter(s => s.enabled).length})
+              </Button>
+            </Link>
           </div>
-        </CardHeader>
-        <CardContent>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
+      {/* Terminal - Fills remaining space */}
+      <Card className="w-full flex-1 min-h-0">
+        <CardContent className="p-0 h-full">
           {terminalStarted && resolvedWorkingDirectory ? (
             <ClaudeCodeTerminal
               key={terminalKey}
-              projectId={useCustomFolder ? "custom" : (selectedProject?.id || "unknown")}
-              projectName={useCustomFolder ? "Custom Session" : (selectedProject?.name || "Unknown")}
-              projectDescription={useCustomFolder ? `Custom folder: ${customFolderPath}` : (selectedProject?.description || "")}
+              projectId={useClaudioCoder ? CLAUDIA_CODER_PROJECT.id : useCustomFolder ? "custom" : (selectedProject?.id || "unknown")}
+              projectName={useClaudioCoder ? CLAUDIA_CODER_PROJECT.name : useCustomFolder ? "Custom Session" : (selectedProject?.name || "Unknown")}
+              projectDescription={useClaudioCoder ? CLAUDIA_CODER_PROJECT.description : useCustomFolder ? `Custom folder: ${customFolderPath}` : (selectedProject?.description || "")}
               workingDirectory={resolvedWorkingDirectory}
               bypassPermissions={bypassPermissions}
-              className="h-[500px]"
+              className="h-full rounded-lg"
               onSessionEnd={() => setTerminalStarted(false)}
             />
           ) : (
-            <div className="h-[500px] rounded-lg bg-zinc-900 border border-zinc-800 p-4 font-mono text-sm flex flex-col">
+            <div className="h-full min-h-[400px] rounded-lg bg-zinc-900 border border-zinc-800 p-4 font-mono text-sm flex flex-col">
               <div className="flex-1 flex flex-col items-center justify-center text-zinc-500">
                 {isPreparingWorkDir ? (
                   <>
@@ -411,7 +610,11 @@ export default function ClaudeCodePage() {
                     <Terminal className="h-12 w-12 mb-4 opacity-50" />
                     <p className="text-zinc-400">Ready to launch Claude Code</p>
                     <p className="mt-2 text-zinc-600 text-sm">
-                      {useCustomFolder ? `Folder: ${customFolderPath}` : `Project: ${selectedProject?.name}`}
+                      {useClaudioCoder
+                        ? `Project: ${CLAUDIA_CODER_PROJECT.name}`
+                        : useCustomFolder
+                        ? `Folder: ${customFolderPath}`
+                        : `Project: ${selectedProject?.name}`}
                     </p>
                     <p className="text-zinc-600 mt-4 text-sm">Click &quot;Start Session&quot; above to begin...</p>
                   </>
@@ -429,265 +632,51 @@ export default function ClaudeCodePage() {
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Configuration Panel */}
-        <div className="space-y-6">
-          {/* Options */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Options</CardTitle>
-              <CardDescription>Configure Claude Code launch settings</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start gap-3 p-3 rounded-lg border border-orange-500/20 bg-orange-500/5">
-                <Checkbox
-                  checked={bypassPermissions}
-                  onCheckedChange={(checked) => setBypassPermissions(checked as boolean)}
-                  id="bypass-permissions"
-                />
-                <div className="space-y-1">
-                  <Label
-                    htmlFor="bypass-permissions"
-                    className="flex items-center gap-2 cursor-pointer font-medium"
-                  >
-                    <AlertTriangle className="h-4 w-4 text-orange-500" />
-                    Dangerously bypass permissions
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Skip permission prompts for file operations. Use with caution - Claude will be able to read/write files without asking.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+export default function ClaudeCodePage() {
+  const [activeTab, setActiveTab] = useState<string>("single")
 
-          {/* MCP Servers Section */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Plug className="h-4 w-4" />
-                    MCP Servers
-                  </CardTitle>
-                  <CardDescription>Model Context Protocol extensions</CardDescription>
-                </div>
-                <Link href="/claude-code/mcp">
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <Settings2 className="h-4 w-4" />
-                    Manage
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {mcpServers.length === 0 ? (
-                <div className="text-center py-4 text-muted-foreground">
-                  <Plug className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No MCP servers configured</p>
-                  <Link href="/claude-code/mcp">
-                    <Button variant="link" size="sm" className="mt-1">
-                      Add your first server
-                    </Button>
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {/* Summary */}
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
-                    <span>{mcpServers.filter(s => s.enabled).length} enabled</span>
-                    <span>{mcpServers.filter(s => s.scope === "global").length} global</span>
-                  </div>
-
-                  {/* Server list (max 3) */}
-                  {mcpServers.slice(0, 3).map((server) => (
-                    <div
-                      key={server.id}
-                      className={cn(
-                        "flex items-center gap-3 p-2 rounded-lg border text-sm",
-                        server.enabled ? "bg-card" : "bg-muted/30 opacity-60"
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "h-2 w-2 rounded-full",
-                          server.enabled ? "bg-green-500" : "bg-zinc-500"
-                        )}
-                      />
-                      <span className="font-medium truncate flex-1">{server.name}</span>
-                      {server.scope === "global" && (
-                        <Badge variant="secondary" className="text-xs">
-                          <Globe className="h-3 w-3 mr-1" />
-                          Global
-                        </Badge>
-                      )}
-                    </div>
-                  ))}
-
-                  {/* Show more link if more than 3 */}
-                  {mcpServers.length > 3 && (
-                    <Link href="/claude-code/mcp">
-                      <Button variant="ghost" size="sm" className="w-full mt-2">
-                        +{mcpServers.length - 3} more servers
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </Link>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Command Preview */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Command Preview</CardTitle>
-              <CardDescription>The command that will be executed</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="relative">
-                <pre className="p-4 rounded-lg bg-zinc-900 text-zinc-100 font-mono text-sm overflow-x-auto">
-                  {workingDirectory && (
-                    <div className="text-zinc-500 mb-2">
-                      <span className="text-zinc-400">$</span> cd &quot;{workingDirectory}&quot;
-                    </div>
-                  )}
-                  <div>
-                    <span className="text-zinc-400">$</span> {command}
-                  </div>
-                </pre>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-2 right-2 h-8 w-8 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
-                  onClick={copyCommand}
-                >
-                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Project Info Panel */}
-        <div className="space-y-6">
-          {/* Project Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Project Details</CardTitle>
-              <CardDescription>
-                {selectedProject ? selectedProject.name : "No project selected"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {selectedProject ? (
-                <div className="space-y-4">
-                  {/* Description */}
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
-                      Description
-                    </div>
-                    <p className="text-sm">{selectedProject.description}</p>
-                  </div>
-
-                  {/* Status */}
-                  <div className="flex items-center gap-4">
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
-                        Status
-                      </div>
-                      <Badge variant="secondary" className="capitalize">
-                        {selectedProject.status}
-                      </Badge>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
-                        Priority
-                      </div>
-                      <Badge variant="outline" className="capitalize">
-                        {selectedProject.priority}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  {/* Repos */}
-                  {selectedProject.repos.length > 0 && (
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                        Linked Repositories
-                      </div>
-                      <div className="space-y-2">
-                        {selectedProject.repos.map((repo) => (
-                          <div
-                            key={repo.id}
-                            className={cn(
-                              "flex items-center gap-3 p-3 rounded-lg border",
-                              repo === primaryRepo && "border-primary/50 bg-primary/5"
-                            )}
-                          >
-                            <GitBranch className="h-4 w-4 text-muted-foreground" />
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-sm truncate">{repo.name}</div>
-                              {repo.localPath && (
-                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <FolderOpen className="h-3 w-3" />
-                                  <span className="truncate">{repo.localPath}</span>
-                                </div>
-                              )}
-                            </div>
-                            {repo === primaryRepo && (
-                              <Badge variant="secondary" className="text-xs">Primary</Badge>
-                            )}
-                            <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                              <a href={repo.url} target="_blank" rel="noopener noreferrer">
-                                <ExternalLink className="h-3.5 w-3.5" />
-                              </a>
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Working Directory */}
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
-                      Working Directory
-                    </div>
-                    {workingDirectory && (
-                      <div className="space-y-1">
-                        <code className="text-sm bg-muted px-2 py-1 rounded block">
-                          {resolvedWorkingDirectory || workingDirectory}
-                        </code>
-                        {!selectedProject.workingDirectory && !primaryRepo?.localPath && (
-                          <p className="text-xs text-muted-foreground">
-                            Will be created on first Claude Code launch
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {workDirError && (
-                      <div className="flex items-center gap-2 text-sm text-red-500 mt-1">
-                        <AlertTriangle className="h-4 w-4" />
-                        {workDirError}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                  <Layers className="h-12 w-12 mb-3 opacity-50" />
-                  <p className="text-sm">Select a project to view details</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
+  return (
+    <div className="flex flex-col h-full p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+            <Terminal className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Claude Code</h1>
+            <p className="text-sm text-muted-foreground">Launch Claude Code CLI sessions</p>
+          </div>
         </div>
       </div>
+
+      {/* Tabs for Single vs Multi Terminal */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+        <TabsList className="w-fit">
+          <TabsTrigger value="single" className="gap-2">
+            <Terminal className="h-4 w-4" />
+            Single Terminal
+          </TabsTrigger>
+          <TabsTrigger value="multi" className="gap-2">
+            <LayoutGrid className="h-4 w-4" />
+            Multi-Terminal
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="single" className="flex-1 mt-4 min-h-0">
+          <SingleTerminalView />
+        </TabsContent>
+
+        <TabsContent value="multi" className="flex-1 mt-4 min-h-0">
+          <MultiTerminalProvider>
+            <MultiTerminalDashboard />
+          </MultiTerminalProvider>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

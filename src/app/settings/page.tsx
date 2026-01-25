@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, Suspense, useMemo } from "react"
+import { useState, useEffect, useCallback, Suspense, useMemo, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -39,6 +39,9 @@ import {
   removeLocalServer,
   getDefaultLaunchHost,
   setDefaultLaunchHost,
+  fetchGlobalSettingsFromServer,
+  syncGlobalSettingsToServer,
+  getLastSyncTime,
   type LocalServerConfig,
   type CloudProviderConfig,
   type DefaultModelConfig,
@@ -80,11 +83,10 @@ import {
   Code2,
   MessageSquare,
   BookOpen,
-  Rocket,
   CloudUpload,
   CloudDownload,
 } from "lucide-react"
-import { useProjectSync } from "@/hooks/useProjectSync"
+import { fetchProjects } from "@/lib/data/projects"
 
 // Provider display names and colors
 const PROVIDER_INFO: Record<string, { name: string; color: string; icon: typeof Cloud }> = {
@@ -148,7 +150,7 @@ function SettingsPageContent() {
   const [cloudProviders, setCloudProviders] = useState<CloudProviderStatus[]>([])
 
   // UI state
-  const [openSections, setOpenSections] = useState<string[]>(["ai-providers"])
+  const [openSections, setOpenSections] = useState<string[]>(["server"])
   const [refreshing, setRefreshing] = useState(false)
 
   // Dialog states
@@ -188,8 +190,159 @@ function SettingsPageContent() {
   // Launch & Test state
   const [defaultHost, setDefaultHost] = useState("")
 
-  // Project Sync
-  const { syncStatus, sync, forcePush, forcePull } = useProjectSync(userId)
+  // Server sync state (server is source of truth now)
+  const [syncStatus, setSyncStatus] = useState<{
+    status: "idle" | "syncing" | "synced" | "error"
+    lastSyncedAt?: string
+    error?: string
+  }>({ status: "idle" })
+
+  // Settings server sync state
+  const [settingsSyncStatus, setSettingsSyncStatus] = useState<{
+    status: "idle" | "syncing" | "synced" | "error"
+    lastSyncedAt?: string
+    error?: string
+  }>({ status: "idle" })
+
+  // Refresh projects from server
+  const refreshFromServer = useCallback(async () => {
+    if (!userId) return
+    setSyncStatus({ status: "syncing" })
+    try {
+      await fetchProjects(userId)
+      setSyncStatus({ status: "synced", lastSyncedAt: new Date().toISOString() })
+      setDataSummary(getDataSummary(userId))
+    } catch (error) {
+      setSyncStatus({ status: "error", error: error instanceof Error ? error.message : "Failed to sync" })
+    }
+  }, [userId])
+
+  // Sync settings to server
+  const syncSettingsToServer = useCallback(async () => {
+    setSettingsSyncStatus(prev => ({ ...prev, status: "syncing" }))
+    try {
+      const currentSettings = getGlobalSettings()
+      const success = await syncGlobalSettingsToServer(currentSettings)
+      if (success) {
+        setSettingsSyncStatus({
+          status: "synced",
+          lastSyncedAt: new Date().toISOString()
+        })
+      } else {
+        // Not an error if not authenticated - just means local-only mode
+        setSettingsSyncStatus(prev => ({
+          ...prev,
+          status: "idle"
+        }))
+      }
+    } catch (error) {
+      setSettingsSyncStatus({
+        status: "error",
+        error: error instanceof Error ? error.message : "Sync failed"
+      })
+    }
+  }, [])
+
+  // Check settings sync status on mount and apply server settings
+  useEffect(() => {
+    const checkSettingsSync = async () => {
+      console.log("[Settings Page] Checking settings sync status...")
+      setSettingsSyncStatus(prev => ({ ...prev, status: "syncing" }))
+
+      try {
+        // Check if we have settings on the server
+        const serverSettings = await fetchGlobalSettingsFromServer()
+        const lastSync = getLastSyncTime()
+        console.log("[Settings Page] Server settings:", serverSettings ? "found" : "not found")
+        console.log("[Settings Page] defaultLaunchHost from server:", serverSettings?.defaultLaunchHost)
+
+        if (serverSettings) {
+          // Server has settings - update all related state
+          setGlobalSettings(serverSettings)
+
+          // Update local servers state from server settings
+          const servers: ServerStatus[] = serverSettings.localServers.map(s => ({
+            id: s.id,
+            name: s.name,
+            url: s.baseUrl,
+            type: s.type,
+            status: "disconnected" as const,
+            models: [],
+            defaultModel: s.defaultModel,
+          }))
+          setLocalServers(servers)
+
+          // Update cloud providers state from server settings
+          const providers: CloudProviderStatus[] = serverSettings.cloudProviders.map(p => ({
+            provider: p.provider,
+            enabled: p.enabled,
+            hasApiKey: Boolean(p.apiKey) || p.authMethod === "oauth",
+            authMethod: p.authMethod,
+            oauthUser: p.oauthUser,
+          }))
+          setCloudProviders(providers)
+
+          // Update default host from server settings
+          setDefaultHost(serverSettings.defaultLaunchHost || "")
+
+          // Check server statuses for local servers (inline to avoid dependency issues)
+          if (servers.length > 0) {
+            setCheckingServers(true)
+            const updatedServers = await Promise.all(
+              servers.map(async (server) => {
+                try {
+                  const response = await fetch("/api/lmstudio-status", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ url: server.url, name: server.name }),
+                  })
+                  if (response.ok) {
+                    const data = await response.json()
+                    return {
+                      ...server,
+                      status: data.status === "connected" ? "connected" as const : "disconnected" as const,
+                      models: data.models || [],
+                    }
+                  }
+                } catch {
+                  // Server unreachable
+                }
+                return { ...server, status: "disconnected" as const, models: [] }
+              })
+            )
+            setLocalServers(updatedServers)
+            setCheckingServers(false)
+          }
+
+          setSettingsSyncStatus({
+            status: "synced",
+            lastSyncedAt: lastSync || new Date().toISOString()
+          })
+        } else {
+          // No server settings yet - sync local settings to server automatically
+          console.log("[Settings Page] No server settings, syncing local settings...")
+          const localSettings = getGlobalSettings()
+          const synced = await syncGlobalSettingsToServer(localSettings)
+          if (synced) {
+            setSettingsSyncStatus({
+              status: "synced",
+              lastSyncedAt: new Date().toISOString()
+            })
+          } else {
+            // Sync failed (likely not authenticated) - that's okay, use local
+            setSettingsSyncStatus({ status: "idle" })
+          }
+        }
+      } catch (error) {
+        console.error("[Settings Page] Settings sync error:", error)
+        setSettingsSyncStatus({ status: "idle" })
+      }
+    }
+
+    if (userId) {
+      checkSettingsSync()
+    }
+  }, [userId])
 
   // Project Recovery
   const [recovering, setRecovering] = useState(false)
@@ -518,11 +671,55 @@ function SettingsPageContent() {
     setGlobalSettings(gs)
   }
 
-  // Handle default launch host change
+  // Ref for debouncing sync
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Handle default launch host change (with debounced server sync)
   const handleDefaultHostChange = (value: string) => {
+    // Update local state immediately
     setDefaultHost(value)
     setDefaultLaunchHost(value || undefined)
+    setSettingsSyncStatus(prev => ({ ...prev, status: "syncing" }))
+
+    // Debounce the server sync to avoid too many requests
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current)
+    }
+
+    syncTimeoutRef.current = setTimeout(async () => {
+      try {
+        console.log("[Settings Page] Syncing hostname to server:", value)
+        const currentSettings = getGlobalSettings()
+        console.log("[Settings Page] Current settings defaultLaunchHost:", currentSettings.defaultLaunchHost)
+        const success = await syncGlobalSettingsToServer(currentSettings)
+        console.log("[Settings Page] Sync result:", success)
+        if (success) {
+          setSettingsSyncStatus({
+            status: "synced",
+            lastSyncedAt: new Date().toISOString()
+          })
+        } else {
+          // Sync failed (not authenticated) - still saved locally
+          setSettingsSyncStatus({ status: "idle" })
+        }
+      } catch (error) {
+        console.error("[Settings Page] Sync error:", error)
+        setSettingsSyncStatus({
+          status: "error",
+          error: "Failed to sync settings"
+        })
+      }
+    }, 1000) // Wait 1 second after last keystroke
   }
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Get all available models for default selection
   const availableModels = useMemo(() => {
@@ -611,22 +808,8 @@ function SettingsPageContent() {
     const legacyResult = clearAllData({ keepToken: true })
     totalCleared += legacyResult.clearedKeys.length
 
-    // Also clear server-side synced data to prevent recovery
-    try {
-      await fetch("/api/projects/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projects: [],
-          interviews: [],
-          buildPlans: [],
-          packets: [],
-          clearAll: true
-        })
-      })
-    } catch (err) {
-      console.warn("Failed to clear server data:", err)
-    }
+    // Note: Server data is intentionally NOT cleared here for safety.
+    // To clear server data, manually delete ~/.claudia-data/projects.json
 
     setClearingData(false)
     setConfirmClear("")
@@ -665,6 +848,89 @@ function SettingsPageContent() {
         onValueChange={setOpenSections}
         className="space-y-4"
       >
+        {/* Claudia Coder Server Section */}
+        <AccordionItem value="server" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-green-500/10">
+                <Server className="h-5 w-5 text-green-500" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-semibold">Claudia Coder Server</h3>
+                <p className="text-sm text-muted-foreground font-normal">
+                  {defaultHost || "localhost"} - Server hostname and network settings
+                </p>
+              </div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-4 pt-2">
+            <div className="space-y-4">
+              {/* Show sync status */}
+              {settingsSyncStatus.status === "syncing" && (
+                <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 text-blue-500 animate-spin flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                      Syncing settings...
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {settingsSyncStatus.status === "synced" && (
+                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center gap-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-green-600 dark:text-green-400">
+                      Settings synced across devices
+                    </p>
+                  </div>
+                  <Badge variant="success">Synced</Badge>
+                </div>
+              )}
+
+              {settingsSyncStatus.status === "error" && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center gap-3">
+                  <XCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                      Sync failed: {settingsSyncStatus.error}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-sm text-muted-foreground">
+                Configure the hostname or IP address that Claudia Coder uses for all services including the Emergent Terminal, dev tools, and test applications.
+              </p>
+
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="defaultHost" className="text-sm font-medium">Server Hostname / IP Address</Label>
+                  <Input
+                    id="defaultHost"
+                    placeholder="e.g., 192.168.1.100 or myserver.local"
+                    value={defaultHost}
+                    onChange={(e) => handleDefaultHostChange(e.target.value)}
+                    className="max-w-sm font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Used by Emergent Terminal, VS Code integration, and other tools. Leave empty to use "localhost".
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-muted/50 border">
+                <p className="text-sm font-medium mb-1">Current Server URLs:</p>
+                <div className="space-y-1 text-xs font-mono text-muted-foreground">
+                  <p>Claudia Coder: https://{defaultHost || "localhost"}:3000</p>
+                  <p>Emergent Terminal: https://{defaultHost || "localhost"}:3100</p>
+                </div>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
         {/* AI Providers Section */}
         <AccordionItem value="ai-providers" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline py-4">
@@ -1093,47 +1359,6 @@ function SettingsPageContent() {
           </AccordionContent>
         </AccordionItem>
 
-        {/* Launch & Test Section */}
-        <AccordionItem value="launch-test" className="border rounded-lg px-4">
-          <AccordionTrigger className="hover:no-underline py-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-cyan-500/10">
-                <Rocket className="h-5 w-5 text-cyan-500" />
-              </div>
-              <div className="text-left">
-                <h3 className="font-semibold">Launch & Test</h3>
-                <p className="text-sm text-muted-foreground font-normal">
-                  Settings for testing applications on local network
-                </p>
-              </div>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="pb-4 pt-2">
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Configure default settings for launching and testing your applications on the local network.
-              </p>
-
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="defaultHost" className="text-sm font-medium">Default Host/IP Address</Label>
-                  <Input
-                    id="defaultHost"
-                    placeholder="e.g., 192.168.1.100 or myserver.local"
-                    value={defaultHost}
-                    onChange={(e) => handleDefaultHostChange(e.target.value)}
-                    className="max-w-sm"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    The hostname or IP address that other devices on your network will use to access test applications.
-                    Leave empty to use "localhost" by default.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
         {/* Advanced Section */}
         <AccordionItem value="advanced" className="border rounded-lg px-4">
           <AccordionTrigger className="hover:no-underline py-4">
@@ -1174,6 +1399,69 @@ function SettingsPageContent() {
                 </div>
               </div>
 
+              {/* Settings Server Sync */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Settings Sync</Label>
+                <div className="p-4 rounded-lg border bg-card">
+                  <div className="flex items-center gap-3 mb-3">
+                    <CloudUpload className={cn(
+                      "h-5 w-5",
+                      settingsSyncStatus.status === "synced" ? "text-green-500" :
+                      settingsSyncStatus.status === "syncing" ? "text-yellow-500 animate-pulse" :
+                      settingsSyncStatus.status === "error" ? "text-red-500" :
+                      "text-muted-foreground"
+                    )} />
+                    <div>
+                      <p className="font-medium">Server Settings Storage</p>
+                      <p className="text-xs text-muted-foreground">
+                        Settings sync automatically across devices when logged in
+                      </p>
+                    </div>
+                    <Badge variant={
+                      settingsSyncStatus.status === "synced" ? "success" :
+                      settingsSyncStatus.status === "syncing" ? "secondary" :
+                      settingsSyncStatus.status === "error" ? "destructive" :
+                      "outline"
+                    } className="ml-auto">
+                      {settingsSyncStatus.status === "synced" ? "Synced" :
+                       settingsSyncStatus.status === "syncing" ? "Syncing" :
+                       settingsSyncStatus.status === "error" ? "Error" : "Local Only"}
+                    </Badge>
+                  </div>
+
+                  {settingsSyncStatus.status === "error" && settingsSyncStatus.error && (
+                    <div className="p-3 mb-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                      <p className="text-sm text-red-600 dark:text-red-400">
+                        {settingsSyncStatus.error}
+                      </p>
+                    </div>
+                  )}
+
+                  {settingsSyncStatus.lastSyncedAt && (
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Last synced: {new Date(settingsSyncStatus.lastSyncedAt).toLocaleString()}
+                    </p>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={syncSettingsToServer}
+                      disabled={settingsSyncStatus.status === "syncing"}
+                      className="gap-2"
+                    >
+                      {settingsSyncStatus.status === "syncing" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CloudUpload className="h-4 w-4" />
+                      )}
+                      Sync Settings Now
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               {/* Data Storage Location */}
               <div className="space-y-3">
                 <Label className="text-sm font-medium">Data Storage</Label>
@@ -1189,7 +1477,7 @@ function SettingsPageContent() {
                   </div>
 
                   <div className="p-3 rounded bg-muted/50 font-mono text-xs mb-3">
-                    {syncStatus.serverDataDir || "~/.claudia-data/"}
+                    ~/.claudia-data/projects.json
                   </div>
 
                   <div className="flex items-center gap-3 mb-3">
@@ -1230,40 +1518,18 @@ function SettingsPageContent() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => sync({ forceRefresh: true })}
+                      onClick={refreshFromServer}
                       disabled={syncStatus.status === "syncing"}
                       className="gap-2"
                     >
                       <RefreshCw className={cn("h-4 w-4", syncStatus.status === "syncing" && "animate-spin")} />
-                      Sync Now
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={forcePush}
-                      disabled={syncStatus.status === "syncing"}
-                      className="gap-2"
-                      title="Push browser cache to server"
-                    >
-                      <CloudUpload className="h-4 w-4" />
-                      Push to Server
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={forcePull}
-                      disabled={syncStatus.status === "syncing"}
-                      className="gap-2"
-                      title="Load from server (refresh this browser)"
-                    >
-                      <CloudDownload className="h-4 w-4" />
-                      Pull from Server
+                      Refresh from Server
                     </Button>
                   </div>
 
                   <p className="text-xs text-muted-foreground mt-3">
-                    Your projects are safely stored on the server at the path shown above.
-                    Browser cache is used for faster loading but server is the source of truth.
+                    Your projects are stored on the server at ~/.claudia-data/projects.json.
+                    This is the source of truth. Browser localStorage is only used as a fast cache.
                   </p>
                 </div>
               </div>

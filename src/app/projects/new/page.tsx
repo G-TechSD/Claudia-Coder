@@ -29,6 +29,7 @@ import { UIFrameworkSelector, UIType, FrameworkOption, getFrameworksForType, det
 import { createGitLabRepo, setGitLabToken, validateGitLabToken, listGitLabProjects } from "@/lib/gitlab/api"
 import { getUserGitLabToken } from "@/lib/data/user-gitlab"
 import { useSettings } from "@/hooks/useSettings"
+import { getGlobalSettings } from "@/lib/settings/global-settings"
 import { useAuth } from "@/components/auth/auth-provider"
 import { LLMStatusBadge } from "@/components/llm/llm-status"
 import { BetaUsageBanner } from "@/components/beta/usage-banner"
@@ -1285,6 +1286,12 @@ ${p.description}
         }
       }
 
+      // Get cloud provider API keys from user settings
+      const globalSettings = getGlobalSettings()
+      const enabledCloudProviders = globalSettings.cloudProviders
+        .filter(p => p.enabled && p.apiKey)
+        .map(p => ({ provider: p.provider, apiKey: p.apiKey }))
+
       const response = await fetch("/api/build-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1295,6 +1302,7 @@ ${p.description}
           preferredProvider,
           preferredModel,
           allowPaidFallback: settings.allowPaidLLM,
+          cloudProviders: enabledCloudProviders,
           constraints: {
             requireLocalFirst: !preferredProvider, // Auto mode uses local first
             requireHumanApproval: ["planning", "deployment"]
@@ -2560,20 +2568,9 @@ ${p.description}
                 ))}
               </ul>
             ) : (
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-start gap-2">
-                  <span className="text-orange-500 font-medium">•</span>
-                  What specific features do you need?
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-orange-500 font-medium">•</span>
-                  Who are the target users?
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-orange-500 font-medium">•</span>
-                  What problem does this solve?
-                </li>
-              </ul>
+              <p className="text-sm text-muted-foreground">
+                Use the <strong>Explore & Narrow Down</strong> option below to help us understand exactly what you want to build. We'll ask targeted questions based on your selections.
+              </p>
             )}
           </CardContent>
         </Card>
@@ -2890,32 +2887,139 @@ ${p.description}
           projectDescription={quickDescription}
           initialContext={quickDescription}
           onCreateProject={async (rec) => {
-            // Use the enriched description from the recommendation
-            const enrichedDescription = `${quickDescription}\n\nClarified requirements:\n${rec.description}\n\nKey features:\n${rec.keyFeatures.join("\n")}\n\nKey concepts: ${rec.selectionPath?.join(", ") || ""}`
-            setQuickDescription(enrichedDescription)
+            // Build comprehensive context from all fractal ideation data
+            const selectionsWithExplanations = rec.howSelectionsIncorporated
+              ? Object.entries(rec.howSelectionsIncorporated)
+                  .map(([selection, explanation]) => `- ${selection}: ${explanation}`)
+                  .join("\n")
+              : rec.selectionPath?.map(s => `- ${s}`).join("\n") || ""
+
+            // Clean project description (stored in project) - NO LLM instructions
+            const cleanDescription = `${rec.description}
+
+## Selected Features & Requirements
+${selectionsWithExplanations}
+
+## Key Features
+${rec.keyFeatures.map(f => `- ${f}`).join("\n")}
+${rec.whyThisWorks ? `\n## Approach\n${rec.whyThisWorks}` : ""}`
+
+            // LLM prompt with full context (only for build plan generation)
+            const llmBuildPlanPrompt = `# Project: ${rec.title}
+
+## Project Description
+${rec.description}
+
+## Complexity Level
+${rec.complexity || "moderate"}
+
+## User's Selected Features & Requirements
+The user selected the following features/concepts during fractal ideation exploration. Each MUST be implemented as work packets:
+
+${selectionsWithExplanations}
+
+## Key Features to Implement
+${rec.keyFeatures.map(f => `- ${f}`).join("\n")}
+
+## Selection Path (User's Exploration Journey)
+${rec.selectionPath?.join(" → ") || "Direct selection"}
+
+---
+CRITICAL INSTRUCTIONS FOR BUILD PLAN GENERATION:
+
+1. PACKET QUANTITY: Create MANY work packets, NOT FEW. Each user selection above should generate 2-4 packets minimum:
+   - One packet for core implementation
+   - One packet for UI/interface
+   - One packet for testing/validation
+   - Additional packets for complex features
+
+2. PACKET GRANULARITY: Each packet should be SMALL and FOCUSED:
+   - A single file or small group of related files
+   - 1-2 hours of work maximum
+   - Clear, specific acceptance criteria
+   - 3-5 concrete tasks per packet
+
+3. FEATURE DECOMPOSITION: Break down each feature into implementation components:
+   - Data models/types
+   - API endpoints/services
+   - UI components
+   - State management
+   - Tests
+
+4. EXPECTED OUTPUT: For ${rec.keyFeatures.length} key features and ${(rec.selectionPath?.length || 0)} user selections, generate at least ${Math.max(25, (rec.selectionPath?.length || 0) * 2)} work packets. More packets = better code quality because each packet is focused.
+
+5. PACKET TYPES: Include a mix of:
+   - "feature" packets for new functionality
+   - "setup" packets for infrastructure/project scaffolding
+   - "testing" packets for quality assurance
+   - "documentation" packets for README, API docs
+   - "chore" packets for configuration, deployment`
+
+            // Store clean description (without LLM instructions)
+            setQuickDescription(cleanDescription)
+            setProjectDescription(cleanDescription)
+            setProjectName(rec.title)
+            setRepoName(toRepoName(rec.title))
             setIdeationReport(null)
 
-            // Auto-generate plan with enriched description
-            setIsGenerating(true)
+            // Auto-generate FULL build plan with LLM-specific context
+            setIsGeneratingBuildPlan(true)
             try {
-              const response = await fetch("/api/llm/plan", {
+              // Get cloud provider API keys from user settings
+              const globalSettings = getGlobalSettings()
+              const enabledCloudProviders = globalSettings.cloudProviders
+                .filter(p => p.enabled && p.apiKey)
+                .map(p => ({ provider: p.provider, apiKey: p.apiKey }))
+
+              const response = await fetch("/api/build-plan", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  description: enrichedDescription,
-                  allowPaidFallback: settings.allowPaidLLM
+                  projectId: `ideation-${Date.now()}`,
+                  projectName: rec.title,
+                  projectDescription: llmBuildPlanPrompt, // Use LLM prompt, not clean description
+                  allowPaidFallback: settings.allowPaidLLM,
+                  cloudProviders: enabledCloudProviders,
+                  constraints: {
+                    requireLocalFirst: true,
+                    requireHumanApproval: ["planning", "deployment"]
+                  }
                 })
               })
-              if (response.ok) {
-                const plan = await response.json()
-                setGeneratedPlan(plan)
-                setMode("quick")
-              } else {
-                setMode("choose")
+
+              const data = await response.json()
+
+              if (data.plan) {
+                setGeneratedBuildPlan(data.plan)
+                setBuildPlanPacketSummary(data.packetSummary)
+                setBuildPlanSource({
+                  server: data.server,
+                  model: data.model
+                })
+                setMode("build_review")
+              } else if (data.error) {
+                console.error("Build plan generation failed:", data.error)
+                // Fall back to basic plan generation
+                const basicResponse = await fetch("/api/llm/plan", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    description: llmBuildPlanPrompt,
+                    allowPaidFallback: settings.allowPaidLLM
+                  })
+                })
+                if (basicResponse.ok) {
+                  const plan = await basicResponse.json()
+                  setGeneratedPlan(plan)
+                  setMode("quick")
+                } else {
+                  setMode("choose")
+                }
               }
             } catch {
               setMode("choose")
             } finally {
+              setIsGeneratingBuildPlan(false)
               setIsGenerating(false)
             }
           }}
@@ -2984,6 +3088,25 @@ ${p.description}
   if (mode === "build_review" && generatedBuildPlan) {
     return (
       <div className="p-6 max-w-4xl mx-auto">
+        {/* Show error if project creation failed */}
+        {submitError && (
+          <div className="mb-4 p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600">
+            <div className="flex items-center gap-2 font-medium mb-1">
+              <AlertCircle className="h-4 w-4" />
+              Failed to create project
+            </div>
+            <p className="text-sm">{submitError}</p>
+          </div>
+        )}
+        {/* Show warning if user is not logged in */}
+        {!user?.id && (
+          <div className="mb-4 p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-600">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertCircle className="h-4 w-4" />
+              You must be logged in to create a project
+            </div>
+          </div>
+        )}
         <BuildPlanReview
           projectId={`temp-${Date.now()}`}
           projectName={projectName}
@@ -2997,6 +3120,7 @@ ${p.description}
           onRegenerate={handleRegenerateBuildPlan}
           onCancel={() => setMode("choose")}
           isRegenerating={isGeneratingBuildPlan}
+          isSubmitting={isSubmitting}
         />
       </div>
     )
@@ -3023,14 +3147,24 @@ ${p.description}
                 {submitError}
               </div>
             )}
-            <div className="flex gap-3 justify-center">
-              <Button variant="outline" onClick={() => router.push("/projects")}>
-                All Projects
+            <div className="flex flex-col gap-3 items-center">
+              <Button
+                size="lg"
+                className="bg-green-600 hover:bg-green-700 text-white gap-2 px-8"
+                onClick={() => router.push(`/projects/${createdProject.id}?startBuild=true`)}
+              >
+                <Rocket className="h-5 w-5" />
+                Start Build
               </Button>
-              <Button onClick={() => router.push(`/projects/${createdProject.id}`)}>
-                View Project
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              <div className="flex gap-3">
+                <Button variant="outline" onClick={() => router.push("/projects")}>
+                  All Projects
+                </Button>
+                <Button variant="outline" onClick={() => router.push(`/projects/${createdProject.id}`)}>
+                  View Project
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

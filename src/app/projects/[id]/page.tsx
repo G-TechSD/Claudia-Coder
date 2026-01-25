@@ -101,6 +101,7 @@ import { AudioRecorder } from "@/components/brain-dump/audio-recorder"
 import { ExecutionPanel, LaunchTestPanel, type ExecutionPanelRef, type RestoredSession } from "@/components/execution"
 import { useRunHistory, type RunHistorySummary } from "@/hooks/useActivityPersistence"
 import { ClaudeCodeTerminal } from "@/components/claude-code/terminal"
+import { ToolSelector } from "@/components/dev-tools/tool-selector"
 import { InterviewPanel } from "@/components/interview/interview-panel"
 // ClaudiaSyncStatus removed - was only used in the standalone terminal section
 import { BusinessDevSection } from "@/components/project/business-dev-section"
@@ -256,6 +257,7 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     const tab = searchParams.get("tab")
     const source = searchParams.get("source")
+    const startBuild = searchParams.get("startBuild")
 
     // Map tab query param to section
     const tabToSection: Record<string, string> = {
@@ -286,6 +288,23 @@ export default function ProjectDetailPage() {
       setTimeout(() => {
         router.replace(`/projects/${projectId}`, { scroll: false })
       }, 100)
+    }
+
+    // If startBuild=true is in URL, auto-trigger build after page loads
+    if (startBuild === "true") {
+      console.log("[project-page] Auto-starting build from URL param")
+      // Delay to ensure the page has fully rendered
+      setTimeout(() => {
+        setShowExecutionInHero(true)
+        // Clear the query params from URL
+        router.replace(`/projects/${projectId}`, { scroll: false })
+        // Trigger execution after another delay to ensure ExecutionPanel has mounted
+        setTimeout(() => {
+          if (heroExecutionPanelRef.current) {
+            heroExecutionPanelRef.current.triggerExecution()
+          }
+        }, 300)
+      }, 500)
     }
   }, [searchParams, projectId, router])
 
@@ -341,7 +360,10 @@ export default function ProjectDetailPage() {
   const { exportProject, isExporting, progress } = useProjectExport()
 
   // Auth hook for user-scoped storage
-  const { user } = useAuth()
+  const { user, isLoading: authLoading } = useAuth()
+
+  // DEBUG: Log auth state on every render
+  console.log(`[ProjectDetailPage] RENDER - authLoading: ${authLoading}, userId: ${user?.id}`)
 
   // Check for active execution sessions on mount and restore state if found
   useEffect(() => {
@@ -390,20 +412,7 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     if (!projectId) return
 
-    // Load packets
-    const storedPackets = localStorage.getItem("claudia_packets")
-    if (storedPackets) {
-      try {
-        const allPackets = JSON.parse(storedPackets)
-        // Packets are stored as { [projectId]: WorkPacket[] }, not a flat array
-        const projectPackets = allPackets[projectId] || []
-        setPackets(projectPackets)
-      } catch {
-        console.error("Failed to parse packets")
-      }
-    }
-
-    // Load build plan status
+    // Load build plan first (we may need its packets as fallback)
     const buildPlan = getBuildPlanForProject(projectId)
     if (buildPlan) {
       setHasBuildPlan(true)
@@ -414,15 +423,97 @@ export default function ProjectDetailPage() {
       setBuildPlanApproved(false)
       setCurrentBuildPlan(null)
     }
+
+    // Load packets from localStorage
+    type LocalPacket = {
+      id: string
+      title: string
+      description: string
+      type: string
+      priority: string
+      status: string
+      tasks: Array<{ id: string; description: string; completed: boolean; order?: number }>
+      acceptanceCriteria: string[]
+    }
+    let projectPackets: LocalPacket[] = []
+    const storedPackets = localStorage.getItem("claudia_packets")
+    if (storedPackets) {
+      try {
+        const allPackets = JSON.parse(storedPackets)
+        // Packets are stored as { [projectId]: LocalPacket[] }, not a flat array
+        projectPackets = allPackets[projectId] || []
+      } catch {
+        console.error("Failed to parse packets")
+      }
+    }
+
+    // Fallback: if no packets in localStorage but build plan has packets, use those
+    const buildPlanPackets = buildPlan?.originalPlan?.packets || []
+    if (projectPackets.length === 0 && buildPlanPackets.length > 0) {
+      console.log(`[ProjectPage] No packets in localStorage, loading ${buildPlanPackets.length} from build plan`)
+      // Convert build plan packets to the format expected by the project page
+      projectPackets = buildPlanPackets.map(p => ({
+        id: p.id,
+        title: p.title,
+        description: p.description,
+        type: p.type,
+        priority: p.priority,
+        status: "queued",
+        tasks: p.tasks.map(t => ({ id: t.id, description: t.description, completed: t.completed })),
+        acceptanceCriteria: p.acceptanceCriteria
+      }))
+      // Also save them to localStorage for future loads
+      try {
+        const allPackets = storedPackets ? JSON.parse(storedPackets) : {}
+        allPackets[projectId] = projectPackets
+        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+      } catch {
+        console.error("Failed to save packets from build plan")
+      }
+    }
+
+    setPackets(projectPackets)
   }, [projectId])
 
   useEffect(() => {
+    console.log(`[ProjectDetailPage] useEffect triggered - projectId: ${projectId}, authLoading: ${authLoading}, userId: ${user?.id}`)
+
     if (!projectId) {
+      console.log(`[ProjectDetailPage] No projectId, setting loading=false`)
       setLoading(false)
       return
     }
 
+    // Wait for auth to finish loading before trying to load the project
+    if (authLoading) {
+      console.log(`[ProjectDetailPage] Still waiting for auth to load...`)
+      return
+    }
+
+    // DEBUG: Check what's in localStorage directly
+    const userId = user?.id
+    if (userId) {
+      const userStorageKey = `claudia_user_${userId}_projects`
+      const legacyKey = `claudia_projects`
+      const userStorageRaw = localStorage.getItem(userStorageKey)
+      const legacyStorageRaw = localStorage.getItem(legacyKey)
+      console.log(`[ProjectDetailPage] DEBUG - User storage key: ${userStorageKey}`)
+      console.log(`[ProjectDetailPage] DEBUG - User storage exists: ${!!userStorageRaw}, length: ${userStorageRaw?.length || 0}`)
+      console.log(`[ProjectDetailPage] DEBUG - Legacy storage exists: ${!!legacyStorageRaw}, length: ${legacyStorageRaw?.length || 0}`)
+      if (userStorageRaw) {
+        try {
+          const parsed = JSON.parse(userStorageRaw)
+          console.log(`[ProjectDetailPage] DEBUG - User storage has ${Array.isArray(parsed) ? parsed.length : 'non-array'} items`)
+          const matchingProject = Array.isArray(parsed) ? parsed.find((p: { id: string }) => p.id === projectId) : null
+          console.log(`[ProjectDetailPage] DEBUG - Project ${projectId} in user storage: ${matchingProject ? 'FOUND' : 'NOT FOUND'}`)
+        } catch (e) {
+          console.log(`[ProjectDetailPage] DEBUG - Failed to parse user storage:`, e)
+        }
+      }
+    }
+
     const found = getProject(projectId, user?.id)
+    console.log(`[ProjectDetailPage] Loading project ${projectId} for user ${user?.id}: ${found ? 'found' : 'NOT FOUND'}`)
     setProject(found || null)
     setLoading(false)
 
@@ -455,7 +546,7 @@ export default function ProjectDetailPage() {
       const insights = getCombinedInterviewInsights(projectId, user?.id)
       setCombinedInsights(insights)
     }
-  }, [projectId, user?.id])
+  }, [projectId, user?.id, authLoading])
 
   // Check available providers on mount
   useEffect(() => {
@@ -861,6 +952,35 @@ export default function ProjectDetailPage() {
     }
   }
 
+  // Handler for retrying only failed/blocked packets (preserves completed packets)
+  const handleRetryFailedPackets = () => {
+    if (!projectId || packets.length === 0) return
+
+    // Only reset packets with "blocked" or "failed" status back to "queued"
+    // Keep completed packets as completed, queued packets as queued
+    const updatedPackets = packets.map(p => {
+      if (p.status === "blocked" || p.status === "failed") {
+        return { ...p, status: "queued" }
+      }
+      return p
+    })
+
+    // Update local state
+    setPackets(updatedPackets)
+
+    // Update localStorage
+    const storedPackets = localStorage.getItem("claudia_packets")
+    if (storedPackets) {
+      try {
+        const allPackets = JSON.parse(storedPackets)
+        allPackets[projectId] = updatedPackets
+        localStorage.setItem("claudia_packets", JSON.stringify(allPackets))
+      } catch {
+        console.error("Failed to save retry packets")
+      }
+    }
+  }
+
   // Get pending packets count for the "Run All" button
   const pendingPackets = packets.filter(p => p.status !== "completed")
 
@@ -1262,7 +1382,7 @@ export default function ProjectDetailPage() {
     }
   }
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -1401,6 +1521,14 @@ export default function ProjectDetailPage() {
               </>
             )}
           </Button>
+          {/* Open in Dev Tools */}
+          {getEffectiveWorkingDirectory(project) && (
+            <ToolSelector
+              projectId={projectId}
+              workingDirectory={getEffectiveWorkingDirectory(project)!}
+              triggerLabel="Open in..."
+            />
+          )}
           <Button
             size="sm"
             onClick={handleAddToQueue}
@@ -1592,6 +1720,14 @@ export default function ProjectDetailPage() {
                   packets={packets}
                   restoredSession={restoredSession}
                   onResetPackets={handleResetAllPackets}
+                  onRetryFailedPackets={handleRetryFailedPackets}
+                  onPacketStatusChange={(packetId, status, tasks) => {
+                    // Sync React state with localStorage update from ExecutionPanel
+                    // Update both status AND tasks (when packet completes, all tasks should be marked completed)
+                    setPackets(prev => prev.map(p =>
+                      p.id === packetId ? { ...p, status, ...(tasks ? { tasks } : {}) } : p
+                    ))
+                  }}
                 />
               </CardContent>
             </Card>

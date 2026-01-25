@@ -53,9 +53,10 @@ export type ProjectStatus = "planning" | "active" | "paused" | "completed" | "ar
 export type ProjectPriority = "low" | "medium" | "high" | "critical"
 export type LinearSyncMode = "none" | "imported" | "two_way"
 
-// Project category determines whether game/creative detection should apply
+// Project category determines project type and workflow
 // Game/creative categories: "game", "vr", "creative", "interactive"
 // Non-game categories: "web", "mobile", "desktop", "api", "library", "tool", "standard"
+// Ideation categories: "ideas", "research" - for brainstorming and exploration without code
 export type ProjectCategory =
   | "game"
   | "vr"
@@ -68,6 +69,8 @@ export type ProjectCategory =
   | "library"
   | "tool"
   | "standard"
+  | "ideas"      // Ideation/brainstorming - generates markdown deliverables, not code
+  | "research"   // Research/exploration - generates analysis docs and can spawn coding projects
 
 export interface LinearSyncConfig {
   mode: LinearSyncMode
@@ -230,7 +233,7 @@ export interface MCPServerConfig {
 
 // ============ Interviews ============
 
-export type InterviewType = "project_creation" | "feature_discussion" | "refinement" | "feedback" | "contextual"
+export type InterviewType = "project_creation" | "ideation" | "feature_discussion" | "refinement" | "feedback" | "contextual"
 export type InterviewStatus = "in_progress" | "completed" | "cancelled"
 export type InterviewTargetType = "commit" | "activity" | "packet" | "project" | "approval" | "quality_gate"
 

@@ -25,6 +25,7 @@ You may work directly with tools (Read, Write, Edit, Grep, Glob, Bash) or delega
 - Large tasks that can be parallelized across multiple files
 - When explicitly requested by the user (e.g., `/minime` command)
 - Complex multi-step operations where parallel execution helps
+- **Limit: Maximum 5 concurrent sub-agents**
 
 ### When to work directly
 
@@ -40,7 +41,7 @@ If you ARE a sub-agent (spawned by a Task tool):
 - **You are the implementer**, not an orchestrator
 - Complete your assigned task and return results
 
-Only the top-level Claude session should spawn sub-agents.
+Only the top-level Claude session should spawn sub-agents (maximum 5).
 
 ## Prohibitions
 

@@ -23,15 +23,18 @@ export function AppShell({ children }: AppShellProps) {
   // Check if we're on an Easy Mode route (standalone, no nav)
   const isEasyModeRoute = pathname?.startsWith("/easy-mode")
 
-  // Show sidebar only when authenticated and not on auth routes or easy mode
-  const showSidebar = isAuthenticated && !isAuthRoute && !isEasyModeRoute
+  // Check if we're on a pop-out terminal route (standalone window)
+  const isPopOutRoute = pathname?.includes("/popout/")
+
+  // Show sidebar only when authenticated and not on special routes
+  const showSidebar = isAuthenticated && !isAuthRoute && !isEasyModeRoute && !isPopOutRoute
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  // If on auth route or Easy Mode route, render without sidebar (these layouts handle their own styling)
-  if (isAuthRoute || isEasyModeRoute) {
+  // If on auth route, Easy Mode route, or pop-out route, render without sidebar (these layouts handle their own styling)
+  if (isAuthRoute || isEasyModeRoute || isPopOutRoute) {
     return <>{children}</>
   }
 

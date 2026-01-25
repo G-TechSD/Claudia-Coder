@@ -1,9 +1,16 @@
 /**
  * Dynamic Model Fetching API
  * Fetches available models from each provider's API
+ *
+ * API keys are fetched from (in order of priority):
+ * 1. Server-side settings database (for authenticated users)
+ * 2. Request body/query params (for backwards compatibility)
+ * 3. Environment variables
  */
 
 import { NextRequest, NextResponse } from "next/server"
+import { verifyApiAuth } from "@/lib/auth/api-helpers"
+import { getUserApiKeysFromDb } from "@/lib/settings/settings-db"
 
 export interface FetchedModel {
   id: string
@@ -275,6 +282,12 @@ interface LocalServerParam {
   baseUrl: string
 }
 
+// Interface for user-provided cloud provider API keys
+interface CloudProviderParam {
+  provider: "anthropic" | "openai" | "google"
+  apiKey: string
+}
+
 // Parse local servers from query param or POST body
 function parseLocalServers(param: string | null): LocalServerParam[] {
   if (!param) return []
@@ -286,6 +299,23 @@ function parseLocalServers(param: string | null): LocalServerParam[] {
       s !== null &&
       typeof s.baseUrl === "string" &&
       typeof s.type === "string"
+    )
+  } catch {
+    return []
+  }
+}
+
+// Parse cloud providers from query param or POST body
+function parseCloudProviders(param: string | null): CloudProviderParam[] {
+  if (!param) return []
+  try {
+    const parsed = JSON.parse(param)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((p): p is CloudProviderParam =>
+      typeof p === "object" &&
+      p !== null &&
+      typeof p.provider === "string" &&
+      typeof p.apiKey === "string"
     )
   } catch {
     return []
@@ -333,9 +363,24 @@ export async function GET(request: NextRequest) {
   // Parse user-added local servers from query params
   const userLocalServers = parseLocalServers(searchParams.get("localServers"))
 
-  // Build unique cache key that includes local servers
+  // Parse user cloud provider API keys from query params (for backwards compatibility)
+  const userCloudProviders = parseCloudProviders(searchParams.get("cloudProviders"))
+
+  // Try to get API keys from server-side database (for authenticated users)
+  let serverApiKeys: { anthropic?: string; openai?: string; google?: string } | null = null
+  try {
+    const auth = await verifyApiAuth()
+    if (auth?.user?.id) {
+      serverApiKeys = getUserApiKeysFromDb(auth.user.id)
+    }
+  } catch {
+    // Not authenticated or error - continue with other sources
+  }
+
+  // Build unique cache key that includes local servers and cloud providers
   const serverKey = userLocalServers.map(s => s.baseUrl).sort().join(",")
-  const cacheKey = `${provider || "all"}:${serverKey}`
+  const cloudKey = userCloudProviders.map(p => p.provider).sort().join(",")
+  const cacheKey = `${provider || "all"}:${serverKey}:${cloudKey}`
 
   const cached = modelCache[cacheKey]
   if (!refresh && cached && Date.now() - cached.fetchedAt < cached.ttl) {
@@ -349,11 +394,41 @@ export async function GET(request: NextRequest) {
   const allModels: FetchedModel[] = []
   const providerStatus: Record<string, "online" | "offline" | "invalid_key" | "no_key"> = {}
 
+  // Helper to get API key from: 1) server DB, 2) user config, 3) environment
+  const getApiKey = (providerName: string): string | undefined => {
+    // First priority: Server-side database (authenticated user)
+    if (serverApiKeys) {
+      switch (providerName) {
+        case "anthropic":
+          if (serverApiKeys.anthropic) return serverApiKeys.anthropic
+          break
+        case "openai":
+          if (serverApiKeys.openai) return serverApiKeys.openai
+          break
+        case "google":
+          if (serverApiKeys.google) return serverApiKeys.google
+          break
+      }
+    }
+
+    // Second priority: Request body/query params (backwards compatibility)
+    const userKey = userCloudProviders.find(p => p.provider === providerName)?.apiKey
+    if (userKey) return userKey
+
+    // Fall back to environment variables
+    switch (providerName) {
+      case "anthropic": return process.env.ANTHROPIC_API_KEY
+      case "openai": return process.env.OPENAI_API_KEY
+      case "google": return process.env.GOOGLE_AI_API_KEY
+      default: return undefined
+    }
+  }
+
   // Fetch based on provider filter
   if (!provider || provider === "anthropic") {
-    const hasKey = !!process.env.ANTHROPIC_API_KEY
-    if (hasKey) {
-      const models = await fetchAnthropicModels()
+    const apiKey = getApiKey("anthropic")
+    if (apiKey) {
+      const models = await fetchAnthropicModels(apiKey)
       if (models.length > 0) {
         allModels.push(...models)
         providerStatus.anthropic = "online"
@@ -366,9 +441,9 @@ export async function GET(request: NextRequest) {
   }
 
   if (!provider || provider === "openai") {
-    const hasKey = !!process.env.OPENAI_API_KEY
-    if (hasKey) {
-      const models = await fetchOpenAIModels()
+    const apiKey = getApiKey("openai")
+    if (apiKey) {
+      const models = await fetchOpenAIModels(apiKey)
       if (models.length > 0) {
         allModels.push(...models)
         providerStatus.openai = "online"
@@ -381,9 +456,9 @@ export async function GET(request: NextRequest) {
   }
 
   if (!provider || provider === "google") {
-    const hasKey = !!process.env.GOOGLE_AI_API_KEY
-    if (hasKey) {
-      const models = await fetchGoogleModels()
+    const apiKey = getApiKey("google")
+    if (apiKey) {
+      const models = await fetchGoogleModels(apiKey)
       if (models.length > 0) {
         allModels.push(...models)
         providerStatus.google = "online"
@@ -540,13 +615,13 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST handler - accepts local servers via request body
- * Body: { localServers: LocalServerParam[], provider?: string, refresh?: boolean }
+ * POST handler - accepts local servers and cloud providers via request body
+ * Body: { localServers: LocalServerParam[], cloudProviders: CloudProviderParam[], provider?: string, refresh?: boolean }
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { localServers, provider, refresh } = body
+    const { localServers, cloudProviders, provider, refresh } = body
 
     // Build URL with query params to reuse GET logic
     const url = new URL(request.url)
@@ -554,6 +629,9 @@ export async function POST(request: NextRequest) {
     if (refresh) url.searchParams.set("refresh", "true")
     if (localServers && Array.isArray(localServers)) {
       url.searchParams.set("localServers", JSON.stringify(localServers))
+    }
+    if (cloudProviders && Array.isArray(cloudProviders)) {
+      url.searchParams.set("cloudProviders", JSON.stringify(cloudProviders))
     }
 
     // Create a new request with the modified URL

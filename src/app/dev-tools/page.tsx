@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { InstallationWizard } from "@/components/dev-tools/installation-wizard"
 import { ToolStatusBadge } from "@/components/dev-tools/tool-status-badge"
 import { DevToolStatus, DevToolId } from "@/lib/dev-tools/types"
-import { Terminal, Code2, Sparkles, RefreshCw, Wrench, ArrowRight } from "lucide-react"
+import { Terminal, Code2, Sparkles, RefreshCw, Wrench, ArrowRight, Loader2 } from "lucide-react"
 import Link from "next/link"
 
 const TOOL_ICONS: Record<DevToolId, React.ElementType> = {
@@ -28,7 +28,23 @@ const TOOL_LINKS: Record<DevToolId, string> = {
   vscode: "/dev-tools/vscode",
 }
 
+function DevToolsLoading() {
+  return (
+    <div className="container max-w-5xl py-8 flex items-center justify-center min-h-[400px]">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
+
 export default function DevToolsPage() {
+  return (
+    <Suspense fallback={<DevToolsLoading />}>
+      <DevToolsContent />
+    </Suspense>
+  )
+}
+
+function DevToolsContent() {
   const searchParams = useSearchParams()
   const installTool = searchParams.get("install") as DevToolId | null
 

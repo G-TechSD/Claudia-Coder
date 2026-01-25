@@ -161,6 +161,22 @@ export function initializeAuthDatabase() {
     )
   `)
 
+  // User settings table (for server-side settings storage)
+  // Stores app settings, global settings, and encrypted sensitive data (API keys)
+  // Note: No FK to user table to support beta-tester bypass mode
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_settings (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      app_settings TEXT DEFAULT '{}',
+      global_settings TEXT DEFAULT '{}',
+      encrypted_settings TEXT DEFAULT NULL,
+      encryption_version TEXT DEFAULT 'v1',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
   // Create indexes for performance
   // Note: beta_invite indexes are created in src/lib/data/invites.ts
   db.exec(`
@@ -174,6 +190,7 @@ export function initializeAuthDatabase() {
     CREATE INDEX IF NOT EXISTS idx_twoFactor_userId ON twoFactor(userId);
     CREATE INDEX IF NOT EXISTS idx_passkey_userId ON passkey(userId);
     CREATE INDEX IF NOT EXISTS idx_passkey_credentialId ON passkey(credentialId);
+    CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id);
   `)
 
   console.log("[Auth] Database initialized at:", DB_PATH)
