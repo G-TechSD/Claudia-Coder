@@ -65,51 +65,122 @@ const PRESERVE_FILES = [
 
 // Generated code file extensions (should be deleted)
 const GENERATED_CODE_EXTENSIONS = [
+  // JavaScript/TypeScript
   ".js",
   ".ts",
   ".jsx",
   ".tsx",
   ".mjs",
   ".cjs",
+  // Python
+  ".py",
+  ".pyc",
+  ".pyo",
+  ".pyd",
+  // Styles
   ".css",
   ".scss",
   ".sass",
   ".less",
+  // Markup
   ".html",
   ".htm",
+  // Frameworks
   ".vue",
   ".svelte",
+  // Config/Data
   ".json",  // package.json, tsconfig.json, etc.
+  ".yaml",
+  ".yml",
+  ".toml",
+  // Go
+  ".go",
+  // Rust
+  ".rs",
+  // Ruby
+  ".rb",
+  // Java/Kotlin
+  ".java",
+  ".kt",
+  ".kts",
+  // C/C++
+  ".c",
+  ".cpp",
+  ".cc",
+  ".h",
+  ".hpp",
+  // Swift
+  ".swift",
+  // Shell
+  ".sh",
+  ".bash",
 ]
 
 // Generated directories (should be deleted)
 const GENERATED_DIRECTORIES = [
+  // Common code directories
   "src",
   "lib",
   "components",
   "app",
   "pages",
-  "node_modules",
-  "dist",
-  "build",
-  ".next",
-  "out",
   "public",
   "styles",
   "hooks",
   "utils",
   "types",
   "api",
+  "services",
+  "controllers",
+  "models",
+  "views",
+  "routes",
+  "middleware",
+  "helpers",
+  "config",
+  "assets",
+  "static",
+  "templates",
+  "schemas",
+  // Mobile/platform specific
+  "mobile",
+  "web",
+  "desktop",
+  "shared",
+  "common",
+  "core",
+  "modules",
+  "packages",
+  "features",
+  // Build/output directories
+  "node_modules",
+  "dist",
+  "build",
+  ".next",
+  "out",
+  "__pycache__",
+  ".pytest_cache",
+  "venv",
+  ".venv",
+  "env",
+  "target",  // Rust/Java
+  "bin",
+  "obj",
+  // Test directories
   "test",
   "tests",
   "__tests__",
   "coverage",
+  ".nyc_output",
+  // Cache directories
   ".turbo",
   ".cache",
+  ".parcel-cache",
 ]
 
 // Generated files by exact name (should be deleted)
 const GENERATED_FILES = [
+  // Node.js/JavaScript
   "package.json",
   "package-lock.json",
   "yarn.lock",
@@ -135,6 +206,26 @@ const GENERATED_FILES = [
   "vite.config.ts",
   "webpack.config.js",
   "rollup.config.js",
+  // Python
+  "requirements.txt",
+  "requirements-dev.txt",
+  "setup.py",
+  "setup.cfg",
+  "pyproject.toml",
+  "Pipfile",
+  "Pipfile.lock",
+  "poetry.lock",
+  "main.py",
+  "app.py",
+  "server.py",
+  "manage.py",
+  "wsgi.py",
+  "asgi.py",
+  "conftest.py",
+  "pytest.ini",
+  ".flake8",
+  ".pylintrc",
+  "mypy.ini",
   // Common generated entry point files
   "app.js",
   "index.js",
@@ -142,6 +233,24 @@ const GENERATED_FILES = [
   "index.html",
   "styles.css",
   "style.css",
+  // Go
+  "go.mod",
+  "go.sum",
+  "main.go",
+  // Rust
+  "Cargo.toml",
+  "Cargo.lock",
+  // Ruby
+  "Gemfile",
+  "Gemfile.lock",
+  "Rakefile",
+  // Docker
+  "Dockerfile",
+  "docker-compose.yml",
+  "docker-compose.yaml",
+  // Generic
+  "Makefile",
+  ".editorconfig",
 ]
 
 interface ClearResult {
