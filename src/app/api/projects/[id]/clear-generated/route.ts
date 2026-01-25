@@ -1,31 +1,22 @@
 /**
  * Clear Generated Code API
- * Deletes generated code files while preserving project documentation and configuration.
+ * Deletes all generated code while preserving user content and project configuration.
  *
- * This is useful when:
- * - You want to regenerate all code from scratch
- * - The AI generated invalid code and you want to start fresh
- * - You want to test packet execution from a clean state
+ * LOGIC (inverted - preserve what matters, delete the rest):
+ * 1. Check if file/folder matches PRESERVE patterns - if yes, keep it
+ * 2. Everything else gets deleted
  *
- * LOGIC:
- * 1. FIRST check if file/folder matches PRESERVE patterns - if yes, never delete
- * 2. THEN check if it matches DELETE patterns (generated code) - if yes, delete
- * 3. Otherwise, preserve by default (unless force flag is set)
- *
- * PRESERVED (never deleted):
- * - .claudia/ directory (project configuration)
- * - docs/ directory (all documentation)
+ * PRESERVED (user content & project essentials):
+ * - .claudia/ directory (project configuration, interview data)
+ * - docs/ directory (user documentation)
  * - .git/ directory (version control)
  * - resources/ directory (user uploads)
- * - brain-dumps/ directory
+ * - brain-dumps/ directory (user content)
  * - .env files (environment configuration)
- * - KICKOFF.md, BUILD_PLAN.md, PRD.md, README.md (specific markdown files)
+ * - Key markdown files: KICKOFF.md, BUILD_PLAN.md, PRD.md, README.md
  *
- * DELETED (generated code):
- * - Code files by extension: *.js, *.ts, *.jsx, *.tsx, *.css, *.html, *.json, etc.
- * - Common entry points: app.js, index.js, main.js, index.html, styles.css
- * - Generated directories: src/, lib/, components/, node_modules/, dist/, build/, etc.
- * - Config files: package.json, tsconfig.json, tailwind.config.*, etc.
+ * DELETED (everything else):
+ * - All code files, config files, build artifacts, dependencies
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -41,216 +32,39 @@ function expandPath(p: string): string {
   return p.replace(/^~/, os.homedir())
 }
 
-// Directories to ALWAYS preserve (never delete)
+// Directories to PRESERVE (user content & project essentials)
 const PRESERVE_DIRECTORIES = [
-  ".claudia",
-  "docs",
-  ".git",
-  "resources",
-  "brain-dumps",
+  ".claudia",      // Project configuration, interview data
+  "docs",          // User documentation
+  ".git",          // Version control
+  "resources",     // User uploads
+  "brain-dumps",   // User content
+  "uploads",       // User uploads (alternative name)
+  "attachments",   // User attachments
 ]
 
-// Files to ALWAYS preserve (never delete) - exact matches
+// Files to PRESERVE - exact matches
 const PRESERVE_FILES = [
+  // Environment files
   ".gitignore",
   ".env",
   ".env.local",
   ".env.development",
   ".env.production",
+  ".env.test",
+  // Key project documentation
   "KICKOFF.md",
   "BUILD_PLAN.md",
   "PRD.md",
   "README.md",
+  "CHANGELOG.md",
+  "LICENSE",
+  "LICENSE.md",
 ]
 
-// Generated code file extensions (should be deleted)
-const GENERATED_CODE_EXTENSIONS = [
-  // JavaScript/TypeScript
-  ".js",
-  ".ts",
-  ".jsx",
-  ".tsx",
-  ".mjs",
-  ".cjs",
-  // Python
-  ".py",
-  ".pyc",
-  ".pyo",
-  ".pyd",
-  // Styles
-  ".css",
-  ".scss",
-  ".sass",
-  ".less",
-  // Markup
-  ".html",
-  ".htm",
-  // Frameworks
-  ".vue",
-  ".svelte",
-  // Config/Data
-  ".json",  // package.json, tsconfig.json, etc.
-  ".yaml",
-  ".yml",
-  ".toml",
-  // Go
-  ".go",
-  // Rust
-  ".rs",
-  // Ruby
-  ".rb",
-  // Java/Kotlin
-  ".java",
-  ".kt",
-  ".kts",
-  // C/C++
-  ".c",
-  ".cpp",
-  ".cc",
-  ".h",
-  ".hpp",
-  // Swift
-  ".swift",
-  // Shell
-  ".sh",
-  ".bash",
-]
-
-// Generated directories (should be deleted)
-const GENERATED_DIRECTORIES = [
-  // Common code directories
-  "src",
-  "lib",
-  "components",
-  "app",
-  "pages",
-  "public",
-  "styles",
-  "hooks",
-  "utils",
-  "types",
-  "api",
-  "services",
-  "controllers",
-  "models",
-  "views",
-  "routes",
-  "middleware",
-  "helpers",
-  "config",
-  "assets",
-  "static",
-  "templates",
-  "schemas",
-  // Mobile/platform specific
-  "mobile",
-  "web",
-  "desktop",
-  "shared",
-  "common",
-  "core",
-  "modules",
-  "packages",
-  "features",
-  // Build/output directories
-  "node_modules",
-  "dist",
-  "build",
-  ".next",
-  "out",
-  "__pycache__",
-  ".pytest_cache",
-  "venv",
-  ".venv",
-  "env",
-  "target",  // Rust/Java
-  "bin",
-  "obj",
-  // Test directories
-  "test",
-  "tests",
-  "__tests__",
-  "coverage",
-  ".nyc_output",
-  // Cache directories
-  ".turbo",
-  ".cache",
-  ".parcel-cache",
-]
-
-// Generated files by exact name (should be deleted)
-const GENERATED_FILES = [
-  // Node.js/JavaScript
-  "package.json",
-  "package-lock.json",
-  "yarn.lock",
-  "pnpm-lock.yaml",
-  "tsconfig.json",
-  "jsconfig.json",
-  "next.config.js",
-  "next.config.mjs",
-  "next.config.ts",
-  "tailwind.config.js",
-  "tailwind.config.ts",
-  "postcss.config.js",
-  "postcss.config.mjs",
-  "eslint.config.js",
-  "eslint.config.mjs",
-  ".eslintrc",
-  ".eslintrc.js",
-  ".eslintrc.json",
-  ".prettierrc",
-  ".prettierrc.js",
-  ".prettierrc.json",
-  "vite.config.js",
-  "vite.config.ts",
-  "webpack.config.js",
-  "rollup.config.js",
-  // Python
-  "requirements.txt",
-  "requirements-dev.txt",
-  "setup.py",
-  "setup.cfg",
-  "pyproject.toml",
-  "Pipfile",
-  "Pipfile.lock",
-  "poetry.lock",
-  "main.py",
-  "app.py",
-  "server.py",
-  "manage.py",
-  "wsgi.py",
-  "asgi.py",
-  "conftest.py",
-  "pytest.ini",
-  ".flake8",
-  ".pylintrc",
-  "mypy.ini",
-  // Common generated entry point files
-  "app.js",
-  "index.js",
-  "main.js",
-  "index.html",
-  "styles.css",
-  "style.css",
-  // Go
-  "go.mod",
-  "go.sum",
-  "main.go",
-  // Rust
-  "Cargo.toml",
-  "Cargo.lock",
-  // Ruby
-  "Gemfile",
-  "Gemfile.lock",
-  "Rakefile",
-  // Docker
-  "Dockerfile",
-  "docker-compose.yml",
-  "docker-compose.yaml",
-  // Generic
-  "Makefile",
-  ".editorconfig",
+// File patterns to preserve (startsWith checks)
+const PRESERVE_FILE_PATTERNS = [
+  ".env",  // Any .env.* file
 ]
 
 interface ClearResult {
@@ -260,7 +74,7 @@ interface ClearResult {
 }
 
 /**
- * Check if a path should be preserved (FIRST check - if true, never delete)
+ * Check if a path should be preserved (user content or project essentials)
  */
 function shouldPreserve(name: string, isDirectory: boolean): boolean {
   // Check preserved directories
@@ -273,85 +87,13 @@ function shouldPreserve(name: string, isDirectory: boolean): boolean {
     return true
   }
 
-  // Check for .env files (various .env.* patterns)
-  if (name.startsWith(".env")) {
-    return true
-  }
-
-  return false
-}
-
-/**
- * Check if a directory contains mostly code files (async check)
- * Used to detect project-specific directories that contain generated code
- */
-async function containsCodeFiles(dirPath: string): Promise<boolean> {
-  try {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true })
-    let codeFileCount = 0
-    let totalFileCount = 0
-
-    for (const entry of entries) {
-      if (entry.isFile()) {
-        totalFileCount++
-        const ext = path.extname(entry.name).toLowerCase()
-        if (GENERATED_CODE_EXTENSIONS.includes(ext)) {
-          codeFileCount++
-        }
-      } else if (entry.isDirectory()) {
-        // Recursively check subdirectories (limit depth to avoid performance issues)
-        const subPath = path.join(dirPath, entry.name)
-        if (await containsCodeFiles(subPath)) {
-          return true
-        }
+  // Check file patterns (startsWith)
+  if (!isDirectory) {
+    for (const pattern of PRESERVE_FILE_PATTERNS) {
+      if (name.startsWith(pattern)) {
+        return true
       }
     }
-
-    // If directory has files and most are code files, consider it a code directory
-    return totalFileCount > 0 && codeFileCount >= totalFileCount * 0.5
-  } catch {
-    return false
-  }
-}
-
-/**
- * Check if a path should be deleted (generated code)
- * Only called AFTER shouldPreserve returns false
- */
-function shouldDelete(name: string, isDirectory: boolean): boolean {
-  // Check generated directories
-  if (isDirectory && GENERATED_DIRECTORIES.includes(name)) {
-    return true
-  }
-
-  // Check generated files by exact name
-  if (!isDirectory && GENERATED_FILES.includes(name)) {
-    return true
-  }
-
-  // Check for generated code by extension
-  if (!isDirectory) {
-    const ext = path.extname(name).toLowerCase()
-    if (GENERATED_CODE_EXTENSIONS.includes(ext)) {
-      return true
-    }
-  }
-
-  return false
-}
-
-/**
- * Async version of shouldDelete that also checks directory contents
- */
-async function shouldDeleteAsync(name: string, isDirectory: boolean, fullPath: string): Promise<boolean> {
-  // First check synchronous rules
-  if (shouldDelete(name, isDirectory)) {
-    return true
-  }
-
-  // For directories not in the explicit list, check if they contain code files
-  if (isDirectory) {
-    return await containsCodeFiles(fullPath)
   }
 
   return false
@@ -386,21 +128,19 @@ async function deleteRecursive(targetPath: string): Promise<void> {
 
 /**
  * Generate a slug from a project name for use in directory paths
- * e.g., "My Cool Project" -> "my-cool-project"
  */
 function generateSlug(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "") // Remove special characters
-    .replace(/\s+/g, "-")         // Replace spaces with hyphens
-    .replace(/-+/g, "-")          // Replace multiple hyphens with single
-    .replace(/^-|-$/g, "")        // Remove leading/trailing hyphens
-    || "project"                   // Fallback if empty
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    || "project"
 }
 
 /**
  * Generate the working directory path for a project
- * Format: ~/claudia-projects/{project-slug}-{id-prefix}/
  */
 function generateWorkingDirectoryPath(projectName: string, projectId: string): string {
   const CLAUDIA_PROJECTS_BASE = process.env.CLAUDIA_PROJECTS_BASE || path.join(os.homedir(), "claudia-projects")
@@ -416,7 +156,6 @@ function generateWorkingDirectoryPath(projectName: string, projectId: string): s
  * Request body:
  * - workingDirectory: string - The project's working directory path (REQUIRED)
  * - dryRun: boolean - If true, only preview what would be deleted (default: false)
- * - force: boolean - If true, delete files not in preserve/delete lists (default: false)
  * - projectName: string - Project name for fallback path generation (optional)
  */
 export async function POST(
@@ -428,12 +167,11 @@ export async function POST(
 
     // Parse request body for options
     const body = await request.json().catch(() => ({}))
-    const { dryRun = false, force = false, workingDirectory: providedWorkingDir, projectName } = body
+    const { dryRun = false, workingDirectory: providedWorkingDir, projectName } = body
 
     // Determine working directory - prefer provided, fallback to generated path
     let workingDirectory = providedWorkingDir
     if (!workingDirectory && projectName) {
-      // Generate a fallback path from project name
       workingDirectory = generateWorkingDirectoryPath(projectName, projectId)
     }
 
@@ -471,45 +209,22 @@ export async function POST(
       const entryPath = path.join(workingDirectory, entry.name)
       const isDirectory = entry.isDirectory()
 
-      // FIRST: Check if should preserve (never delete these)
+      // Check if should preserve - if yes, keep it
       if (shouldPreserve(entry.name, isDirectory)) {
         result.preserved.push(entry.name)
         continue
       }
 
-      // SECOND: Check if should delete (generated code)
-      // Use async version for directories to check contents
-      const shouldDeleteThis = await shouldDeleteAsync(entry.name, isDirectory, entryPath)
-      if (shouldDeleteThis) {
-        if (dryRun) {
-          result.deleted.push(entry.name)
-        } else {
-          try {
-            await deleteRecursive(entryPath)
-            result.deleted.push(entry.name)
-          } catch (error) {
-            result.errors.push(`Failed to delete ${entry.name}: ${error instanceof Error ? error.message : "Unknown error"}`)
-          }
-        }
-        continue
-      }
-
-      // For items not matching preserve or delete patterns:
-      // - With force flag: delete anything that's not a hidden file/directory
-      // - Without force flag: preserve by default (safety)
-      if (force && !entry.name.startsWith(".")) {
-        if (dryRun) {
-          result.deleted.push(entry.name)
-        } else {
-          try {
-            await deleteRecursive(entryPath)
-            result.deleted.push(entry.name)
-          } catch (error) {
-            result.errors.push(`Failed to delete ${entry.name}: ${error instanceof Error ? error.message : "Unknown error"}`)
-          }
-        }
+      // Everything else gets deleted
+      if (dryRun) {
+        result.deleted.push(entry.name)
       } else {
-        result.preserved.push(entry.name)
+        try {
+          await deleteRecursive(entryPath)
+          result.deleted.push(entry.name)
+        } catch (error) {
+          result.errors.push(`Failed to delete ${entry.name}: ${error instanceof Error ? error.message : "Unknown error"}`)
+        }
       }
     }
 
@@ -540,14 +255,8 @@ export async function POST(
 /**
  * GET /api/projects/[id]/clear-generated
  * Returns an error - use POST with workingDirectory in the body
- *
- * GET is deprecated because the server cannot access localStorage to look up project data.
- * The client must provide the workingDirectory in a POST request body.
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET() {
   return NextResponse.json(
     {
       success: false,
