@@ -598,8 +598,11 @@ export async function POST(request: NextRequest) {
         if (response.ok) {
           const data = await response.json()
           const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
+          console.log(`[build-plan] Gemini ${geminiModel} response length: ${content.length}`)
+          console.log(`[build-plan] Gemini response preview: ${content.substring(0, 500)}...`)
 
           const result = parseAndMergeBuildPlan(content, projectId, `google:${geminiModel}`, existingPackets)
+          console.log(`[build-plan] Parse result: ${result ? `phases=${result.plan.phases.length}, packets=${result.plan.packets.length}` : 'null'}`)
 
           if (result) {
             const validation = validateBuildPlan(result.plan)
