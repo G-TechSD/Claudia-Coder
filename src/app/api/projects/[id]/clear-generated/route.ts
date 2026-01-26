@@ -228,6 +228,34 @@ export async function POST(
       }
     }
 
+    // If git exists, commit any changes (deletions from this run or previous runs)
+    let gitCommitted = false
+    if (!dryRun) {
+      try {
+        const gitDir = path.join(workingDirectory, ".git")
+        const gitExists = await fs.access(gitDir).then(() => true).catch(() => false)
+
+        if (gitExists) {
+          const { exec } = await import("child_process")
+          const { promisify } = await import("util")
+          const execAsync = promisify(exec)
+
+          // Check if there are any changes to commit (including previously deleted files)
+          const { stdout: statusOutput } = await execAsync("git status --porcelain", { cwd: workingDirectory })
+
+          if (statusOutput.trim()) {
+            // Stage all changes and commit
+            await execAsync("git add -A", { cwd: workingDirectory })
+            await execAsync('git commit -m "Clear generated code - preserve project config"', { cwd: workingDirectory })
+            gitCommitted = true
+          }
+        }
+      } catch (gitError) {
+        // Git commit failed - not critical, files are still deleted
+        console.warn("[clear-generated] Git commit failed (non-fatal):", gitError)
+      }
+    }
+
     return NextResponse.json({
       success: result.errors.length === 0,
       dryRun,
@@ -235,9 +263,10 @@ export async function POST(
       deleted: result.deleted,
       preserved: result.preserved,
       errors: result.errors,
+      gitCommitted,
       summary: dryRun
         ? `Would delete ${result.deleted.length} items, preserve ${result.preserved.length} items`
-        : `Deleted ${result.deleted.length} items, preserved ${result.preserved.length} items${result.errors.length > 0 ? `, ${result.errors.length} errors` : ""}`
+        : `Deleted ${result.deleted.length} items, preserved ${result.preserved.length} items${gitCommitted ? " (committed to git)" : ""}${result.errors.length > 0 ? `, ${result.errors.length} errors` : ""}`
     })
 
   } catch (error) {
