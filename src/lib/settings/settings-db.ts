@@ -381,6 +381,25 @@ export function getUserApiKeysFromDb(userId: string): {
       }
     }
 
+    // Also check top-level apiKeys field (legacy/alternative storage format)
+    const globalSettingsAny = settings.globalSettings as GlobalSettings & {
+      apiKeys?: { anthropic?: string; openai?: string; google?: string; n8n?: string }
+    }
+    if (globalSettingsAny.apiKeys) {
+      if (globalSettingsAny.apiKeys.anthropic && !keys.anthropic) {
+        keys.anthropic = globalSettingsAny.apiKeys.anthropic
+      }
+      if (globalSettingsAny.apiKeys.openai && !keys.openai) {
+        keys.openai = globalSettingsAny.apiKeys.openai
+      }
+      if (globalSettingsAny.apiKeys.google && !keys.google) {
+        keys.google = globalSettingsAny.apiKeys.google
+      }
+      if (globalSettingsAny.apiKeys.n8n && !keys.n8n) {
+        keys.n8n = globalSettingsAny.apiKeys.n8n
+      }
+    }
+
     return keys
   } catch (error) {
     console.error("[Settings] Failed to get API keys:", error)

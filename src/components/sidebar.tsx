@@ -564,7 +564,7 @@ export function Sidebar() {
       {/* Divider */}
       <div className="mx-4 border-t" />
 
-      {/* Bottom Navigation - Trash */}
+      {/* Bottom Navigation - Trash & Settings */}
       <nav className="space-y-1 p-2">
         <Link
           href="/projects/trash"
@@ -588,6 +588,20 @@ export function Sidebar() {
               )}
             </>
           )}
+        </Link>
+        <Link
+          href="/settings"
+          className={cn(
+            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            pathname?.startsWith("/settings")
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            collapsed && "justify-center px-2"
+          )}
+          title={collapsed ? "Settings" : undefined}
+        >
+          <Settings className="h-4 w-4 shrink-0" />
+          {!collapsed && <span className="flex-1">Settings</span>}
         </Link>
       </nav>
 
