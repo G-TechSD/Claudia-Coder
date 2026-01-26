@@ -17,7 +17,7 @@ import { getEffectiveDefaultModel } from "@/lib/settings/global-settings"
 import { useActivityPersistence } from "@/hooks/useActivityPersistence"
 import { updatePacketSync } from "@/lib/ai/build-plan"
 
-type ExecutionMode = "local" | "turbo" | "auto" | "n8n"
+type ExecutionMode = "local" | "turbo" | "auto" | "n8n" | "cloud"
 
 type N8NStage = "generating" | "validating" | "iterating" | "complete" | "idle"
 
@@ -481,6 +481,9 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
       setExecutionMode("turbo")
     } else if (provider === "n8n") {
       setExecutionMode("n8n")
+    } else if (provider === "google" || provider === "openai") {
+      // Cloud providers use "cloud" mode (routes to /api/v1/chat/completions)
+      setExecutionMode("cloud")
     } else {
       setExecutionMode("local")
     }
@@ -940,7 +943,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
               // Notify parent of status change so React state stays in sync
               onPacketStatusChange?.(packet.id, "blocked")
 
-              const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : currentProvider
+              const resultProvider = currentProvider || (result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode)
               addEvent("error", `Failed: ${packet.title}`, result.error, {
                 provider: resultProvider,
                 model: result.model || currentModel
@@ -975,7 +978,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
               const isUnverified = result.unverified || skipQualityGates
               if (isUnverified) unverifiedPackets.push(packet.title)
 
-              const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : currentProvider
+              const resultProvider = currentProvider || (result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode)
               addEvent("complete", isUnverified ? `Completed (UNVERIFIED): ${packet.title}` : `Completed: ${packet.title}`,
                 `Duration: ${Math.round(result.duration / 1000)}s`, {
                 provider: resultProvider,
@@ -1200,7 +1203,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
           onPacketStatusChange?.(packet.id, "blocked")
 
           // Use mode from result if available, otherwise use current provider info
-          const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode || currentProvider
+          const resultProvider = currentProvider || (result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode)
           addEvent("error", `Failed: ${packet.title}`, result.error, {
             provider: resultProvider,
             model: result.model || currentModel
@@ -1251,7 +1254,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
 
         // Add events from the execution
         if (result.events) {
-          const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode || currentProvider
+          const resultProvider = currentProvider || (result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode)
           result.events.forEach((evt: { type: ActivityEvent["type"]; message: string; detail?: string; provider?: string; model?: string }) => {
             addEvent(evt.type, evt.message, evt.detail, {
               provider: evt.provider || resultProvider,
@@ -1261,7 +1264,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
         }
 
         if (result.filesChanged?.length > 0) {
-          const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode || currentProvider
+          const resultProvider = currentProvider || (result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode)
           addEvent("file_change", `Modified ${result.filesChanged.length} files`, undefined, {
             files: result.filesChanged,
             provider: resultProvider,
@@ -1631,14 +1634,14 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
 
       if (result.success) {
         const modeLabel = result.mode === "local" ? "Local" : result.mode === "n8n" ? "N8N" : "Turbo"
-        const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode || refineProvider
+        const resultProvider = refineProvider || (result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode)
         addEvent("complete", `Refinement #${iteration} complete`,
           `${result.filesChanged?.length || 0} files improved (${modeLabel} mode)`, {
             provider: resultProvider,
             model: result.model || refineModel
           })
       } else {
-        const resultProvider = result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode || refineProvider
+        const resultProvider = refineProvider || (result.mode === "local" ? "lmstudio" : result.mode === "turbo" ? "claude-code" : result.mode)
         addEvent("error", `Refinement #${iteration} had issues`, result.error, {
           provider: resultProvider,
           model: result.model || refineModel

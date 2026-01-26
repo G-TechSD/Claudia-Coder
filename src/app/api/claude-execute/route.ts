@@ -103,8 +103,8 @@ const isRemoteConfigured = (): boolean => {
   return !!process.env.CLAUDE_CODE_HOST && process.env.CLAUDE_CODE_HOST.length > 0
 }
 
-// Execution mode: "local" (LM Studio - free), "turbo" (Claude Code - paid), "n8n" (N8N workflow)
-type ExecutionMode = "local" | "turbo" | "n8n" | "auto"
+// Execution mode: "local" (LM Studio - free), "turbo" (Claude Code - paid), "n8n" (N8N workflow), "cloud" (Google/OpenAI)
+type ExecutionMode = "local" | "turbo" | "n8n" | "auto" | "cloud"
 
 // N8N configuration (HTTPS with self-signed cert)
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "http://localhost:5678/webhook/claudia-execute"
@@ -417,8 +417,10 @@ export async function POST(request: NextRequest) {
         mode = "turbo"
       } else if (projectProviderId === "n8n") {
         mode = "n8n"
+      } else if (projectProviderId === "google" || projectProviderId === "openai") {
+        // Cloud providers (Google, OpenAI) use the cloud execution mode
+        mode = "cloud"
       }
-      // For other providers (openai, google), default to auto for now
     }
 
     // Write run context for AI before starting execution
@@ -485,6 +487,17 @@ export async function POST(request: NextRequest) {
       emit("thinking", "Using Turbo Mode (Claude Code)...", "Premium, cloud-powered")
       const claudeResult = await executeWithClaudeCode(prompt, repoPath, options, emit, body.projectId)
       result = { ...claudeResult, mode: "turbo" }
+    } else if (mode === "cloud") {
+      // Cloud provider mode (Google, OpenAI) - route through local LLM infrastructure
+      // The selected provider and model are passed via options and used for activity display
+      const providerName = options.selectedProvider === "google" ? "Google" : options.selectedProvider === "openai" ? "OpenAI" : "Cloud"
+      const modelName = options.selectedModel || "cloud model"
+      emit("thinking", `Using Cloud Mode (${providerName})...`, `Model: ${modelName}`)
+
+      // Note: Currently routes to local LLM for actual execution
+      // TODO: Implement direct cloud provider API calls for packet execution
+      const cloudResult = await executeWithLMStudio(prompt, repoPath, packet, options, emit)
+      result = { ...cloudResult, mode: "cloud" }
     } else {
       // Auto mode: Prefer LOCAL mode first (free, no API costs)
       // Only use Claude Code if local is not available

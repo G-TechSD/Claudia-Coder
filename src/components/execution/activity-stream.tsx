@@ -130,6 +130,7 @@ export function ActivityStream({ events, isRunning, className }: ActivityStreamP
             key={event.id}
             event={event}
             isLatest={index === 0 && isRunning}
+            animationDelay={index * 50} // Stagger animation: 50ms delay per item
           />
         ))}
       </div>
@@ -137,7 +138,7 @@ export function ActivityStream({ events, isRunning, className }: ActivityStreamP
   )
 }
 
-function ActivityEventCard({ event, isLatest }: { event: ActivityEvent; isLatest?: boolean }) {
+function ActivityEventCard({ event, isLatest, animationDelay = 0 }: { event: ActivityEvent; isLatest?: boolean; animationDelay?: number }) {
   // Safely get icon with fallback to Bot for unknown types
   const Icon = eventIcons[event.type] || Bot
   const colorClass = eventColors[event.type] || "text-gray-400 bg-gray-500/10 border-gray-500/30"
@@ -148,8 +149,12 @@ function ActivityEventCard({ event, isLatest }: { event: ActivityEvent; isLatest
         "flex gap-3 rounded-lg border p-3 transition-all",
         colorClass,
         isLatest && "ring-2 ring-green-500/50",
-        "animate-slide-in"
+        "animate-activity-slide-in opacity-0"
       )}
+      style={{
+        animationDelay: `${animationDelay}ms`,
+        animationFillMode: "forwards"
+      }}
     >
       {/* Icon */}
       <div className="flex-shrink-0 mt-0.5">
