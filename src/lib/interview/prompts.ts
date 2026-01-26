@@ -205,8 +205,6 @@ export function getProjectCreationContextualOpener(description: string): string 
  * Instead of truncating verbatim, extract the core concept
  */
 function summarizeProjectDescription(description: string): string {
-  const lowerDesc = description.toLowerCase()
-
   // Try to extract the core noun/concept (what type of thing they're building)
   const typePatterns = [
     { pattern: /\b(app|application)\b/i, type: "an app" },
@@ -285,8 +283,6 @@ function summarizeProjectDescription(description: string): string {
  * Get a smart follow-up question based on what's NOT already in the description
  */
 function getSmartFollowUpQuestion(description: string): string {
-  const lowerDesc = description.toLowerCase()
-
   // Check what info is already provided
   const hasAudience = /\b(users?|audience|customers?|people|fans?|players?|members?|visitors?|employees?|clients?|team|for\s+(my|our|the)\s+\w+)\b/i.test(description)
   const hasFeatures = /\b(features?|functionality|capabilities?|will\s+(have|include|let|allow)|should\s+(have|include|let|allow))\b/i.test(description)
