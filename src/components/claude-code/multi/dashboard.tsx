@@ -39,12 +39,28 @@ import {
   Palette,
   Trash2,
   RefreshCw,
+  Settings,
+  Shield,
+  Server,
+  XCircle,
+  RotateCw,
 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import { clearRecentPaths } from "./path-autocomplete"
 import { useMultiTerminal } from "./multi-terminal-provider"
 import { TerminalTile } from "./terminal-tile"
 import { TerminalGroupComponent } from "./terminal-group"
 import { AddTerminalDialog } from "./add-terminal-dialog"
 import { MAX_TERMINALS, GROUP_COLORS, GroupColor } from "@/lib/multi-terminal/types"
+
+// Tmux session info type
+interface TmuxSessionInfo {
+  name: string
+  created: string
+  attached: boolean
+  windows: number
+}
 
 export function MultiTerminalDashboard() {
   const {
@@ -59,8 +75,92 @@ export function MultiTerminalDashboard() {
 
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showGroupDialog, setShowGroupDialog] = useState(false)
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [newGroupName, setNewGroupName] = useState("")
   const [newGroupColor, setNewGroupColor] = useState<GroupColor>(GROUP_COLORS[0])
+
+  // Settings state
+  const [bypassPermissionsDefault, setBypassPermissionsDefault] = useState(() => {
+    if (typeof window === "undefined") return false
+    return localStorage.getItem("claude-code-bypass-permissions-default") === "true"
+  })
+
+  // Tmux persistence setting (default: true)
+  const [useTmuxDefault, setUseTmuxDefault] = useState(() => {
+    if (typeof window === "undefined") return true
+    const stored = localStorage.getItem("claude-code-use-tmux-default")
+    return stored === null ? true : stored === "true"
+  })
+
+  // Tmux session management
+  const [tmuxSessions, setTmuxSessions] = useState<TmuxSessionInfo[]>([])
+  const [tmuxAvailable, setTmuxAvailable] = useState(false)
+  const [isLoadingTmux, setIsLoadingTmux] = useState(false)
+
+  // Save bypass permissions setting
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("claude-code-bypass-permissions-default", String(bypassPermissionsDefault))
+    }
+  }, [bypassPermissionsDefault])
+
+  // Save tmux setting
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("claude-code-use-tmux-default", String(useTmuxDefault))
+    }
+  }, [useTmuxDefault])
+
+  // Fetch tmux sessions
+  const fetchTmuxSessions = useCallback(async () => {
+    setIsLoadingTmux(true)
+    try {
+      const response = await fetch("/api/claude-code/tmux-sessions")
+      const data = await response.json()
+      setTmuxAvailable(data.tmuxAvailable ?? false)
+      setTmuxSessions(data.tmuxSessions ?? [])
+    } catch (error) {
+      console.error("[Dashboard] Failed to fetch tmux sessions:", error)
+      setTmuxSessions([])
+    } finally {
+      setIsLoadingTmux(false)
+    }
+  }, [])
+
+  // Get orphan tmux sessions (not connected to any terminal)
+  const orphanTmuxSessions = useMemo(() => {
+    const connectedSessionNames = new Set(
+      terminals
+        .filter((t) => t.tmuxSessionName)
+        .map((t) => t.tmuxSessionName)
+    )
+    return tmuxSessions.filter((s) => !connectedSessionNames.has(s.name))
+  }, [terminals, tmuxSessions])
+
+  // Kill all tmux sessions
+  const handleKillAllTmuxSessions = useCallback(async () => {
+    if (!window.confirm(`Kill all ${tmuxSessions.length} tmux sessions? This will stop all Claude Code instances.`)) {
+      return
+    }
+    try {
+      const response = await fetch("/api/claude-code/tmux-sessions?all=true", {
+        method: "DELETE",
+      })
+      const data = await response.json()
+      console.log(`[Dashboard] Killed ${data.killed} tmux sessions`)
+      // Refresh the list
+      fetchTmuxSessions()
+      // Also clear all terminals
+      dispatch({ type: "CLEAR_ALL" })
+    } catch (error) {
+      console.error("[Dashboard] Failed to kill all tmux sessions:", error)
+    }
+  }, [tmuxSessions.length, fetchTmuxSessions, dispatch])
+
+  // Load tmux sessions on mount
+  useEffect(() => {
+    fetchTmuxSessions()
+  }, [fetchTmuxSessions])
 
   // Get ungrouped terminals (terminals not in any group)
   const ungroupedTerminals = useMemo(() => {
@@ -213,6 +313,83 @@ export function MultiTerminalDashboard() {
             Expand
           </Button>
 
+          {/* Settings */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setShowSettingsDialog(true)}
+            title="Settings"
+            className="h-8 w-8"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+
+          {/* Tmux sessions indicator and controls */}
+          {tmuxAvailable && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <Server className="h-4 w-4" />
+                  <span className="text-xs">
+                    {tmuxSessions.length} tmux
+                  </span>
+                  {isLoadingTmux && <RotateCw className="h-3 w-3 animate-spin" />}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  {tmuxSessions.length} tmux session{tmuxSessions.length !== 1 ? "s" : ""} running
+                  {orphanTmuxSessions.length > 0 && (
+                    <span className="text-orange-500 ml-1">
+                      ({orphanTmuxSessions.length} orphan)
+                    </span>
+                  )}
+                </div>
+                <DropdownMenuSeparator />
+
+                {orphanTmuxSessions.length > 0 && (
+                  <>
+                    <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                      Reopen Orphan Sessions
+                    </div>
+                    {orphanTmuxSessions.map((session) => (
+                      <DropdownMenuItem
+                        key={session.name}
+                        onClick={() => {
+                          // Create a terminal that reconnects to this tmux session
+                          const label = session.name.replace(/^claude-code-/, "").replace(/-[a-z0-9]{4}$/, "")
+                          addTerminal({
+                            workingDirectory: process.env.HOME || "~",
+                            label: label || session.name,
+                          })
+                        }}
+                      >
+                        <Terminal className="h-4 w-4 mr-2 text-orange-500" />
+                        <span className="truncate">{session.name}</span>
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+
+                <DropdownMenuItem onClick={fetchTmuxSessions}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </DropdownMenuItem>
+
+                {tmuxSessions.length > 0 && (
+                  <DropdownMenuItem
+                    onClick={handleKillAllTmuxSessions}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <XCircle className="h-4 w-4 mr-2" />
+                    End All Sessions
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           {/* More actions */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -360,6 +537,86 @@ export function MultiTerminalDashboard() {
             </Button>
             <Button onClick={handleCreateGroup} disabled={!newGroupName.trim()}>
               Create Group
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Settings Dialog */}
+      <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Multi-Terminal Settings
+            </DialogTitle>
+            <DialogDescription>
+              Configure defaults for Claude Code terminals.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            {/* Tmux Session Persistence */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="use-tmux" className="text-sm font-medium flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4" />
+                  Session Persistence (tmux)
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Keep sessions alive across reconnects and pop-outs. Requires tmux installed.
+                </p>
+              </div>
+              <Switch
+                id="use-tmux"
+                checked={useTmuxDefault}
+                onCheckedChange={setUseTmuxDefault}
+              />
+            </div>
+
+            {/* Bypass Permissions Default */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="bypass-permissions" className="text-sm font-medium flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  Bypass Permissions by Default
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  New terminals will have permission bypass enabled automatically.
+                </p>
+              </div>
+              <Switch
+                id="bypass-permissions"
+                checked={bypassPermissionsDefault}
+                onCheckedChange={setBypassPermissionsDefault}
+              />
+            </div>
+
+            {/* Clear Recent Paths */}
+            <div className="flex items-center justify-between pt-4 border-t">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Recent Paths</p>
+                <p className="text-xs text-muted-foreground">
+                  Clear saved paths for autocomplete
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (window.confirm("Clear all recent paths?")) {
+                    clearRecentPaths()
+                  }
+                }}
+                className="text-destructive hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowSettingsDialog(false)}>
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>

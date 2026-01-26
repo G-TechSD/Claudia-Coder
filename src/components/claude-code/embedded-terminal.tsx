@@ -38,6 +38,7 @@ interface EmbeddedTerminalProps {
   projectId?: string
   projectName?: string
   workingDirectory?: string
+  label?: string // Label for human-readable tmux session name
   className?: string
   onStatusChange?: (status: "idle" | "connecting" | "connected" | "error" | "closed") => void
   onSessionStart?: (sessionId: string) => void
@@ -52,6 +53,7 @@ export function EmbeddedTerminal({
   projectId: initialProjectId,
   projectName: initialProjectName,
   workingDirectory: initialWorkingDirectory,
+  label,
   className,
   onStatusChange,
   onSessionStart,
@@ -319,6 +321,7 @@ export function EmbeddedTerminal({
           continueSession: shouldContinue && !shouldResume,
           resume: shouldResume,
           resumeSessionId: shouldResume ? claudeIdToResume : undefined,
+          label: label || currentProjectName, // Use label for human-readable tmux session name
         })
       })
 

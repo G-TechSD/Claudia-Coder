@@ -372,6 +372,7 @@ export function TerminalTile({ terminal, groups, className }: TerminalTileProps)
           projectId={terminal.projectId || undefined}
           projectName={terminal.projectName}
           workingDirectory={terminal.workingDirectory}
+          label={terminal.label}
           className="h-full"
           onStatusChange={handleStatusChange}
           onProjectChange={handleProjectChange}

@@ -17,6 +17,9 @@ export interface MultiTerminalSession {
   status: TerminalStatus
   createdAt: string
   lastActiveAt: string
+  // Tmux session persistence
+  useTmux?: boolean
+  tmuxSessionName?: string
 }
 
 export interface TerminalGroup {

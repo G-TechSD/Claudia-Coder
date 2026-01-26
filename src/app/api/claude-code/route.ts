@@ -1,9 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { spawn, IPty } from "node-pty"
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { execSync } from "child_process"
 import { EventEmitter } from "events"
 import path from "path"
 import os from "os"
+
+// Import tmux utilities
+import {
+  TMUX_ENABLED_DEFAULT,
+  isTmuxAvailable,
+  getTmuxSessionName,
+  tmuxSessionExists,
+  killTmuxSession,
+} from "@/lib/claude-code/tmux-utils"
 
 // Force dynamic rendering - prevents Next.js from pre-rendering this route during build
 // This is required because node-pty is a native module that cannot be loaded during static analysis
@@ -51,6 +61,8 @@ interface StoredSession {
   lastActivity?: string // ISO date string
   userId?: string // User ID for sandbox isolation
   isSandboxed?: boolean // Whether session is running in sandbox mode
+  useTmux?: boolean // Whether tmux persistence is enabled
+  tmuxSessionName?: string // The tmux session name (claude-code-{id})
 }
 
 // Active session with PTY (in-memory only)
@@ -68,6 +80,8 @@ interface ClaudeSession {
   claudeSessionId?: string // Claude's internal session ID for --resume
   userId?: string // User ID for sandbox isolation
   isSandboxed?: boolean // Whether session is running in sandbox mode
+  useTmux?: boolean // Whether tmux persistence is enabled
+  tmuxSessionName?: string // The tmux session name (claude-code-{id})
 }
 
 const sessions = new Map<string, ClaudeSession>()
@@ -131,6 +145,8 @@ function updateStoredSession(session: ClaudeSession): void {
     lastActivity: new Date().toISOString(),
     userId: session.userId,
     isSandboxed: session.isSandboxed,
+    useTmux: session.useTmux,
+    tmuxSessionName: session.tmuxSessionName,
   }
 
   if (index >= 0) {
@@ -231,6 +247,9 @@ export async function POST(request: NextRequest) {
       continueSession = false, // Use --continue flag to continue last session
       userId, // User ID for sandbox isolation
       userRole, // User role (admin, beta, etc.)
+      useTmux = TMUX_ENABLED_DEFAULT, // Enable tmux session persistence (default: true)
+      reconnectToTmux, // Tmux session name to reconnect to
+      label, // Human-readable label for tmux session name
     } = body
 
     console.log("[claude-code] POST request received:", {
@@ -244,6 +263,8 @@ export async function POST(request: NextRequest) {
       continueSession,
       userId,
       userRole,
+      useTmux,
+      reconnectToTmux,
     })
 
     if (!projectId || !workingDirectory) {
@@ -357,21 +378,21 @@ export async function POST(request: NextRequest) {
     console.log(`[claude-code] Resume mode: ${resume}, resumeSessionId: ${resumeSessionId}`)
     console.log(`[claude-code] Continue mode: ${continueSession}`)
 
-    // Build command arguments
-    const args: string[] = []
+    // Build command arguments for claude
+    const claudeArgs: string[] = []
 
     if (bypassPermissions) {
-      args.push("--dangerously-skip-permissions")
+      claudeArgs.push("--dangerously-skip-permissions")
     }
 
     // Add resume flag if resuming a specific session
     if (resume && resumeSessionId) {
-      args.push("--resume", resumeSessionId)
+      claudeArgs.push("--resume", resumeSessionId)
       console.log(`[claude-code] Resuming session with --resume ${resumeSessionId}`)
     }
     // Add continue flag to continue the most recent session
     else if (continueSession) {
-      args.push("--continue")
+      claudeArgs.push("--continue")
       console.log(`[claude-code] Continuing last session with --continue`)
     }
 
@@ -387,8 +408,53 @@ export async function POST(request: NextRequest) {
       process.env.PATH || ""
     ].join(":")
 
-    // Spawn Claude with PTY for full interactive experience
-    const pty = spawn(claudePath, args, {
+    // ============================================
+    // TMUX SESSION MANAGEMENT
+    // ============================================
+    const tmuxAvailable = isTmuxAvailable()
+    const shouldUseTmux = useTmux && tmuxAvailable
+    // Use human-readable label for tmux session name if provided
+    const tmuxSessionName = getTmuxSessionName(id, label)
+
+    let spawnCmd: string
+    let spawnArgs: string[]
+
+    if (shouldUseTmux) {
+      // Check if we're reconnecting to an existing tmux session
+      if (reconnectToTmux && tmuxSessionExists(reconnectToTmux)) {
+        console.log(`[claude-code] Reconnecting to existing tmux session: ${reconnectToTmux}`)
+        spawnCmd = "tmux"
+        spawnArgs = ["attach-session", "-t", reconnectToTmux]
+      } else {
+        // Kill existing tmux session with same name if it exists (fresh start)
+        if (tmuxSessionExists(tmuxSessionName)) {
+          console.log(`[claude-code] Killing existing tmux session: ${tmuxSessionName}`)
+          killTmuxSession(tmuxSessionName)
+        }
+
+        // Build the full claude command with arguments
+        const claudeCommand = [claudePath, ...claudeArgs].join(" ")
+
+        // Create new tmux session that runs claude
+        // -d: detached (we'll attach via PTY)
+        // -s: session name
+        // First create session, then attach
+        spawnCmd = "tmux"
+        spawnArgs = ["new-session", "-A", "-s", tmuxSessionName, claudeCommand]
+        console.log(`[claude-code] Creating tmux session: ${tmuxSessionName}`)
+        console.log(`[claude-code] tmux command: tmux ${spawnArgs.join(" ")}`)
+      }
+    } else {
+      // Spawn Claude directly without tmux
+      spawnCmd = claudePath
+      spawnArgs = claudeArgs
+      if (!tmuxAvailable && useTmux) {
+        console.log(`[claude-code] tmux requested but not available - running without persistence`)
+      }
+    }
+
+    // Spawn PTY
+    const pty = spawn(spawnCmd, spawnArgs, {
       name: "xterm-256color",
       cols: 120,
       rows: 40,
@@ -405,7 +471,19 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    console.log(`[claude-code] PTY spawned with PID: ${pty.pid}`)
+    console.log(`[claude-code] PTY spawned with PID: ${pty.pid}${shouldUseTmux ? ` (tmux: ${tmuxSessionName})` : ""}`)
+
+    // Enable mouse mode in tmux for proper scrolling
+    if (shouldUseTmux && !reconnectToTmux) {
+      setTimeout(() => {
+        try {
+          execSync(`tmux set-option -t ${tmuxSessionName} -g mouse on`, { stdio: "pipe" })
+          console.log(`[claude-code] Enabled tmux mouse mode for ${tmuxSessionName}`)
+        } catch (e) {
+          console.log(`[claude-code] Could not enable tmux mouse mode:`, e)
+        }
+      }, 500)
+    }
 
     // Create session object
     const session: ClaudeSession = {
@@ -422,6 +500,8 @@ export async function POST(request: NextRequest) {
       claudeSessionId: resumeSessionId,
       userId,
       isSandboxed,
+      useTmux: shouldUseTmux,
+      tmuxSessionName: shouldUseTmux ? (reconnectToTmux || tmuxSessionName) : undefined,
     }
 
     sessions.set(id, session)
@@ -495,6 +575,13 @@ export async function POST(request: NextRequest) {
       continued: continueSession,
       isSandboxed,
       sandboxDir: isSandboxed && userId ? getUserSandboxDir(userId) : undefined,
+      // Tmux session info for persistence/reconnection
+      tmux: {
+        enabled: shouldUseTmux,
+        available: tmuxAvailable,
+        sessionName: shouldUseTmux ? (reconnectToTmux || tmuxSessionName) : null,
+        reconnected: !!reconnectToTmux,
+      },
     })
 
   } catch (error) {
@@ -816,6 +903,7 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const sessionId = searchParams.get("sessionId")
     const removeFromStorage = searchParams.get("removeFromStorage") === "true"
+    const killTmux = searchParams.get("killTmux") === "true" // Also kill the tmux session
 
     if (!sessionId) {
       return NextResponse.json({ error: "sessionId is required" }, { status: 400 })
@@ -825,15 +913,21 @@ export async function DELETE(request: NextRequest) {
     if (!session) {
       // Check if it exists in storage only
       const stored = loadStoredSessions().find(s => s.id === sessionId)
-      if (stored && removeFromStorage) {
-        removeStoredSession(sessionId)
+      if (stored) {
+        // If it has a tmux session and killTmux is requested, kill it
+        if (killTmux && stored.tmuxSessionName && tmuxSessionExists(stored.tmuxSessionName)) {
+          killTmuxSession(stored.tmuxSessionName)
+        }
+        if (removeFromStorage) {
+          removeStoredSession(sessionId)
+        }
         return NextResponse.json({ success: true, message: "Session removed from storage" })
       }
       return NextResponse.json({ error: "Session not found" }, { status: 404 })
     }
 
-    console.log(`[claude-code][${sessionId}] DELETE request - stopping session`)
-    cleanupSession(sessionId, removeFromStorage)
+    console.log(`[claude-code][${sessionId}] DELETE request - stopping session (killTmux: ${killTmux})`)
+    cleanupSession(sessionId, removeFromStorage, killTmux)
 
     return NextResponse.json({ success: true, message: "Session stopped" })
 
@@ -846,16 +940,38 @@ export async function DELETE(request: NextRequest) {
 
 /**
  * Clean up a session
+ * @param sessionId - The session ID to clean up
+ * @param removeFromStorageFile - Whether to remove from persistent storage
+ * @param shouldKillTmux - Whether to kill the tmux session (default: false, session persists)
  */
-function cleanupSession(sessionId: string, removeFromStorageFile: boolean = false) {
+function cleanupSession(sessionId: string, removeFromStorageFile: boolean = false, shouldKillTmux: boolean = false) {
   const session = sessions.get(sessionId)
   if (!session) return
 
-  console.log(`[claude-code] Cleaning up session ${sessionId}`)
+  console.log(`[claude-code] Cleaning up session ${sessionId} (tmux: ${session.useTmux ? session.tmuxSessionName : "disabled"})`)
 
   try {
-    // Kill the PTY process
-    session.pty.kill()
+    if (session.useTmux && session.tmuxSessionName) {
+      if (shouldKillTmux) {
+        // Kill the tmux session completely
+        killTmuxSession(session.tmuxSessionName)
+        console.log(`[claude-code] Killed tmux session: ${session.tmuxSessionName}`)
+      } else {
+        // Detach from tmux instead of killing - session will persist for reconnection
+        console.log(`[claude-code] Detaching from tmux session: ${session.tmuxSessionName} (session will persist)`)
+        session.pty.write("\x02d") // Ctrl+B d to detach from tmux
+        setTimeout(() => {
+          try {
+            session.pty.kill()
+          } catch {
+            // Ignore if already dead
+          }
+        }, 100)
+      }
+    } else {
+      // No tmux - just kill the PTY process
+      session.pty.kill()
+    }
   } catch (e) {
     console.error(`[claude-code][${sessionId}] Error killing PTY:`, e)
   }
