@@ -70,6 +70,7 @@ interface RegenerationModelOption {
   type: "auto" | "cli" | "cloud" | "local"
   icon: "sparkles" | "terminal" | "cloud" | "server"
   provider: string
+  serverId?: string | null  // For local providers, the actual server name (e.g., "local-llm-server")
   model: string | null
 }
 
@@ -150,6 +151,7 @@ function buildRegenerationModelOptions(
         type,
         icon: getIconType(type),
         provider: globalDefault.provider || "",
+        serverId: globalDefault.serverId || null,  // For local providers, use actual server name
         model: globalDefault.modelId || null
       })
     }
@@ -166,6 +168,7 @@ function buildRegenerationModelOptions(
         type: instance.type,
         icon: getIconType(instance.type),
         provider: instance.provider,
+        serverId: instance.serverId || null,  // For local providers, use actual server name
         model: instance.modelId
       })
     }
@@ -762,7 +765,9 @@ export function BuildPlanEditor({
           projectId,
           projectName,
           projectDescription: effectiveDescription,
-          preferredProvider: selectedModelOption.provider,
+          // For local providers, use serverId (actual server name like "local-llm-server")
+          // For cloud providers, use provider (like "google", "anthropic")
+          preferredProvider: selectedModelOption.serverId || selectedModelOption.provider,
           preferredModel: selectedModelOption.model || null,  // Pass specific model ID from selected model
           existingPackets: buildPlanSources.existingPackets ? existingPackets : [],  // Only pass if enabled
           sources: buildPlanSources,  // Pass source flags for API to handle user uploads and interview data

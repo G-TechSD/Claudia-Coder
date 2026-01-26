@@ -208,8 +208,8 @@ function NewProjectContent() {
   const [projectDescription, setProjectDescription] = useState("")
   const [priority, setPriority] = useState<"low" | "medium" | "high" | "critical">("medium")
 
-  // Repo creation state
-  const [createRepo, setCreateRepo] = useState(true)
+  // Repo creation state - disabled by default, repos are set up after project creation
+  const [createRepo, setCreateRepo] = useState(false)
   const [repoName, setRepoName] = useState("")
   const [repoVisibility, setRepoVisibility] = useState<"private" | "internal" | "public">("private")
   const [initWithReadme, setInitWithReadme] = useState(true)
@@ -2805,20 +2805,24 @@ ${p.description}
         </Card>
 
         <div className="flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={handleRejectPlan}>
+          <Button variant="outline" className="flex-1" onClick={handleRejectPlan} disabled={isSubmitting}>
             <ThumbsDown className="mr-2 h-4 w-4" />
             Start Over
           </Button>
-          <Button variant="outline" onClick={handleRegeneratePlan} disabled={isGenerating}>
+          <Button variant="outline" onClick={handleRegeneratePlan} disabled={isGenerating || isSubmitting}>
             {isGenerating ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <RefreshCw className="h-4 w-4" />
             )}
           </Button>
-          <Button className="flex-1" onClick={handleApprovePlan}>
-            <ThumbsUp className="mr-2 h-4 w-4" />
-            Looks Good
+          <Button className="flex-1" onClick={handleApprovePlan} disabled={isSubmitting}>
+            {isSubmitting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <ThumbsUp className="mr-2 h-4 w-4" />
+            )}
+            {isSubmitting ? "Creating Project..." : "Looks Good"}
           </Button>
         </div>
       </div>
