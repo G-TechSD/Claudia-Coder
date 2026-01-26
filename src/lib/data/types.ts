@@ -182,6 +182,9 @@ export interface Project {
   // Codebase analysis (for imported/auto-mod projects)
   codebaseAnalysisId?: string  // Reference to stored analysis
   hasCodebaseContext?: boolean // Whether CODEBASE.md has been generated
+
+  // Build plan - stored directly on project (no separate storage)
+  buildPlan?: StoredBuildPlan
 }
 
 // ============ Codebase Analysis Storage ============

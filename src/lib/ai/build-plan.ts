@@ -1246,14 +1246,78 @@ function saveAllBuildPlansRaw(plans: Record<string, BuildPlan>): void {
 }
 
 export function saveBuildPlan(projectId: string, plan: BuildPlan): void {
+  // Save to localStorage for backwards compatibility
   const allPlans = getStoredBuildPlansRaw()
   allPlans[projectId] = plan
   saveAllBuildPlansRaw(allPlans)
 
-  // Also save the packets to server (fire-and-forget)
+  // Save packets to server
   savePackets(projectId, plan.packets).catch(err => {
     console.error("[build-plan] Failed to save packets to server:", err)
   })
+
+  // Convert BuildPlan to StoredBuildPlan format and save to project object
+  const storedBuildPlan = {
+    id: plan.id,
+    projectId: plan.projectId,
+    status: plan.status === "approved" ? "approved" as const : "draft" as const,
+    createdAt: plan.createdAt,
+    updatedAt: new Date().toISOString(),
+    originalPlan: {
+      spec: plan.spec,
+      phases: plan.phases.map(p => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        order: p.order
+      })),
+      packets: plan.packets.map(p => ({
+        id: p.id,
+        phaseId: p.phaseId,
+        title: p.title,
+        description: p.description,
+        type: p.type,
+        priority: p.priority,
+        tasks: p.tasks || [],
+        acceptanceCriteria: p.acceptanceCriteria || []
+      }))
+    },
+    editedObjectives: plan.spec.objectives.map((text, i) => ({
+      id: `obj-${i}`,
+      text,
+      isOriginal: true,
+      isDeleted: false
+    })),
+    editedNonGoals: plan.spec.nonGoals.map((text, i) => ({
+      id: `ng-${i}`,
+      text,
+      isOriginal: true,
+      isDeleted: false
+    })),
+    packetFeedback: plan.packets.map(p => ({
+      packetId: p.id,
+      approved: null,
+      priority: p.priority as "low" | "medium" | "high" | "critical",
+      comment: ""
+    })),
+    sectionComments: [],
+    generatedBy: {
+      server: plan.generatedBy?.split(":")?.[0] || "unknown",
+      model: plan.generatedBy?.split(":")?.[1] || "unknown"
+    },
+    revisionNumber: plan.version || 1
+  }
+
+  // Save build plan directly to project object via API
+  if (typeof window !== "undefined") {
+    fetch(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ buildPlan: storedBuildPlan })
+    }).catch(err => {
+      console.error("[build-plan] Failed to save build plan to project:", err)
+    })
+  }
 }
 
 export function getBuildPlanRaw(projectId: string): BuildPlan | null {

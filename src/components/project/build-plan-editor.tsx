@@ -458,8 +458,100 @@ export function BuildPlanEditor({
         comments[sc.sectionId] = sc.comment
       })
       setSectionComments(comments)
+    } else {
+      // No localStorage plan - check if project has a build plan stored on it
+      const loadProjectBuildPlan = async () => {
+        try {
+          // Fetch project to get its build plan
+          const projectResponse = await fetch(`/api/projects/${projectId}`)
+          if (projectResponse.ok) {
+            const projectData = await projectResponse.json()
+            const storedPlan = projectData.project?.buildPlan
+
+            if (storedPlan) {
+              console.log(`[BuildPlanEditor] Found build plan on project`)
+              setStoredPlan(storedPlan)
+              setPlanSource(storedPlan.generatedBy)
+              setLastSaved(new Date(storedPlan.updatedAt))
+
+              // Reconstruct the build plan from stored data
+              const reconstructedPlan: BuildPlan = {
+                id: storedPlan.id,
+                projectId: storedPlan.projectId,
+                createdAt: storedPlan.createdAt,
+                status: storedPlan.status === "approved" ? "approved" : "draft",
+                spec: storedPlan.originalPlan.spec,
+                phases: storedPlan.originalPlan.phases.map((p: { id: string; name: string; description: string; order: number }) => ({
+                  ...p,
+                  packetIds: [],
+                  dependencies: [],
+                  estimatedEffort: { optimistic: 8, realistic: 16, pessimistic: 32, confidence: "medium" as const },
+                  successCriteria: []
+                })),
+                packets: storedPlan.originalPlan.packets.map((p: { id: string; phaseId: string; title: string; description: string; type: string; priority: string; acceptanceCriteria?: string[] }) => ({
+                  ...p,
+                  type: p.type as BuildPlan["packets"][0]["type"],
+                  priority: p.priority as BuildPlan["packets"][0]["priority"],
+                  status: "queued" as const,
+                  suggestedTaskType: "coding",
+                  blockedBy: [],
+                  blocks: [],
+                  estimatedTokens: 1000,
+                  acceptanceCriteria: p.acceptanceCriteria || []
+                })),
+                modelAssignments: [],
+                constraints: {
+                  requireLocalFirst: true,
+                  requireHumanApproval: ["planning"],
+                  maxParallelPackets: 3
+                },
+                generatedBy: `${storedPlan.generatedBy.server}:${storedPlan.generatedBy.model}`,
+                version: storedPlan.revisionNumber
+              }
+              setBuildPlan(reconstructedPlan)
+
+              // Load editable state from stored plan
+              setObjectives(storedPlan.editedObjectives.map((o: { id: string; text: string; isOriginal: boolean; isDeleted: boolean }) => ({
+                ...o,
+                isEditing: false
+              })))
+              setNonGoals(storedPlan.editedNonGoals.map((ng: { id: string; text: string; isOriginal: boolean; isDeleted: boolean }) => ({
+                ...ng,
+                isEditing: false
+              })))
+
+              // Load packet feedback
+              const feedback: Record<string, PacketFeedback> = {}
+              storedPlan.packetFeedback.forEach((pf: { packetId: string; approved: boolean | null; priority: string; comment: string }) => {
+                feedback[pf.packetId] = {
+                  approved: pf.approved,
+                  priority: pf.priority as PacketFeedback["priority"],
+                  comment: pf.comment
+                }
+              })
+              setPacketFeedback(feedback)
+
+              // Load section comments
+              const comments: Record<string, string> = {}
+              storedPlan.sectionComments.forEach((sc: { sectionId: string; comment: string }) => {
+                comments[sc.sectionId] = sc.comment
+              })
+              setSectionComments(comments)
+
+              return // Successfully loaded from project
+            }
+          }
+
+          // No build plan on project - show generation UI
+          console.log(`[BuildPlanEditor] No build plan found on project - showing generation UI`)
+        } catch (err) {
+          console.error("[BuildPlanEditor] Failed to load build plan from project:", err)
+        }
+      }
+
+      loadProjectBuildPlan()
     }
-  }, [projectId])
+  }, [projectId, projectName, projectDescription])
 
   // Initialize editable state when build plan loads (for new plans)
   useEffect(() => {

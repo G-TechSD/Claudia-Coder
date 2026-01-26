@@ -14,14 +14,82 @@ import {
   mergePacketsWithExisting,
   type ExistingPacketInfo,
   type PacketSummary,
-  type NuanceContext
+  type NuanceContext,
+  type BuildPlan
 } from "@/lib/ai/build-plan"
 import {
   BUSINESS_DEV_SYSTEM_PROMPT,
   generateBusinessDevPrompt,
   parseBusinessDevResponse
 } from "@/lib/ai/business-dev"
-import type { BusinessDev } from "@/lib/data/types"
+import type { BusinessDev, StoredBuildPlan } from "@/lib/data/types"
+import { updateProject as serverUpdateProject } from "@/lib/data/server-projects"
+
+/**
+ * Save build plan directly to project object
+ * No separate storage - build plan lives on the project
+ */
+async function persistBuildPlanToProject(projectId: string, plan: BuildPlan): Promise<void> {
+  try {
+    // Convert BuildPlan to StoredBuildPlan format
+    const storedBuildPlan: StoredBuildPlan = {
+      id: plan.id,
+      projectId: plan.projectId,
+      status: plan.status === "approved" ? "approved" : "draft",
+      createdAt: plan.createdAt,
+      updatedAt: new Date().toISOString(),
+      originalPlan: {
+        spec: plan.spec,
+        phases: plan.phases.map(p => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          order: p.order
+        })),
+        packets: plan.packets.map(p => ({
+          id: p.id,
+          phaseId: p.phaseId,
+          title: p.title,
+          description: p.description,
+          type: p.type,
+          priority: p.priority,
+          tasks: p.tasks || [],
+          acceptanceCriteria: p.acceptanceCriteria || []
+        }))
+      },
+      editedObjectives: plan.spec.objectives.map((text, i) => ({
+        id: `obj-${i}`,
+        text,
+        isOriginal: true,
+        isDeleted: false
+      })),
+      editedNonGoals: plan.spec.nonGoals.map((text, i) => ({
+        id: `ng-${i}`,
+        text,
+        isOriginal: true,
+        isDeleted: false
+      })),
+      packetFeedback: plan.packets.map(p => ({
+        packetId: p.id,
+        approved: null,
+        priority: p.priority as "low" | "medium" | "high" | "critical",
+        comment: ""
+      })),
+      sectionComments: [],
+      generatedBy: {
+        server: plan.generatedBy?.split(":")?.[0] || "unknown",
+        model: plan.generatedBy?.split(":")?.[1] || "unknown"
+      },
+      revisionNumber: plan.version || 1
+    }
+
+    // Update project with build plan
+    await serverUpdateProject(projectId, { buildPlan: storedBuildPlan })
+    console.log(`[build-plan] Saved build plan to project ${projectId}`)
+  } catch (err) {
+    console.error("[build-plan] Failed to save build plan to project:", err)
+  }
+}
 
 /**
  * Helper function to run Claude Code CLI for generation tasks
@@ -544,6 +612,9 @@ export async function POST(request: NextRequest) {
               )
             }
 
+            // Persist to server storage
+            await persistBuildPlanToProject(projectId, result.plan)
+
             return NextResponse.json({
               plan: result.plan,
               validation,
@@ -636,6 +707,9 @@ export async function POST(request: NextRequest) {
               )
             }
 
+            // Persist to server storage
+            await persistBuildPlanToProject(projectId, result.plan)
+
             return NextResponse.json({
               plan: result.plan,
               validation,
@@ -713,6 +787,9 @@ export async function POST(request: NextRequest) {
           )
         }
 
+        // Persist to server storage
+        await persistBuildPlanToProject(projectId, result.plan)
+
         return NextResponse.json({
           plan: result.plan,
           validation,
@@ -772,6 +849,9 @@ export async function POST(request: NextRequest) {
               allowPaidFallback
             )
           }
+
+          // Persist to server storage
+          await persistBuildPlanToProject(projectId, result.plan)
 
           return NextResponse.json({
             plan: result.plan,
@@ -838,6 +918,9 @@ export async function POST(request: NextRequest) {
               allowPaidFallback
             )
           }
+
+          // Persist to server storage
+          await persistBuildPlanToProject(projectId, result.plan)
 
           return NextResponse.json({
             plan: result.plan,
@@ -933,6 +1016,9 @@ export async function POST(request: NextRequest) {
           )
         }
 
+        // Persist to server storage
+        await persistBuildPlanToProject(projectId, result.plan)
+
         return NextResponse.json({
           plan: result.plan,
           validation,
@@ -995,6 +1081,9 @@ export async function POST(request: NextRequest) {
               allowPaidFallback
             )
           }
+
+          // Persist to server storage
+          await persistBuildPlanToProject(projectId, retryResult.plan)
 
           return NextResponse.json({
             plan: retryResult.plan,
@@ -1059,6 +1148,9 @@ export async function POST(request: NextRequest) {
               allowPaidFallback
             )
           }
+
+          // Persist to server storage
+          await persistBuildPlanToProject(projectId, result.plan)
 
           return NextResponse.json({
             plan: result.plan,
