@@ -8,7 +8,7 @@
  * - API references
  */
 
-import { getUserStorageKey, getUserStorageItem, setUserStorageItem } from "./user-storage"
+import { getUserStorageItem, setUserStorageItem } from "./user-storage"
 
 // Storage key
 const WIKI_STORAGE_KEY = "wiki_documents"

@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      projectId,
+      projectId: _projectId,
       packetId,
       prompt,
       outputFormat = "markdown",

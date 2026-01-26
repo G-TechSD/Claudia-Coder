@@ -12,7 +12,6 @@
  */
 
 import {
-  getUserStorageKey,
   getUserStorageItem,
   setUserStorageItem,
   USER_STORAGE_KEYS,

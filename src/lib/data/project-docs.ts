@@ -97,13 +97,6 @@ function getDocFilePath(projectId: string, docId: string): string {
 }
 
 /**
- * Get the path for a document's metadata file
- */
-function getDocMetadataPath(projectId: string, docId: string): string {
-  return path.join(getProjectDocsPath(projectId), `${docId}.meta.json`)
-}
-
-/**
  * Get the index file path for a project's docs
  */
 function getDocsIndexPath(projectId: string): string {
