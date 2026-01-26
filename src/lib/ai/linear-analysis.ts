@@ -1507,7 +1507,7 @@ Return ONLY the JSON. No markdown. No explanation.`
     }
 
     // Convert parsed sub-packets to WorkPacketWithGranularity
-    return parsed.map((sub, index) => ({
+    return parsed.map((sub) => ({
       id: `packet-${generatePacketId()}`,
       title: sub.title,
       description: sub.description,

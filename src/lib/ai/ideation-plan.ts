@@ -162,7 +162,7 @@ export function ideationPacketsToWorkPackets(
   ideationPackets: IdeationPacket[],
   phaseId: string = "ideation"
 ): WorkPacket[] {
-  return ideationPackets.map((packet, index) => ({
+  return ideationPackets.map((packet) => ({
     id: packet.id,
     phaseId,
     title: packet.title,
