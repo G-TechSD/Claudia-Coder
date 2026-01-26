@@ -16,6 +16,7 @@ export interface ProviderInfo {
   name: string
   displayName: string
   type: "local" | "cloud" | "cli"
+  serverType?: "lmstudio" | "ollama" | "custom"  // For local providers, the specific server type
   status: "online" | "offline" | "checking" | "not-configured"
   baseUrl?: string
   model?: string  // Currently loaded model (if any)
@@ -223,6 +224,7 @@ export async function GET() {
         name: "local-llm-server",
         displayName: "Local LLM Server (LM Studio)",
         type: "local",
+        serverType: "lmstudio",
         status: "online",
         baseUrl: lmstudioServer1,
         model: status.loadedModel,
@@ -239,6 +241,7 @@ export async function GET() {
         name: "local-llm-server-2",
         displayName: "Local LLM Server 2 (LM Studio)",
         type: "local",
+        serverType: "lmstudio",
         status: "online",
         baseUrl: lmstudioServer2,
         model: status.loadedModel,
@@ -255,6 +258,7 @@ export async function GET() {
         name: "ollama",
         displayName: "Ollama",
         type: "local",
+        serverType: "ollama",
         status: "online",
         baseUrl: ollamaUrl,
         model: status.loadedModel,

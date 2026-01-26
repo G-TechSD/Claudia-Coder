@@ -225,10 +225,14 @@ export function ModelAssignment({ projectId, onConfigChange }: ModelAssignmentPr
           // For local providers, get matching servers
           if (LOCAL_PROVIDERS.some(p => p.id === selectedProvider)) {
             const servers: DetectedServer[] = data.providers
-              .filter((p: { name: string; type: string; status: string }) =>
+              .filter((p: { name: string; type: string; status: string; serverType?: string }) =>
                 p.type === "local" &&
                 p.status === "online" &&
-                p.name.toLowerCase().includes(selectedProvider.toLowerCase())
+                // Match by serverType if available, otherwise show all local servers for lmstudio/ollama
+                (p.serverType === selectedProvider ||
+                 (selectedProvider === "lmstudio" && (!p.serverType || p.serverType === "lmstudio")) ||
+                 (selectedProvider === "ollama" && p.serverType === "ollama") ||
+                 selectedProvider === "custom")
               )
               .map((p: {
                 name: string
