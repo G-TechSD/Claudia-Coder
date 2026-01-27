@@ -113,6 +113,18 @@ function multiTerminalReducer(
       }
     }
 
+    case 'UPDATE_TMUX_SESSION': {
+      const { terminalId, tmuxSessionName } = action.payload
+      return {
+        ...state,
+        terminals: state.terminals.map(t =>
+          t.id === terminalId
+            ? { ...t, tmuxSessionName, useTmux: true }
+            : t
+        )
+      }
+    }
+
     case 'TOGGLE_COLLAPSE': {
       const { terminalId } = action.payload
       return {

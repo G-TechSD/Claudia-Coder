@@ -137,6 +137,10 @@ interface ClaudeCodeTerminalProps {
   initialPrompt?: string
   currentPacket?: CurrentPacket
   allPackets?: Array<{ id: string; title: string; status: string }>
+  // Tmux reconnection - if provided, reconnects to existing tmux session instead of starting new
+  reconnectToTmux?: string
+  // Callback when tmux session name is received (for storing in parent)
+  onTmuxSessionCreated?: (tmuxSessionName: string) => void
 }
 
 export function ClaudeCodeTerminal({
@@ -149,7 +153,9 @@ export function ClaudeCodeTerminal({
   onSessionEnd,
   initialPrompt,
   currentPacket,
-  allPackets
+  allPackets,
+  reconnectToTmux,
+  onTmuxSessionCreated,
 }: ClaudeCodeTerminalProps) {
   // Auth for passing user info to API
   const { user } = useAuth()
@@ -771,6 +777,8 @@ export function ClaudeCodeTerminal({
           // Pass user info for authorization checks
           userId: user?.id,
           userRole: user?.role,
+          // Tmux reconnection - if provided, reconnect to existing session
+          reconnectToTmux,
         })
       })
 
@@ -782,6 +790,15 @@ export function ClaudeCodeTerminal({
 
       const newSessionId = data.sessionId
       setSessionId(newSessionId)
+
+      // Handle tmux session info
+      if (data.tmux?.sessionName && onTmuxSessionCreated) {
+        onTmuxSessionCreated(data.tmux.sessionName)
+        if (data.tmux.reconnected) {
+          term.write(`\x1b[1;32m● Reconnected to tmux session: ${data.tmux.sessionName}\x1b[0m\r\n`)
+        }
+      }
+
       term.write(`\x1b[1;32m● Session started (PID: ${data.pid})\x1b[0m\r\n\r\n`)
 
       // Connect to SSE stream
@@ -871,7 +888,7 @@ export function ClaudeCodeTerminal({
       setStatus("error")
       term.write(`\x1b[1;31m● Error: ${message}\x1b[0m\r\n`)
     }
-  }, [projectId, workingDirectory, bypassPermissions, bypassPermissionsLocal, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt, continueSession, neverLoseSession, resumeSessionId, recentSessions, parseTerminalOutputForMiniMe])
+  }, [projectId, workingDirectory, bypassPermissions, bypassPermissionsLocal, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt, continueSession, neverLoseSession, resumeSessionId, recentSessions, parseTerminalOutputForMiniMe, reconnectToTmux, onTmuxSessionCreated])
 
   // Initialize xterm.js
   useEffect(() => {

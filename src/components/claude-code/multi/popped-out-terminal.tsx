@@ -187,6 +187,7 @@ export function PoppedOutTerminal({ terminalId }: PoppedOutTerminalProps) {
           workingDirectory={terminal.workingDirectory}
           className="h-full"
           onSessionEnd={() => handleStatusChange("closed")}
+          reconnectToTmux={terminal.tmuxSessionName}
         />
       </div>
     </div>

@@ -128,6 +128,10 @@ export function TerminalTile({ terminal, groups, className }: TerminalTileProps)
     updateProject(terminal.id, project.projectId, project.projectName, project.workingDirectory)
   }, [terminal.id, updateProject])
 
+  const handleTmuxSessionCreated = useCallback((tmuxSessionName: string) => {
+    dispatch({ type: 'UPDATE_TMUX_SESSION', payload: { terminalId: terminal.id, tmuxSessionName } })
+  }, [terminal.id, dispatch])
+
   // Format time ago
   const timeAgo = useCallback((dateString: string) => {
     const date = new Date(dateString)
@@ -376,6 +380,7 @@ export function TerminalTile({ terminal, groups, className }: TerminalTileProps)
           className="h-full"
           onStatusChange={handleStatusChange}
           onProjectChange={handleProjectChange}
+          onTmuxSessionCreated={handleTmuxSessionCreated}
         />
       </div>
     </div>

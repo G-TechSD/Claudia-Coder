@@ -45,6 +45,7 @@ export type MultiTerminalAction =
   | { type: 'UPDATE_LABEL'; payload: { terminalId: string; label: string } }
   | { type: 'UPDATE_STATUS'; payload: { terminalId: string; status: TerminalStatus } }
   | { type: 'UPDATE_PROJECT'; payload: { terminalId: string; projectId: string; projectName: string; workingDirectory: string } }
+  | { type: 'UPDATE_TMUX_SESSION'; payload: { terminalId: string; tmuxSessionName: string } }
   | { type: 'TOGGLE_COLLAPSE'; payload: { terminalId: string } }
   | { type: 'COLLAPSE_ALL'; payload?: { groupId?: string } }
   | { type: 'EXPAND_ALL'; payload?: { groupId?: string } }

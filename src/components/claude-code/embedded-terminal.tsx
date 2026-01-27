@@ -43,6 +43,10 @@ interface EmbeddedTerminalProps {
   onStatusChange?: (status: "idle" | "connecting" | "connected" | "error" | "closed") => void
   onSessionStart?: (sessionId: string) => void
   onProjectChange?: (project: { projectId: string; projectName: string; workingDirectory: string }) => void
+  // Tmux session created callback - for storing the session name for reconnection
+  onTmuxSessionCreated?: (tmuxSessionName: string) => void
+  // If provided, reconnect to existing tmux session instead of starting new
+  reconnectToTmux?: string
 }
 
 /**
@@ -58,6 +62,8 @@ export function EmbeddedTerminal({
   onStatusChange,
   onSessionStart,
   onProjectChange,
+  onTmuxSessionCreated,
+  reconnectToTmux,
 }: EmbeddedTerminalProps) {
   const { user } = useAuth()
   const terminalRef = useRef<HTMLDivElement>(null)
@@ -322,6 +328,7 @@ export function EmbeddedTerminal({
           resume: shouldResume,
           resumeSessionId: shouldResume ? claudeIdToResume : undefined,
           label: label || currentProjectName, // Use label for human-readable tmux session name
+          reconnectToTmux, // Reconnect to existing tmux session if provided
         })
       })
 
@@ -335,6 +342,15 @@ export function EmbeddedTerminal({
       setSessionId(newSessionId)
       saveSession(newSessionId)
       onSessionStart?.(newSessionId)
+
+      // Handle tmux session info - store for reconnection
+      if (data.tmux?.sessionName && onTmuxSessionCreated) {
+        onTmuxSessionCreated(data.tmux.sessionName)
+        if (data.tmux.reconnected) {
+          term.write(`\x1b[1;32m● Reconnected to tmux session: ${data.tmux.sessionName}\x1b[0m\r\n`)
+        }
+      }
+
       term.write(`\x1b[1;32m● Session started (PID: ${data.pid})\x1b[0m\r\n\r\n`)
 
       // Connect to SSE stream
