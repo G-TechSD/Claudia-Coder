@@ -49,13 +49,23 @@ localhost.key
 # Generated projects (can be regenerated)
 generated/
 
-# Auth database
+# Auth database (any location)
+auth.db
+auth.db-shm
+auth.db-wal
 .local-storage/auth.db
 .local-storage/auth.db-shm
 .local-storage/auth.db-wal
 .local-storage/patents.db
 .local-storage/patents.db-shm
 .local-storage/patents.db-wal
+
+# Private keys and certificates (never commit these!)
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
 
 # Local storage data (user-specific)
 .local-storage/*.json
@@ -79,10 +89,13 @@ playwright-report-admin/
 # Generated project data
 generated/
 
-# Personal/development scripts
+# Personal/development scripts (may contain credentials)
 scripts/recover-*.ts
 scripts/create-test-projects.js
 scripts/load-*.js
+scripts/setup-admin-password.js
+scripts/*password*.js
+scripts/*secret*.js
 
 # Workflow exports with credentials
 public/workflows/*.json
