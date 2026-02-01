@@ -47,22 +47,15 @@ function generateToken(): string {
 }
 
 function loadOrCreateToken(): string {
-  try {
-    if (fs.existsSync(TOKEN_FILE)) {
-      const data = JSON.parse(fs.readFileSync(TOKEN_FILE, "utf-8")) as TokenData
-      return data.token
-    }
-  } catch (_err) {
-    console.error("[Emergent] Error loading token, generating new one")
-  }
-
-  // Generate new token
+  // Always generate a fresh token on server startup for security
+  // Don't load old token from file - create new one each time
   const token = generateToken()
   const data: TokenData = {
     token,
     createdAt: new Date().toISOString(),
   }
   fs.writeFileSync(TOKEN_FILE, JSON.stringify(data, null, 2))
+  console.log("[Emergent] Generated new access token")
   return token
 }
 

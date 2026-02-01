@@ -55,6 +55,7 @@ export default function EmergentTerminalPage() {
   const [iframeKey, setIframeKey] = useState(0)
   const [hostname, setHostname] = useState("localhost")
   const [editingHostname, setEditingHostname] = useState("")
+  const [showToken, setShowToken] = useState(false)
 
   // Get the emergent URL based on configured hostname
   const emergentUrl = useMemo(() => {
@@ -322,8 +323,17 @@ export default function EmergentTerminalPage() {
           <Key className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="text-sm text-muted-foreground shrink-0">Access Token:</span>
           <code className="flex-1 text-xs font-mono bg-background px-2 py-1 rounded border truncate">
-            {tokenInfo.token}
+            {showToken ? tokenInfo.token : "••••••••••••••••••••••••••••••••"}
           </code>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showToken}
+              onChange={(e) => setShowToken(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-muted-foreground/50"
+            />
+            Show
+          </label>
           <Button variant="ghost" size="sm" onClick={handleCopyToken} className="shrink-0">
             {copied ? (
               <>
