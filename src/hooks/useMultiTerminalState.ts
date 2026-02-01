@@ -43,7 +43,9 @@ function multiTerminalReducer(
         isPoppedOut: false,
         status: 'idle',
         createdAt: now,
-        lastActiveAt: now
+        lastActiveAt: now,
+        // Set tmuxSessionName if reconnecting to existing tmux session
+        tmuxSessionName: action.payload.reconnectToTmux
       }
 
       return {

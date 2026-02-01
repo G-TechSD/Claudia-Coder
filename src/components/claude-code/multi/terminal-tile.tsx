@@ -383,6 +383,7 @@ export function TerminalTile({ terminal, groups, className }: TerminalTileProps)
           onStatusChange={handleStatusChange}
           onProjectChange={handleProjectChange}
           onTmuxSessionCreated={handleTmuxSessionCreated}
+          reconnectToTmux={terminal.tmuxSessionName}
         />
       </div>
     </div>

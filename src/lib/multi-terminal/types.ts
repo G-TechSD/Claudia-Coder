@@ -40,7 +40,7 @@ export interface MultiTerminalLayout {
 
 // State management types
 export type MultiTerminalAction =
-  | { type: 'ADD_TERMINAL'; payload: { id?: string; projectId?: string; projectName?: string; workingDirectory: string; label?: string } }
+  | { type: 'ADD_TERMINAL'; payload: { id?: string; projectId?: string; projectName?: string; workingDirectory: string; label?: string; reconnectToTmux?: string } }
   | { type: 'REMOVE_TERMINAL'; payload: { terminalId: string } }
   | { type: 'UPDATE_LABEL'; payload: { terminalId: string; label: string } }
   | { type: 'UPDATE_STATUS'; payload: { terminalId: string; status: TerminalStatus } }
@@ -70,7 +70,7 @@ export interface MultiTerminalContextValue {
   groups: TerminalGroup[]
   gridColumns: 1 | 2 | 3 | 4
   // Convenience actions
-  addTerminal: (options: { projectId?: string; projectName?: string; workingDirectory: string; label?: string }) => string
+  addTerminal: (options: { projectId?: string; projectName?: string; workingDirectory: string; label?: string; reconnectToTmux?: string }) => string
   removeTerminal: (terminalId: string) => void
   updateStatus: (terminalId: string, status: TerminalStatus) => void
   updateProject: (terminalId: string, projectId: string, projectName: string, workingDirectory: string) => void

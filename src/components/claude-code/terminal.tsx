@@ -488,15 +488,31 @@ export function ClaudeCodeTerminal({
     transcriptRef.current = transcript
   }, [transcript])
 
+  // Keep interimTranscript in ref too
+  const interimRef = useRef(interimTranscript)
+  useEffect(() => {
+    interimRef.current = interimTranscript
+  }, [interimTranscript])
+
   // Handle stopping speech and sending to terminal
   const handleMicClick = useCallback(() => {
     if (isListening) {
       stopListening()
-      const textToSend = transcriptRef.current.trim()
+      // Combine finalized transcript with any interim text that hasn't been finalized yet
+      const finalText = transcriptRef.current.trim()
+      const interimText = interimRef.current.trim()
+      const textToSend = (finalText + " " + interimText).trim()
+
+      console.log("[Mic] Sending:", { finalText, interimText, textToSend })
+
       if (textToSend && sessionIdRef.current) {
         sendInput(textToSend + "\n")
         if (xtermRef.current) {
-          xtermRef.current.write(`\x1b[90m→ Sent to Claude\x1b[0m\r\n`)
+          xtermRef.current.write(`\x1b[90m→ Sent: "${textToSend}"\x1b[0m\r\n`)
+        }
+      } else if (!textToSend) {
+        if (xtermRef.current) {
+          xtermRef.current.write(`\x1b[90m→ No text to send\x1b[0m\r\n`)
         }
       }
       resetTranscript()

@@ -10,8 +10,9 @@ import { execSync } from "child_process"
 // TMUX SESSION PERSISTENCE CONFIGURATION
 // ============================================
 export const TMUX_SESSION_PREFIX = process.env.CLAUDE_CODE_TMUX_PREFIX || "claude-code"
-// Default to false - tmux breaks mouse selection in browser terminals
-export const TMUX_ENABLED_DEFAULT = process.env.CLAUDE_CODE_USE_TMUX === "true"
+// Default to true for session persistence (survives browser disconnect/refresh)
+// Note: tmux may affect mouse selection, but persistence is more important
+export const TMUX_ENABLED_DEFAULT = process.env.CLAUDE_CODE_USE_TMUX !== "false"
 
 // Check if tmux is available on the system
 let tmuxAvailableCache: boolean | null = null
