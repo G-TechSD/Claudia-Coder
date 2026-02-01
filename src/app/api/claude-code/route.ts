@@ -86,6 +86,13 @@ interface ClaudeSession {
 
 const sessions = new Map<string, ClaudeSession>()
 
+// Replay buffered output to a new client
+function replayOutputBuffer(sessionId: string): string | null {
+  const session = sessions.get(sessionId)
+  if (!session || session.outputBuffer.length === 0) return null
+  return session.outputBuffer.join("")
+}
+
 // Paths to check for claude binary
 const CLAUDE_PATHS = [
   path.join(os.homedir(), ".local/bin/claude"),
@@ -212,18 +219,18 @@ setInterval(() => {
   for (const [id, session] of sessions.entries()) {
     const age = now.getTime() - session.startedAt.getTime()
 
-    // Don't auto-cleanup background sessions unless they're very old (24 hours)
+    // Don't auto-cleanup background sessions unless they're very old (7 days)
     if (session.isBackground) {
-      if (age > 24 * 60 * 60 * 1000) {
+      if (age > 7 * 24 * 60 * 60 * 1000) {
         console.log(`[claude-code] Auto-cleaning old background session: ${id}`)
         cleanupSession(id, true)
       }
       continue
     }
 
-    // Clean up non-background sessions older than 2 hours or stopped sessions older than 5 minutes
-    if (age > 2 * 60 * 60 * 1000 ||
-        (session.status === "stopped" && age > 5 * 60 * 1000)) {
+    // Clean up non-background sessions older than 24 hours or stopped sessions older than 30 minutes
+    if (age > 24 * 60 * 60 * 1000 ||
+        (session.status === "stopped" && age > 30 * 60 * 1000)) {
       console.log(`[claude-code] Auto-cleaning old session: ${id}`)
       cleanupSession(id, true)
     }
@@ -514,9 +521,9 @@ export async function POST(request: NextRequest) {
 
     // Handle PTY data (stdout + stderr combined)
     pty.onData((data: string) => {
-      // Store in buffer for late-joining clients (keep last 200 chunks)
+      // Store in buffer for late-joining clients (keep last 5000 chunks for resilience)
       session.outputBuffer.push(data)
-      if (session.outputBuffer.length > 200) {
+      if (session.outputBuffer.length > 5000) {
         session.outputBuffer.shift()
       }
 
@@ -727,10 +734,14 @@ export async function GET(request: NextRequest) {
         console.log(`[claude-code][${sessionId}] SSE cleanup complete (listeners after: ${session.emitter.listenerCount("message")})`)
       }
 
-      // Handle client disconnect
+      // Handle client disconnect - DON'T cleanup the session, just the SSE connection
+      // The session stays alive for reconnection (like Emergent Terminal)
       request.signal.addEventListener("abort", () => {
-        console.log(`[claude-code][${sessionId}] SSE abort signal received`)
-        cleanup()
+        console.log(`[claude-code][${sessionId}] SSE client disconnected - session stays alive for reconnection`)
+        // Only cleanup the SSE listener, not the session itself
+        isControllerClosed = true
+        clearInterval(keepaliveInterval)
+        session.emitter.removeListener("message", messageHandler)
       })
     },
 

@@ -17,7 +17,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Play, Square, AlertTriangle, Shield, RefreshCw, Loader2, Image, FolderOpen, ChevronDown, Mic, MicOff } from "lucide-react"
+import { Play, Square, AlertTriangle, Shield, RefreshCw, Loader2, Image, FolderOpen, Mic, MicOff } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
 import { getAllProjects, getEffectiveWorkingDirectory } from "@/lib/data/projects"
@@ -25,6 +25,7 @@ import type { Project } from "@/lib/data/types"
 
 // LocalStorage keys
 const STORAGE_KEY_RECENT_SESSIONS = "claude-code-recent-sessions"
+const STORAGE_KEY_ACTIVE_SESSION_PREFIX = "claude-code-active-session-"
 
 interface RecentSession {
   id: string
@@ -41,7 +42,7 @@ interface EmbeddedTerminalProps {
   workingDirectory?: string
   label?: string // Label for human-readable tmux session name
   className?: string
-  onStatusChange?: (status: "idle" | "connecting" | "connected" | "error" | "closed") => void
+  onStatusChange?: (status: "idle" | "connecting" | "connected" | "error" | "closed" | "reconnecting") => void
   onSessionStart?: (sessionId: string) => void
   onProjectChange?: (project: { projectId: string; projectName: string; workingDirectory: string }) => void
   // Tmux session created callback - for storing the session name for reconnection
@@ -75,7 +76,7 @@ export function EmbeddedTerminal({
   const isInitializedRef = useRef(false)
   const pasteHandlerRef = useRef<((e: ClipboardEvent) => void) | null>(null)
 
-  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error" | "closed">("idle")
+  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error" | "closed" | "reconnecting">("idle")
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
 
@@ -170,10 +171,37 @@ export function EmbeddedTerminal({
   }, [selectedProjectId])
 
   // Update status and notify parent
-  const updateStatus = useCallback((newStatus: "idle" | "connecting" | "connected" | "error" | "closed") => {
+  const updateStatus = useCallback((newStatus: "idle" | "connecting" | "connected" | "error" | "closed" | "reconnecting") => {
     setStatus(newStatus)
     onStatusChange?.(newStatus)
   }, [onStatusChange])
+
+  // Helper functions for active session storage
+  const getActiveSessionKey = useCallback(() => {
+    const effectiveProjectId = selectedProjectId || "quick-session"
+    return `${STORAGE_KEY_ACTIVE_SESSION_PREFIX}${effectiveProjectId}`
+  }, [selectedProjectId])
+
+  const saveActiveSession = useCallback((sid: string) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(getActiveSessionKey(), sid)
+      console.log(`[EmbeddedTerminal] Saved active session: ${sid}`)
+    }
+  }, [getActiveSessionKey])
+
+  const clearActiveSession = useCallback(() => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(getActiveSessionKey())
+      console.log(`[EmbeddedTerminal] Cleared active session`)
+    }
+  }, [getActiveSessionKey])
+
+  const getStoredActiveSession = useCallback((): string | null => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(getActiveSessionKey())
+    }
+    return null
+  }, [getActiveSessionKey])
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -392,6 +420,7 @@ export function EmbeddedTerminal({
       const newSessionId = data.sessionId
       setSessionId(newSessionId)
       saveSession(newSessionId)
+      saveActiveSession(newSessionId) // Store for auto-reconnect
       onSessionStart?.(newSessionId)
 
       // Handle tmux session info - store for reconnection
@@ -440,6 +469,7 @@ export function EmbeddedTerminal({
           } else if (message.type === "exit") {
             term.write(`\r\n\x1b[1;33m● Session ended (code: ${message.code})\x1b[0m\r\n`)
             updateStatus("closed")
+            clearActiveSession() // Clear stored session on natural exit
             eventSource.close()
             eventSourceRef.current = null
           } else if (message.type === "error") {
@@ -468,7 +498,7 @@ export function EmbeddedTerminal({
       updateStatus("error")
       term.write(`\x1b[1;31m● Error: ${message}\x1b[0m\r\n`)
     }
-  }, [selectedProjectId, currentWorkingDirectory, bypassPermissions, continueSession, resumeSessionId, recentSessions, sendResize, updateStatus, onSessionStart, saveSession, status])
+  }, [selectedProjectId, currentWorkingDirectory, bypassPermissions, continueSession, resumeSessionId, recentSessions, sendResize, updateStatus, onSessionStart, saveSession, saveActiveSession, clearActiveSession, status])
 
   // Stop session
   const stopSession = useCallback(async () => {
@@ -488,13 +518,113 @@ export function EmbeddedTerminal({
       }
     }
 
+    // Clear active session on explicit stop
+    clearActiveSession()
+
     updateStatus("closed")
     setSessionId(null)
 
     if (xtermRef.current) {
       xtermRef.current.write("\r\n\x1b[1;33m● Session stopped\x1b[0m\r\n")
     }
-  }, [updateStatus])
+  }, [updateStatus, clearActiveSession])
+
+  // Reconnect to an existing session
+  const reconnectToSession = useCallback(async (storedSessionId: string) => {
+    if (!xtermRef.current) return false
+
+    updateStatus("reconnecting")
+
+    const term = xtermRef.current
+    term.clear()
+    term.write("\x1b[1;36m● Reconnecting to existing session...\x1b[0m\r\n")
+    term.write(`\x1b[90m  Session ID: ${storedSessionId.slice(0, 20)}...\x1b[0m\r\n`)
+
+    try {
+      // Try to reconnect via SSE - the API will check if session exists
+      const eventSource = new EventSource(`/api/claude-code?sessionId=${storedSessionId}`)
+
+      // Set up a timeout for reconnection
+      const reconnectTimeout = setTimeout(() => {
+        eventSource.close()
+        term.write("\r\n\x1b[1;33m● Reconnection timed out\x1b[0m\r\n")
+        clearActiveSession()
+        updateStatus("idle")
+        term.write("\x1b[90m  Click 'Start' to begin a new session\x1b[0m\r\n")
+      }, 5000) // 5 second timeout
+
+      eventSource.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data)
+
+          if (message.type === "error" && message.content?.includes("not found")) {
+            // Session doesn't exist anymore
+            clearTimeout(reconnectTimeout)
+            eventSource.close()
+            term.write("\r\n\x1b[1;33m● Session no longer exists\x1b[0m\r\n")
+            clearActiveSession()
+            updateStatus("idle")
+            term.write("\x1b[90m  Click 'Start' to begin a new session\x1b[0m\r\n")
+            return
+          }
+
+          if (message.type === "output") {
+            clearTimeout(reconnectTimeout)
+            term.write(message.content)
+            if (status !== "connected") {
+              updateStatus("connected")
+              setSessionId(storedSessionId)
+              eventSourceRef.current = eventSource
+              term.write("\r\n\x1b[1;32m● Reconnected to existing session\x1b[0m\r\n")
+            }
+          } else if (message.type === "status") {
+            clearTimeout(reconnectTimeout)
+            if (message.status === "running") {
+              updateStatus("connected")
+              setSessionId(storedSessionId)
+              eventSourceRef.current = eventSource
+              term.write("\r\n\x1b[1;32m● Reconnected to existing session\x1b[0m\r\n")
+            }
+          } else if (message.type === "exit") {
+            clearTimeout(reconnectTimeout)
+            term.write(`\r\n\x1b[1;33m● Session ended (code: ${message.code})\x1b[0m\r\n`)
+            updateStatus("closed")
+            clearActiveSession()
+            eventSource.close()
+            eventSourceRef.current = null
+          } else if (message.type === "error") {
+            term.write(`\x1b[1;31m${message.content}\x1b[0m`)
+          }
+        } catch (e) {
+          console.error("Failed to parse SSE message:", e)
+        }
+      }
+
+      eventSource.onerror = () => {
+        if (eventSource.readyState === EventSource.CLOSED) {
+          clearTimeout(reconnectTimeout)
+          console.log("[EmbeddedTerminal] SSE connection closed during reconnect")
+          term.write("\r\n\x1b[1;33m● Could not reconnect\x1b[0m\r\n")
+          clearActiveSession()
+          updateStatus("idle")
+          term.write("\x1b[90m  Click 'Start' to begin a new session\x1b[0m\r\n")
+        }
+      }
+
+      // Send initial resize
+      if (fitAddonRef.current) {
+        fitAddonRef.current.fit()
+        sendResize(term.cols, term.rows)
+      }
+
+      return true
+    } catch (err) {
+      console.error("[EmbeddedTerminal] Reconnection failed:", err)
+      clearActiveSession()
+      updateStatus("idle")
+      return false
+    }
+  }, [clearActiveSession, sendResize, updateStatus, status])
 
   // Initialize xterm.js
   useEffect(() => {
@@ -611,14 +741,23 @@ export function EmbeddedTerminal({
           resizeObserver.observe(terminalRef.current)
         }
 
-        // Show ready message
-        term.write("\x1b[1;36m● Ready to start Claude Code session\x1b[0m\r\n")
-        if (currentWorkingDirectory) {
-          term.write(`\x1b[90m  Project: ${currentProjectName}\x1b[0m\r\n`)
-          term.write(`\x1b[90m  Directory: ${currentWorkingDirectory}\x1b[0m\r\n`)
-          term.write("\x1b[90m  Click 'Start' to begin\x1b[0m\r\n")
+        // Check for existing active session to reconnect
+        const storedSessionId = getStoredActiveSession()
+        if (storedSessionId && currentWorkingDirectory) {
+          term.write("\x1b[1;36m● Found existing session, attempting reconnect...\x1b[0m\r\n")
+          setTimeout(() => {
+            reconnectToSession(storedSessionId)
+          }, 500)
         } else {
-          term.write("\x1b[90m  Select a project above to get started\x1b[0m\r\n")
+          // Show ready message
+          term.write("\x1b[1;36m● Ready to start Claude Code session\x1b[0m\r\n")
+          if (currentWorkingDirectory) {
+            term.write(`\x1b[90m  Project: ${currentProjectName}\x1b[0m\r\n`)
+            term.write(`\x1b[90m  Directory: ${currentWorkingDirectory}\x1b[0m\r\n`)
+            term.write("\x1b[90m  Click 'Start' to begin\x1b[0m\r\n")
+          } else {
+            term.write("\x1b[90m  Select a project above to get started\x1b[0m\r\n")
+          }
         }
 
       } catch (err) {
@@ -655,7 +794,7 @@ export function EmbeddedTerminal({
     }
   }, [handleImagePaste]) // Include handleImagePaste in deps
 
-  const isRunning = status === "connecting" || status === "connected"
+  const isRunning = status === "connecting" || status === "connected" || status === "reconnecting"
 
   return (
     <div className={cn("flex flex-col bg-[#0d1117] rounded-lg overflow-hidden", className)}>
@@ -836,10 +975,12 @@ export function EmbeddedTerminal({
         {/* Status indicator */}
         <div className="ml-auto flex items-center gap-1.5">
           {status === "connecting" && <Loader2 className="h-3 w-3 animate-spin text-yellow-400" />}
+          {status === "reconnecting" && <RefreshCw className="h-3 w-3 animate-spin text-blue-400" />}
           <div className={cn(
             "h-2 w-2 rounded-full",
             status === "connected" && "bg-green-400",
             status === "connecting" && "bg-yellow-400 animate-pulse",
+            status === "reconnecting" && "bg-blue-400 animate-pulse",
             status === "error" && "bg-red-400",
             (status === "idle" || status === "closed") && "bg-gray-400"
           )} />

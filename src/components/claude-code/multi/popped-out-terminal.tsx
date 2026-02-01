@@ -21,6 +21,7 @@ interface PoppedOutTerminalProps {
 const statusColors = {
   idle: "bg-gray-400",
   connecting: "bg-yellow-400 animate-pulse",
+  reconnecting: "bg-blue-400 animate-pulse",
   connected: "bg-green-400",
   error: "bg-red-400",
   closed: "bg-gray-400",
@@ -29,6 +30,7 @@ const statusColors = {
 const statusLabels = {
   idle: "Idle",
   connecting: "Connecting",
+  reconnecting: "Reconnecting",
   connected: "Connected",
   error: "Error",
   closed: "Closed",

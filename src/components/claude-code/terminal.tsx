@@ -26,6 +26,7 @@ const STORAGE_KEY_BYPASS_PERMISSIONS = "claude-code-bypass-permissions"
 const STORAGE_KEY_MINI_ME_MODE = "claude-code-mini-me-mode"
 const STORAGE_KEY_MINI_ME_LAYOUT = "claude-code-mini-me-layout"
 const STORAGE_KEY_MINI_ME_PANEL_SIZE = "claude-code-mini-me-panel-size"
+const STORAGE_KEY_ACTIVE_SESSION_PREFIX = "claude-code-active-session-"
 
 // Mini-Me panel layout types
 type MiniMePanelLayout = "side" | "bottom" | "floating"
@@ -164,7 +165,7 @@ export function ClaudeCodeTerminal({
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<any>(null)
   const fitAddonRef = useRef<any>(null)
-  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error" | "closed">("idle")
+  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error" | "closed" | "reconnecting">("idle")
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [kickoffStatus, setKickoffStatus] = useState<"idle" | "generating" | "ready" | "error">("idle")
@@ -202,6 +203,32 @@ export function ClaudeCodeTerminal({
     sessionIdRef.current = sessionId
     console.log(`[Terminal] sessionId updated: ${sessionId}`)
   }, [sessionId])
+
+  // Helper functions for active session storage
+  const getActiveSessionKey = useCallback(() => {
+    return `${STORAGE_KEY_ACTIVE_SESSION_PREFIX}${projectId}`
+  }, [projectId])
+
+  const saveActiveSession = useCallback((sid: string) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(getActiveSessionKey(), sid)
+      console.log(`[Terminal] Saved active session: ${sid}`)
+    }
+  }, [getActiveSessionKey])
+
+  const clearActiveSession = useCallback(() => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(getActiveSessionKey())
+      console.log(`[Terminal] Cleared active session for project: ${projectId}`)
+    }
+  }, [getActiveSessionKey, projectId])
+
+  const getStoredActiveSession = useCallback((): string | null => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(getActiveSessionKey())
+    }
+    return null
+  }, [getActiveSessionKey])
 
   // Load persistent settings from localStorage
   useEffect(() => {
@@ -587,6 +614,9 @@ export function ClaudeCodeTerminal({
       }
     }
 
+    // Clear active session on explicit stop
+    clearActiveSession()
+
     // Clear background session tracking
     if (typeof window !== "undefined") {
       try {
@@ -610,7 +640,7 @@ export function ClaudeCodeTerminal({
     if (xtermRef.current) {
       xtermRef.current.write("\r\n\x1b[1;33m● Session stopped\x1b[0m\r\n")
     }
-  }, [onSessionEnd, projectId]) // Added projectId for background session cleanup
+  }, [onSessionEnd, projectId, clearActiveSession]) // Added projectId for background session cleanup
 
   // Clear background session tracking when session ends
   const clearBackgroundSession = useCallback(() => {
@@ -839,6 +869,7 @@ export function ClaudeCodeTerminal({
 
       const newSessionId = data.sessionId
       setSessionId(newSessionId)
+      saveActiveSession(newSessionId) // Store for auto-reconnect
 
       // Handle tmux session info
       if (data.tmux?.sessionName && onTmuxSessionCreated) {
@@ -900,6 +931,7 @@ export function ClaudeCodeTerminal({
           } else if (message.type === "exit") {
             term.write(`\r\n\x1b[1;33m● Session ended (code: ${message.code})\x1b[0m\r\n`)
             setStatus("closed")
+            clearActiveSession() // Clear stored session on natural exit
             setActiveSubAgents(0) // Reset sub-agent count on session end
             // Don't clear miniMeAgents - keep history visible
             onSessionEnd?.()
@@ -937,7 +969,112 @@ export function ClaudeCodeTerminal({
       setStatus("error")
       term.write(`\x1b[1;31m● Error: ${message}\x1b[0m\r\n`)
     }
-  }, [projectId, workingDirectory, bypassPermissions, bypassPermissionsLocal, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt, continueSession, neverLoseSession, resumeSessionId, recentSessions, parseTerminalOutputForMiniMe, reconnectToTmux, onTmuxSessionCreated])
+  }, [projectId, workingDirectory, bypassPermissions, bypassPermissionsLocal, sendResize, onSessionEnd, status, refreshKickoff, sendInitialPrompt, continueSession, neverLoseSession, resumeSessionId, recentSessions, parseTerminalOutputForMiniMe, reconnectToTmux, onTmuxSessionCreated, saveActiveSession, clearActiveSession, user?.id, user?.role])
+
+  // Reconnect to an existing session
+  const reconnectToSession = useCallback(async (storedSessionId: string) => {
+    if (!xtermRef.current) return false
+
+    setStatus("reconnecting")
+    setError(null)
+
+    const term = xtermRef.current
+    term.clear()
+    term.write("\x1b[1;36m● Reconnecting to existing session...\x1b[0m\r\n")
+    term.write(`\x1b[90m  Session ID: ${storedSessionId.slice(0, 20)}...\x1b[0m\r\n`)
+
+    try {
+      // Try to reconnect via SSE - the API will check if session exists
+      const eventSource = new EventSource(`/api/claude-code?sessionId=${storedSessionId}`)
+
+      // Set up a timeout for reconnection
+      const reconnectTimeout = setTimeout(() => {
+        eventSource.close()
+        term.write("\r\n\x1b[1;33m● Reconnection timed out, starting fresh session...\x1b[0m\r\n")
+        clearActiveSession()
+        setStatus("idle")
+        // Auto-start a new session
+        setTimeout(() => startSession(), 500)
+      }, 5000) // 5 second timeout
+
+      eventSource.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data)
+
+          if (message.type === "error" && message.content?.includes("not found")) {
+            // Session doesn't exist anymore
+            clearTimeout(reconnectTimeout)
+            eventSource.close()
+            term.write("\r\n\x1b[1;33m● Session no longer exists, starting fresh...\x1b[0m\r\n")
+            clearActiveSession()
+            setStatus("idle")
+            // Auto-start a new session
+            setTimeout(() => startSession(), 500)
+            return
+          }
+
+          if (message.type === "output") {
+            clearTimeout(reconnectTimeout)
+            term.write(message.content)
+            if (status !== "connected") {
+              setStatus("connected")
+              setSessionId(storedSessionId)
+              eventSourceRef.current = eventSource
+              term.write("\r\n\x1b[1;32m● Reconnected to existing session\x1b[0m\r\n")
+            }
+            // Parse terminal output for Mini-Me agent detection when enabled
+            parseTerminalOutputForMiniMe(message.content as string)
+          } else if (message.type === "status") {
+            clearTimeout(reconnectTimeout)
+            if (message.status === "running") {
+              setStatus("connected")
+              setSessionId(storedSessionId)
+              eventSourceRef.current = eventSource
+              term.write("\r\n\x1b[1;32m● Reconnected to existing session\x1b[0m\r\n")
+            }
+          } else if (message.type === "exit") {
+            clearTimeout(reconnectTimeout)
+            term.write(`\r\n\x1b[1;33m● Session ended (code: ${message.code})\x1b[0m\r\n`)
+            setStatus("closed")
+            clearActiveSession()
+            setActiveSubAgents(0)
+            onSessionEnd?.()
+            eventSource.close()
+            eventSourceRef.current = null
+          } else if (message.type === "error") {
+            term.write(`\x1b[1;31m${message.content}\x1b[0m`)
+          }
+        } catch (e) {
+          console.error("Failed to parse SSE message:", e)
+        }
+      }
+
+      eventSource.onerror = () => {
+        if (eventSource.readyState === EventSource.CLOSED) {
+          clearTimeout(reconnectTimeout)
+          console.log("[Terminal] SSE connection closed during reconnect")
+          term.write("\r\n\x1b[1;33m● Could not reconnect, starting fresh session...\x1b[0m\r\n")
+          clearActiveSession()
+          setStatus("idle")
+          // Auto-start a new session
+          setTimeout(() => startSession(), 500)
+        }
+      }
+
+      // Send initial resize
+      if (fitAddonRef.current) {
+        fitAddonRef.current.fit()
+        sendResize(term.cols, term.rows)
+      }
+
+      return true
+    } catch (err) {
+      console.error("[Terminal] Reconnection failed:", err)
+      clearActiveSession()
+      setStatus("idle")
+      return false
+    }
+  }, [clearActiveSession, sendResize, onSessionEnd, status, parseTerminalOutputForMiniMe, startSession])
 
   // Initialize xterm.js
   useEffect(() => {
@@ -1020,13 +1157,22 @@ export function ClaudeCodeTerminal({
           resizeObserver.observe(terminalRef.current)
         }
 
-        // Auto-start session
+        // Auto-start or reconnect session
         term.write("\x1b[1;36m● Initializing Claude Code terminal...\x1b[0m\r\n")
 
-        // Start session after a brief delay
-        setTimeout(() => {
-          startSession()
-        }, 500)
+        // Check for existing active session to reconnect
+        const storedSessionId = getStoredActiveSession()
+        if (storedSessionId) {
+          term.write(`\x1b[90m  Found existing session, attempting reconnect...\x1b[0m\r\n`)
+          setTimeout(() => {
+            reconnectToSession(storedSessionId)
+          }, 500)
+        } else {
+          // Start a fresh session after a brief delay
+          setTimeout(() => {
+            startSession()
+          }, 500)
+        }
 
       } catch (err) {
         console.error("Failed to initialize terminal:", err)
@@ -1075,12 +1221,14 @@ export function ClaudeCodeTerminal({
           <div className={cn(
             "flex items-center gap-1.5 px-2 py-0.5 rounded text-xs",
             status === "connecting" && "text-yellow-400",
+            status === "reconnecting" && "text-blue-400",
             status === "connected" && "text-green-400",
             status === "error" && "text-red-400",
             status === "closed" && "text-gray-400",
             status === "idle" && "text-gray-400"
           )}>
             {status === "connecting" && <Loader2 className="h-3 w-3 animate-spin" />}
+            {status === "reconnecting" && <RefreshCw className="h-3 w-3 animate-spin" />}
             {status === "connected" && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
             {status === "error" && <span className="w-2 h-2 rounded-full bg-red-400" />}
             {status === "closed" && <span className="w-2 h-2 rounded-full bg-gray-400" />}

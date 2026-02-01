@@ -3,7 +3,7 @@
  * Supports up to 16 concurrent Claude Code terminal sessions
  */
 
-export type TerminalStatus = 'idle' | 'connecting' | 'connected' | 'error' | 'closed'
+export type TerminalStatus = 'idle' | 'connecting' | 'connected' | 'error' | 'closed' | 'reconnecting'
 
 export interface MultiTerminalSession {
   id: string
