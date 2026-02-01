@@ -104,6 +104,15 @@ const PROJECT_TYPES = {
     icon: "react",
     supportsHttps: true // CRA supports HTTPS=true env var
   },
+  vite: {
+    name: "Vite",
+    runCommand: "npm run dev -- --host 0.0.0.0 --port 3001",
+    devCommand: "npm run dev -- --host 0.0.0.0 --port 3001",
+    buildCommand: "npm run build",
+    defaultPort: 3001,
+    icon: "react", // Vite commonly used with React
+    supportsHttps: true
+  },
   vue: {
     name: "Vue",
     runCommand: "npm run dev -- --host 0.0.0.0",

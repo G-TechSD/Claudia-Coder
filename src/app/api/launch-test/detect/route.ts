@@ -80,14 +80,21 @@ const PROJECT_TYPES: Record<string, ProjectTypeConfig> = {
   },
   vue: {
     name: "Vue",
-    identifyingFiles: ["vue.config.js", "vite.config.ts"],
+    identifyingFiles: ["vue.config.js"],
     packageJsonDeps: ["vue"],
     fallbackFiles: ["src/App.vue"]
+  },
+  // Vite-based React/Vue/Svelte - check BEFORE generic react
+  vite: {
+    name: "Vite",
+    identifyingFiles: ["vite.config.js", "vite.config.ts", "vite.config.mjs"],
+    packageJsonDeps: ["vite"], // Usually in devDependencies
+    fallbackFiles: []
   },
   react: {
     name: "React",
     identifyingFiles: [],
-    packageJsonDeps: ["react"], // Checked AFTER nextjs
+    packageJsonDeps: ["react-scripts"], // CRA uses react-scripts, not just react
     fallbackFiles: ["src/App.tsx", "src/App.jsx", "src/App.js"]
   },
 
