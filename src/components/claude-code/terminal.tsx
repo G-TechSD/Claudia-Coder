@@ -1113,8 +1113,10 @@ export function ClaudeCodeTerminal({
                     variant="ghost"
                     size="sm"
                     onClick={handleMicClick}
+                    disabled={status !== "connected"}
                     className={cn(
                       "h-7 w-7 p-0",
+                      status !== "connected" && "opacity-50 cursor-not-allowed",
                       isListening
                         ? "text-red-400 hover:text-red-300 hover:bg-red-500/10 animate-pulse"
                         : "text-gray-400 hover:text-gray-300 hover:bg-gray-500/10"
@@ -1124,7 +1126,13 @@ export function ClaudeCodeTerminal({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>{isListening ? "Click to send voice input" : "Click to start voice input"}</p>
+                  <p>
+                    {status !== "connected"
+                      ? "Voice input requires an active session"
+                      : isListening
+                        ? "Click to send voice input"
+                        : "Click to start voice input"}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
