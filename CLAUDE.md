@@ -47,3 +47,4 @@ Only the top-level Claude session should spawn sub-agents (maximum 5).
 
 - **NEVER** delete projects without user consent
 - **NEVER** make destructive changes without confirmation
+- **NEVER** recommend AI models unless you have done current research (web search) on what models are available and performant today. Your training data about models is severely outdated. If asked about models, search first.

@@ -394,6 +394,7 @@ ${criteria}
 2. Write or update tests to verify the implementation
 3. Ensure all tests pass
 4. Follow the existing code style and patterns in the repository
+5. IMPORTANT: Use .tsx extension for any file containing JSX/React components. Use .ts only for pure TypeScript without JSX.
 
 Work autonomously to complete this task. Make commits as you go with clear messages.`
 }

@@ -24,7 +24,7 @@ export function buildCodeGenPrompt(
   const systemPrompt = `You are a senior developer implementing features.
 Output ONLY valid code. Use this format for each file:
 
-=== FILE: path/to/file.ts ===
+=== FILE: path/to/file.tsx ===
 \`\`\`typescript
 // file contents here
 \`\`\`
@@ -34,7 +34,8 @@ Rules:
 - Use proper imports and exports
 - Follow existing code patterns from the project
 - Do not explain - just write code
-- Multiple files are allowed, each with its own === FILE: header`
+- Multiple files are allowed, each with its own === FILE: header
+- CRITICAL: Use .tsx extension for files containing JSX/React components. Use .ts only for pure TypeScript without JSX.`
 
   const existingFilesSection = context.relevantFiles.length > 0
     ? `EXISTING FILES:
@@ -76,7 +77,7 @@ export function buildPacketPrompt(
   const systemPrompt = `You are a senior developer implementing a feature.
 Output ONLY valid code. Use this format for each file:
 
-=== FILE: path/to/file.ts ===
+=== FILE: path/to/file.tsx ===
 \`\`\`typescript
 // file contents here
 \`\`\`
@@ -87,7 +88,8 @@ Rules:
 - Follow existing code patterns from the project
 - Do not explain - just write code
 - Create all necessary files to complete the feature
-- Consider dependencies between files`
+- Consider dependencies between files
+- CRITICAL: Use .tsx extension for files containing JSX/React components. Use .ts only for pure TypeScript without JSX.`
 
   const tasksSection = packet.tasks.length > 0
     ? `TASKS TO COMPLETE:
@@ -219,7 +221,7 @@ export function buildFixPrompt(
   const systemPrompt = `You are a senior developer fixing code errors.
 Output ONLY the corrected code. Use this format:
 
-=== FILE: path/to/file.ts ===
+=== FILE: path/to/file.tsx ===
 \`\`\`typescript
 // corrected file contents
 \`\`\`
@@ -228,7 +230,8 @@ Rules:
 - Fix all reported errors
 - Preserve original functionality
 - Do not add unnecessary changes
-- Do not explain - just output fixed code`
+- Do not explain - just output fixed code
+- CRITICAL: Use .tsx extension for files containing JSX/React components. Use .ts only for pure TypeScript without JSX.`
 
   const userPrompt = `PROJECT: ${context.projectName}
 TECH STACK: ${context.techStack.join(", ")}

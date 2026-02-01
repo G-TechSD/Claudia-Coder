@@ -92,8 +92,30 @@ export function StartBuildHero({
   // Show when: build plan exists + packets queued + not currently executing
   const shouldShow = hasBuildPlan && buildPlanApproved && readyPackets.length > 0 && !isExecuting
 
+  // Show helpful message when conditions aren't met
   if (!shouldShow) {
-    return null
+    // Don't show anything if we're executing
+    if (isExecuting) return null
+
+    // Show what's missing
+    const missing: string[] = []
+    if (!hasBuildPlan) missing.push("create a build plan")
+    if (hasBuildPlan && !buildPlanApproved) missing.push("approve the build plan")
+    if (readyPackets.length === 0 && hasBuildPlan) missing.push("queue some packets")
+
+    if (missing.length === 0) return null
+
+    return (
+      <div className={cn(
+        "p-4 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20",
+        className
+      )}>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium">To start building:</span>{" "}
+          {missing.join(", then ")}
+        </p>
+      </div>
+    )
   }
 
   return (
