@@ -107,6 +107,11 @@ import { fileURLToPath } from "url"
 
 // Get the directory of this file and calculate repo root
 const getRepoRoot = (): string => {
+  // Check for environment variable first (for containerized/remote deployments)
+  if (process.env.CLAUDIA_ROOT) {
+    return process.env.CLAUDIA_ROOT
+  }
+
   // In server context, we can use __dirname or calculate from this file
   // This file is at: <repo>/src/lib/emergent-modules/types.ts
   // We need to go up 3 directories to get to <repo>
@@ -116,14 +121,8 @@ const getRepoRoot = (): string => {
     const __dirname = path.dirname(__filename)
     return path.resolve(__dirname, "..", "..", "..")
   } catch {
-    // Fallback to process.cwd() with validation
-    const cwd = process.cwd()
-    // Check if cwd looks like a valid claudia-admin path
-    if (cwd.includes("claudia-admin") || cwd.includes("claudia-coder")) {
-      return cwd
-    }
-    // If we're in a weird state, use the known path
-    return "/home/bill/projects/claudia-admin"
+    // Fallback to process.cwd() - works when running from repo root
+    return process.cwd()
   }
 }
 
