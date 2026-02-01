@@ -10,23 +10,28 @@ const nextConfig: NextConfig = {
   turbopack: {},
 
   // Webpack configuration for when running with --webpack flag
-  // Ignores claudia-projects folder from hot reload during development
-  // This prevents page refreshes when builds modify files in project directories
+  // Ignores folders from hot reload during development
+  // This prevents page refreshes when files are modified in these directories
   webpack: (config, { dev }) => {
     if (dev) {
       config.watchOptions = {
         ...config.watchOptions,
         ignored: [
           '**/node_modules/**',
-          '**/claudia-projects/**',
-          '/home/**/claudia-projects/**',
           '**/.git/**',
-          '**/~/**',
-          '**/~/claudia-projects/**',
+          '**/.next/**',
+          '**/claudia-projects/**',
           '**/.local-storage/**',
-          '**/auth.db',
-          '**/auth.db-journal',
+          '**/*.db',
+          '**/*.db-wal',
+          '**/*.db-shm',
+          '**/*.db-journal',
+          '**/*.log',
+          '**/test-screenshots/**',
+          '**/e2e/**',
         ],
+        aggregateTimeout: 500,
+        poll: false,
       };
     }
     return config;
@@ -47,7 +52,7 @@ const nextConfig: NextConfig = {
   // Allow requests from these dev origins
   allowedDevOrigins: [
     // Internal dev hostname only in development
-    ...(process.env.NODE_ENV === "development" ? ["bill-dev-linux-1"] : []),
+    ...(process.env.NODE_ENV === "development" ? ["bill-dev-linux-1", "bill-dev-linux-1.taile9fbc2.ts.net"] : []),
     "preview.claudiacoder.com",
     "preview.claudiacode.com",
   ],
