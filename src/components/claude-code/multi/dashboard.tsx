@@ -85,11 +85,11 @@ export function MultiTerminalDashboard() {
     return localStorage.getItem("claude-code-bypass-permissions-default") === "true"
   })
 
-  // Tmux persistence setting (default: true)
+  // Tmux persistence setting (default: false - breaks mouse selection)
   const [useTmuxDefault, setUseTmuxDefault] = useState(() => {
-    if (typeof window === "undefined") return true
+    if (typeof window === "undefined") return false
     const stored = localStorage.getItem("claude-code-use-tmux-default")
-    return stored === null ? true : stored === "true"
+    return stored === null ? false : stored === "true"
   })
 
   // Tmux session management
