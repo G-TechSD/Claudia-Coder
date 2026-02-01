@@ -1864,6 +1864,97 @@ function parseFileOperations(response: string): FileOperation[] {
 }
 
 /**
+ * Detect source files in a project to determine if package.json is needed
+ */
+async function detectSourceFiles(repoPath: string): Promise<{ hasTypeScript: boolean; hasReact: boolean; hasVite: boolean }> {
+  const result = { hasTypeScript: false, hasReact: false, hasVite: false }
+
+  try {
+    // Check for TypeScript files
+    const { stdout: tsFiles } = await execAsync("find . -name '*.ts' -o -name '*.tsx' | head -5", {
+      cwd: repoPath,
+      timeout: 5000
+    }).catch(() => ({ stdout: "" }))
+    result.hasTypeScript = tsFiles.trim().length > 0
+    result.hasReact = tsFiles.includes(".tsx")
+
+    // Check for vite.config
+    try {
+      await fs.access(path.join(repoPath, "vite.config.ts"))
+      result.hasVite = true
+    } catch {
+      try {
+        await fs.access(path.join(repoPath, "vite.config.js"))
+        result.hasVite = true
+      } catch {
+        // No vite config
+      }
+    }
+  } catch {
+    // Ignore errors in detection
+  }
+
+  return result
+}
+
+/**
+ * Create a missing package.json for TypeScript/React projects
+ */
+async function createMissingPackageJson(
+  repoPath: string,
+  sourceInfo: { hasTypeScript: boolean; hasReact: boolean; hasVite: boolean }
+): Promise<{ success: boolean; error?: string }> {
+  const packageJson: Record<string, unknown> = {
+    name: path.basename(repoPath).toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+    version: "0.0.1",
+    private: true,
+    type: "module",
+    scripts: {
+      dev: sourceInfo.hasVite ? "vite" : "tsc --watch",
+      build: sourceInfo.hasVite ? "tsc && vite build" : "tsc",
+      lint: "eslint .",
+      test: "vitest"
+    },
+    dependencies: {} as Record<string, string>,
+    devDependencies: {} as Record<string, string>
+  }
+
+  // Add React dependencies if needed
+  if (sourceInfo.hasReact) {
+    (packageJson.dependencies as Record<string, string>)["react"] = "^18.3.1";
+    (packageJson.dependencies as Record<string, string>)["react-dom"] = "^18.3.1";
+    (packageJson.devDependencies as Record<string, string>)["@types/react"] = "^18.3.18";
+    (packageJson.devDependencies as Record<string, string>)["@types/react-dom"] = "^18.3.5"
+  }
+
+  // Add TypeScript dependencies
+  if (sourceInfo.hasTypeScript) {
+    (packageJson.devDependencies as Record<string, string>)["typescript"] = "~5.6.2";
+    (packageJson.devDependencies as Record<string, string>)["@types/node"] = "^22.10.0"
+  }
+
+  // Add Vite dependencies if needed
+  if (sourceInfo.hasVite) {
+    (packageJson.devDependencies as Record<string, string>)["vite"] = "^6.0.5";
+    (packageJson.devDependencies as Record<string, string>)["@vitejs/plugin-react"] = "^4.3.4";
+    (packageJson.devDependencies as Record<string, string>)["vitest"] = "^2.1.8";
+    (packageJson.devDependencies as Record<string, string>)["@testing-library/react"] = "^16.1.0";
+    (packageJson.devDependencies as Record<string, string>)["@testing-library/jest-dom"] = "^6.6.3"
+  }
+
+  try {
+    await fs.writeFile(
+      path.join(repoPath, "package.json"),
+      JSON.stringify(packageJson, null, 2),
+      "utf-8"
+    )
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" }
+  }
+}
+
+/**
  * Install dependencies if package.json was created or modified
  * This ensures node_modules exists before TypeScript compilation
  */
@@ -1895,8 +1986,19 @@ async function installDependenciesIfNeeded(
         emit("thinking", "node_modules missing, installing dependencies...", "Required for TypeScript compilation")
       }
     } catch {
-      // No package.json, not a Node.js project
-      return { success: true, output: "No package.json found - skipping dependency installation" }
+      // No package.json exists - check if this is a JS/TS project that needs one
+      const srcFiles = await detectSourceFiles(repoPath)
+      if (srcFiles.hasTypeScript || srcFiles.hasReact) {
+        emit("thinking", "Source files detected but no package.json - creating one...", "Required for TypeScript/React projects")
+        const created = await createMissingPackageJson(repoPath, srcFiles)
+        if (!created.success) {
+          return { success: false, output: `Failed to create package.json: ${created.error}` }
+        }
+        emit("thinking", "Created package.json, installing dependencies...", "Running npm install")
+      } else {
+        // Not a Node.js project
+        return { success: true, output: "No package.json found - skipping dependency installation" }
+      }
     }
   } else {
     emit("thinking", "package.json changed, installing dependencies...", "Running npm install --legacy-peer-deps")

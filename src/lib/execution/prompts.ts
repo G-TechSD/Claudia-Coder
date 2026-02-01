@@ -35,7 +35,9 @@ Rules:
 - Follow existing code patterns from the project
 - Do not explain - just write code
 - Multiple files are allowed, each with its own === FILE: header
-- CRITICAL: Use .tsx extension for files containing JSX/React components. Use .ts only for pure TypeScript without JSX.`
+- CRITICAL: Use .tsx extension for files containing JSX/React components. Use .ts only for pure TypeScript without JSX.
+- CRITICAL: If you create or modify package.json, you MUST run \`npm install\` afterward. Include a === RUN: npm install === block.
+- CRITICAL: For project setup tasks, ensure dependencies are installed before writing code that uses them.`
 
   const existingFilesSection = context.relevantFiles.length > 0
     ? `EXISTING FILES:
@@ -89,7 +91,9 @@ Rules:
 - Do not explain - just write code
 - Create all necessary files to complete the feature
 - Consider dependencies between files
-- CRITICAL: Use .tsx extension for files containing JSX/React components. Use .ts only for pure TypeScript without JSX.`
+- CRITICAL: Use .tsx extension for files containing JSX/React components. Use .ts only for pure TypeScript without JSX.
+- CRITICAL: If you create or modify package.json, you MUST run \`npm install\` afterward. Include a === RUN: npm install === block.
+- CRITICAL: For project setup tasks, ensure dependencies are installed before writing code that uses them.`
 
   const tasksSection = packet.tasks.length > 0
     ? `TASKS TO COMPLETE:
