@@ -17,8 +17,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Play, Square, AlertTriangle, Shield, RefreshCw, Loader2, Image, FolderOpen, ChevronDown } from "lucide-react"
+import { Play, Square, AlertTriangle, Shield, RefreshCw, Loader2, Image, FolderOpen, ChevronDown, Mic, MicOff } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
 import { getAllProjects, getEffectiveWorkingDirectory } from "@/lib/data/projects"
 import type { Project } from "@/lib/data/types"
 
@@ -198,6 +199,50 @@ export function EmbeddedTerminal({
       console.error("[EmbeddedTerminal] Failed to send input:", err)
     }
   }, [updateStatus])
+
+  // Speech recognition for voice input
+  const {
+    isListening,
+    isSupported: isSpeechSupported,
+    transcript,
+    interimTranscript,
+    startListening,
+    stopListening,
+    resetTranscript
+  } = useSpeechRecognition({
+    continuous: true,
+    interimResults: true,
+    onResult: (text, isFinal) => {
+      if (isFinal && text.trim()) {
+        // Show in terminal what was transcribed
+        if (xtermRef.current) {
+          xtermRef.current.write(`\r\n\x1b[1;35m🎤 Voice: ${text}\x1b[0m\r\n`)
+        }
+      }
+    }
+  })
+
+  // Handle stopping speech and sending to terminal
+  const handleMicClick = useCallback(() => {
+    if (isListening) {
+      stopListening()
+      // Send accumulated transcript to the terminal
+      const textToSend = transcript.trim()
+      if (textToSend && sessionIdRef.current) {
+        sendInput(textToSend + "\n")
+        if (xtermRef.current) {
+          xtermRef.current.write(`\x1b[90m→ Sent to Claude\x1b[0m\r\n`)
+        }
+      }
+      resetTranscript()
+    } else {
+      resetTranscript()
+      startListening()
+      if (xtermRef.current) {
+        xtermRef.current.write(`\r\n\x1b[1;35m🎤 Listening... (click mic again to send)\x1b[0m\r\n`)
+      }
+    }
+  }, [isListening, transcript, startListening, stopListening, resetTranscript, sendInput])
 
   // Resize the terminal
   const sendResize = useCallback(async (cols: number, rows: number) => {
@@ -737,6 +782,41 @@ export function EmbeddedTerminal({
             <Image className="h-3 w-3 animate-pulse" />
             <span className="text-xs">Uploading...</span>
           </div>
+        )}
+
+        {/* Voice input microphone */}
+        {isSpeechSupported && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleMicClick}
+                  className={cn(
+                    "h-7 w-7 p-0",
+                    isListening
+                      ? "text-red-400 hover:text-red-300 hover:bg-red-500/10 animate-pulse"
+                      : "text-gray-400 hover:text-gray-300 hover:bg-gray-500/10"
+                  )}
+                >
+                  {isListening ? (
+                    <MicOff className="h-4 w-4" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{isListening ? "Click to send voice input" : "Click to start voice input"}</p>
+                {isListening && interimTranscript && (
+                  <p className="text-xs text-muted-foreground mt-1 max-w-[200px] truncate">
+                    {interimTranscript}
+                  </p>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
 
         {/* Status indicator */}
