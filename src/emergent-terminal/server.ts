@@ -28,7 +28,8 @@ const STORAGE_DIR = path.join(process.cwd(), ".local-storage")
 const TOKEN_FILE = path.join(STORAGE_DIR, "emergent-token.json")
 const SESSIONS_FILE = path.join(STORAGE_DIR, "emergent-sessions.json")
 const TMUX_SESSION_NAME = process.env.EMERGENT_TMUX_SESSION || "emergent"
-const USE_TMUX = process.env.EMERGENT_USE_TMUX !== "false" // Default to true
+// Disable tmux by default - it breaks mouse selection in browser
+const USE_TMUX = process.env.EMERGENT_USE_TMUX === "true" // Default to false
 
 // Ensure storage directory exists
 if (!fs.existsSync(STORAGE_DIR)) {
@@ -108,6 +109,84 @@ function saveSessions(store: SessionStore): void {
 // Active terminal processes
 const activeTerminals = new Map<string, pty.IPty>()
 const terminalClients = new Map<string, Set<WebSocket>>()
+
+// ============== TMUX-LITE: Shared session for multi-device real-time sync ==============
+interface SharedSession {
+  pty: pty.IPty | null
+  clients: Set<WebSocket>
+  outputBuffer: string[]  // Rolling buffer of recent output
+  maxBufferLines: number
+  sessionId: string
+  createdAt: Date
+}
+
+const SHARED_SESSION: SharedSession = {
+  pty: null,
+  clients: new Set(),
+  outputBuffer: [],
+  maxBufferLines: 5000,  // Keep last 5000 chunks for replay
+  sessionId: crypto.randomBytes(8).toString("hex"),
+  createdAt: new Date()
+}
+
+function broadcastToClients(message: string) {
+  const payload = JSON.stringify({ type: "output", data: message })
+  SHARED_SESSION.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(payload)
+    }
+  })
+}
+
+function addToBuffer(data: string) {
+  SHARED_SESSION.outputBuffer.push(data)
+  // Trim buffer if too large
+  if (SHARED_SESSION.outputBuffer.length > SHARED_SESSION.maxBufferLines) {
+    SHARED_SESSION.outputBuffer = SHARED_SESSION.outputBuffer.slice(-SHARED_SESSION.maxBufferLines)
+  }
+}
+
+function replayBufferToClient(ws: WebSocket) {
+  // Send all buffered output to new client
+  if (SHARED_SESSION.outputBuffer.length > 0) {
+    const fullOutput = SHARED_SESSION.outputBuffer.join("")
+    ws.send(JSON.stringify({ type: "output", data: fullOutput }))
+  }
+}
+
+function createSharedPty(cols: number, rows: number): pty.IPty {
+  const shell = process.env.SHELL || (os.platform() === "win32" ? "powershell.exe" : "bash")
+
+  const ptyProcess = pty.spawn(shell, [], {
+    name: "xterm-256color",
+    cols: cols || 80,
+    rows: rows || 24,
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+    },
+  })
+
+  ptyProcess.onData((output) => {
+    addToBuffer(output)
+    broadcastToClients(output)
+  })
+
+  ptyProcess.onExit(({ exitCode }) => {
+    const exitMsg = JSON.stringify({ type: "exit", code: exitCode })
+    SHARED_SESSION.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(exitMsg)
+      }
+    })
+    SHARED_SESSION.pty = null
+  })
+
+  return ptyProcess
+}
+// ============== END TMUX-LITE ==============
 
 // Check if tmux is available
 function isTmuxAvailable(): boolean {
@@ -578,7 +657,7 @@ app.get("/", requireAuth, (req, res) => {
       fontSize: 14,
       fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, monospace',
       scrollback: 10000,
-      smoothScrollDuration: 100,
+      smoothScrollDuration: 0,  // Instant scroll, no animation lag
       theme: {
         background: '#0a0a0a',
         foreground: '#e4e4e7',
@@ -649,9 +728,13 @@ app.get("/", requireAuth, (req, res) => {
           terminal.write(data.data);
         } else if (data.type === 'session') {
           sessionId = data.sessionId;
-          if (data.tmux && data.tmuxSession) {
-            sessionInfo.textContent = 'tmux: ' + data.tmuxSession;
+          if (data.shared) {
+            sessionInfo.textContent = 'Shared (' + data.clients + ' client' + (data.clients > 1 ? 's' : '') + ')';
             sessionInfo.style.color = '#22c55e';
+            if (data.isNew) {
+              terminal.clear();
+              terminal.writeln('\\x1b[32mNew shared session created\\x1b[0m');
+            }
           } else {
             sessionInfo.textContent = 'Session: ' + sessionId.substring(0, 8);
           }
@@ -707,6 +790,55 @@ app.get("/", requireAuth, (req, res) => {
         terminal.clear();
       }
     };
+
+    // Intercept mouse wheel events to scroll xterm.js locally
+    const terminalEl = document.getElementById('terminal');
+    terminalEl.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      // Faster scroll: minimum 5 lines, scales with wheel speed
+      const lines = e.deltaY > 0
+        ? Math.max(5, Math.ceil(e.deltaY / 15))
+        : Math.min(-5, Math.floor(e.deltaY / 15));
+      terminal.scrollLines(lines);
+    }, { passive: false });
+
+    // Auto-copy selection to clipboard
+    terminal.onSelectionChange(() => {
+      const selection = terminal.getSelection();
+      if (selection && selection.length > 0) {
+        navigator.clipboard.writeText(selection).catch(() => {});
+      }
+    });
+
+    // Ctrl+Shift+C to copy, Ctrl+Shift+V to paste
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+        const selection = terminal.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection);
+        }
+      } else if (e.ctrlKey && e.shiftKey && e.key === 'V') {
+        navigator.clipboard.readText().then(text => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data: text }));
+          }
+        });
+      }
+    });
+
+    // Right-click to copy selection
+    terminalEl.addEventListener('contextmenu', (e) => {
+      const selection = terminal.getSelection();
+      if (selection && selection.length > 0) {
+        e.preventDefault();
+        navigator.clipboard.writeText(selection).then(() => {
+          // Brief visual feedback
+          const orig = terminalEl.style.outline;
+          terminalEl.style.outline = '2px solid #22c55e';
+          setTimeout(() => { terminalEl.style.outline = orig; }, 200);
+        });
+      }
+    });
 
     // Start connection
     connect();
@@ -773,8 +905,9 @@ wss.on("connection", (ws, req) => {
     return
   }
 
-  let ptyProcess: pty.IPty | null = null
-  let currentSessionId: string | null = null
+  // Add this client to the shared session
+  SHARED_SESSION.clients.add(ws)
+  console.log(`[Emergent] Client connected (${SHARED_SESSION.clients.size} total)`)
 
   ws.on("message", (message) => {
     try {
@@ -782,98 +915,62 @@ wss.on("connection", (ws, req) => {
 
       switch (data.type) {
         case "start":
-        case "new":
-          // Kill existing process if any
-          if (ptyProcess) {
-            ptyProcess.kill()
-          }
-
-          // Create new terminal session
-          currentSessionId = crypto.randomBytes(8).toString("hex")
-          const shell = process.env.SHELL || (os.platform() === "win32" ? "powershell.exe" : "bash")
-
-          // Use tmux if available for session persistence
-          let spawnCmd: string
-          let spawnArgs: string[]
-
-          if (TMUX_AVAILABLE) {
-            // For "new" command, kill existing tmux session first
-            if (data.type === "new") {
-              try {
-                const { execSync } = require("child_process")
-                execSync(`tmux kill-session -t ${TMUX_SESSION_NAME} 2>/dev/null`, { stdio: "pipe" })
-              } catch {
-                // Session didn't exist, that's fine
-              }
-            }
-
-            spawnCmd = "tmux"
-            spawnArgs = ["new-session", "-A", "-s", TMUX_SESSION_NAME]
-            console.log(`[Emergent] ${tmuxSessionExists(TMUX_SESSION_NAME) ? "Attaching to" : "Creating"} tmux session: ${TMUX_SESSION_NAME}`)
+          // Join existing session or create new one
+          if (SHARED_SESSION.pty) {
+            // Replay buffer to this client so they see existing content
+            console.log(`[Emergent] Client joining existing session (buffer: ${SHARED_SESSION.outputBuffer.length} chunks)`)
+            replayBufferToClient(ws)
           } else {
-            spawnCmd = shell
-            spawnArgs = []
-          }
-
-          ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
-            name: "xterm-256color",
-            cols: data.cols || 80,
-            rows: data.rows || 24,
-            cwd: process.cwd(),
-            env: {
-              ...process.env,
-              TERM: "xterm-256color",
-              COLORTERM: "truecolor",
-            },
-          })
-
-          // Track session
-          activeTerminals.set(currentSessionId, ptyProcess)
-
-          // Enable mouse mode in tmux for proper scrolling
-          if (TMUX_AVAILABLE) {
-            setTimeout(() => {
-              try {
-                const { execSync } = require("child_process")
-                execSync(`tmux set-option -t ${TMUX_SESSION_NAME} -g mouse on`, { stdio: "pipe" })
-              } catch (e) {
-                console.log("[Emergent] Could not enable tmux mouse mode:", e)
-              }
-            }, 500)
+            // Create new shared PTY
+            console.log("[Emergent] Creating new shared session")
+            SHARED_SESSION.pty = createSharedPty(data.cols || 80, data.rows || 24)
+            SHARED_SESSION.sessionId = crypto.randomBytes(8).toString("hex")
+            SHARED_SESSION.outputBuffer = []
           }
 
           ws.send(JSON.stringify({
             type: "session",
-            sessionId: currentSessionId,
-            tmux: TMUX_AVAILABLE,
-            tmuxSession: TMUX_AVAILABLE ? TMUX_SESSION_NAME : null
+            sessionId: SHARED_SESSION.sessionId,
+            shared: true,
+            clients: SHARED_SESSION.clients.size
           }))
+          break
 
-          ptyProcess.onData((output) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "output", data: output }))
+        case "new":
+          // Kill existing session and start fresh
+          if (SHARED_SESSION.pty) {
+            SHARED_SESSION.pty.kill()
+            SHARED_SESSION.pty = null
+          }
+          SHARED_SESSION.outputBuffer = []
+          SHARED_SESSION.sessionId = crypto.randomBytes(8).toString("hex")
+          SHARED_SESSION.pty = createSharedPty(data.cols || 80, data.rows || 24)
+
+          // Notify all clients of new session
+          const newSessionMsg = JSON.stringify({
+            type: "session",
+            sessionId: SHARED_SESSION.sessionId,
+            shared: true,
+            clients: SHARED_SESSION.clients.size,
+            isNew: true
+          })
+          SHARED_SESSION.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(newSessionMsg)
             }
           })
-
-          ptyProcess.onExit(({ exitCode }) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "exit", code: exitCode }))
-            }
-            if (currentSessionId) {
-              activeTerminals.delete(currentSessionId)
-            }
-          })
+          console.log("[Emergent] New shared session created")
           break
 
         case "input":
-          if (ptyProcess) {
-            ptyProcess.write(data.data)
+          if (SHARED_SESSION.pty) {
+            SHARED_SESSION.pty.write(data.data)
           }
           break
 
         case "resize":
-          if (ptyProcess) {
-            ptyProcess.resize(data.cols, data.rows)
+          if (SHARED_SESSION.pty) {
+            SHARED_SESSION.pty.resize(data.cols, data.rows)
           }
           break
       }
@@ -883,8 +980,9 @@ wss.on("connection", (ws, req) => {
   })
 
   ws.on("close", () => {
-    // Don't kill the process - allow reconnection
-    // Process will be cleaned up after timeout or on new connection
+    SHARED_SESSION.clients.delete(ws)
+    console.log(`[Emergent] Client disconnected (${SHARED_SESSION.clients.size} remaining)`)
+    // Don't kill the PTY - other clients may still be connected
   })
 })
 
@@ -911,24 +1009,19 @@ server.listen(PORT, () => {
 process.on("SIGINT", () => {
   console.log("\n[Emergent] Shutting down...")
 
-  // Kill PTY processes but keep tmux sessions running for persistence
-  activeTerminals.forEach((ptyProc, id) => {
-    if (TMUX_AVAILABLE) {
-      // Detach from tmux instead of killing - session will persist
-      console.log(`[Emergent] Detaching from tmux session (session will persist)`)
-      ptyProc.write("\x02d") // Ctrl+B d to detach from tmux
-      setTimeout(() => ptyProc.kill(), 100)
-    } else {
-      console.log(`[Emergent] Killing session ${id}`)
-      ptyProc.kill()
-    }
+  // Kill shared PTY
+  if (SHARED_SESSION.pty) {
+    console.log("[Emergent] Killing shared session")
+    SHARED_SESSION.pty.kill()
+  }
+
+  // Close all client connections
+  SHARED_SESSION.clients.forEach(client => {
+    client.close()
   })
 
   server.close(() => {
     console.log("[Emergent] Server closed")
-    if (TMUX_AVAILABLE) {
-      console.log(`[Emergent] tmux session '${TMUX_SESSION_NAME}' is still running - will reconnect on restart`)
-    }
     process.exit(0)
   })
 })

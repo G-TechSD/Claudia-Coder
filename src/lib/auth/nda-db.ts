@@ -49,15 +49,48 @@ export function initializeNdaDatabase() {
     )
   `)
 
-  // Create indexes
+  // Migration: Add missing columns to existing beta_invite table
+  // These must run BEFORE creating indexes on these columns
+  try {
+    db.exec(`ALTER TABLE beta_invite ADD COLUMN invitedBy TEXT REFERENCES user(id) ON DELETE CASCADE`)
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE beta_invite ADD COLUMN usedBy TEXT REFERENCES user(id) ON DELETE SET NULL`)
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE beta_invite ADD COLUMN uses INTEGER NOT NULL DEFAULT 0`)
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE beta_invite ADD COLUMN usedAt TEXT`)
+  } catch {
+    // Column already exists
+  }
+
+  // Create indexes (after migrations have added any missing columns)
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_nda_signature_userId ON nda_signature(userId);
     CREATE INDEX IF NOT EXISTS idx_beta_invite_code ON beta_invite(code);
-    CREATE INDEX IF NOT EXISTS idx_beta_invite_invitedBy ON beta_invite(invitedBy);
-    CREATE INDEX IF NOT EXISTS idx_beta_invite_usedBy ON beta_invite(usedBy);
     CREATE INDEX IF NOT EXISTS idx_beta_invite_status ON beta_invite(status);
     CREATE INDEX IF NOT EXISTS idx_beta_invite_createdBy ON beta_invite(createdBy);
   `)
+
+  // Create indexes for migrated columns (wrapped in try-catch for safety)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_beta_invite_usedBy ON beta_invite(usedBy)`)
+  } catch {
+    // Column might not exist in edge cases
+  }
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_beta_invite_invitedBy ON beta_invite(invitedBy)`)
+  } catch {
+    // Column might not exist in edge cases
+  }
 
   console.log("[NDA] Database tables initialized")
 }
@@ -251,7 +284,7 @@ export function createInviteCode(data: {
     : null
 
   db.prepare(
-    `INSERT INTO beta_invite (id, code, invitedBy, invitedEmail, maxUses, expiresAt)
+    `INSERT INTO beta_invite (id, code, invitedBy, email, maxUses, expiresAt)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(
     id,

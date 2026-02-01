@@ -3,13 +3,17 @@ const { parse } = require('url');
 const next = require('next');
 const fs = require('fs');
 
-const dev = process.env.NODE_ENV !== 'production';
+// Default to production mode when serving the build
+// Use NODE_ENV=development to enable dev mode with hot reloading
+const dev = process.env.NODE_ENV === 'development';
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-// SSL certificate paths from environment variables with fallback
-const sslKeyPath = process.env.SSL_KEY_PATH || '/home/bill/certs/bill-dev-linux-1.key';
-const sslCertPath = process.env.SSL_CERT_PATH || '/home/bill/certs/bill-dev-linux-1.crt';
+// SSL certificate paths from environment variables with sensible local defaults
+// (keep env override for other machines)
+const path = require('path');
+const sslKeyPath = process.env.SSL_KEY_PATH || path.join(__dirname, 'certs', 'localhost.key');
+const sslCertPath = process.env.SSL_CERT_PATH || path.join(__dirname, 'certs', 'localhost.crt');
 
 // Check if SSL files exist before loading
 if (!fs.existsSync(sslKeyPath)) {
@@ -26,12 +30,15 @@ const httpsOptions = {
   cert: fs.readFileSync(sslCertPath)
 };
 
+const PORT = parseInt(process.env.PORT || '1337', 10);
+const HOST = process.env.HOST || '0.0.0.0';
+
 app.prepare().then(() => {
   createServer(httpsOptions, (req, res) => {
     const parsedUrl = parse(req.url, true);
     handle(req, res, parsedUrl);
-  }).listen(3000, '0.0.0.0', (err) => {
+  }).listen(PORT, HOST, (err) => {
     if (err) throw err;
-    console.log('> Ready on https://localhost:3000');
+    console.log(`> Ready on https://localhost:${PORT}`);
   });
 });

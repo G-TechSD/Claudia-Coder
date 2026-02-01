@@ -198,6 +198,41 @@ export async function POST(_request: NextRequest) {
   }
 }
 
+// Helper to find and kill process by port
+async function killProcessOnPort(port: number): Promise<boolean> {
+  const { execSync } = await import("child_process")
+  try {
+    // Find process using the port (works on Linux/Mac)
+    const result = execSync(`lsof -ti :${port} 2>/dev/null || fuser ${port}/tcp 2>/dev/null`, {
+      encoding: "utf-8",
+    }).trim()
+
+    if (result) {
+      const pids = result.split("\n").filter(Boolean)
+      for (const pidStr of pids) {
+        const pid = parseInt(pidStr.trim(), 10)
+        if (!isNaN(pid)) {
+          try {
+            process.kill(pid, "SIGTERM")
+            console.log(`[Emergent Stop] Killed process ${pid} on port ${port}`)
+          } catch {
+            // Try SIGKILL if SIGTERM fails
+            try {
+              process.kill(pid, "SIGKILL")
+            } catch {
+              // Process already dead
+            }
+          }
+        }
+      }
+      return true
+    }
+  } catch {
+    // lsof/fuser not available or no process found
+  }
+  return false
+}
+
 // DELETE - Stop the server
 export async function DELETE(_request: NextRequest) {
   try {
@@ -206,31 +241,44 @@ export async function DELETE(_request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    let killed = false
     const pid = getStoredPid()
-    if (!pid) {
-      return NextResponse.json({
-        success: true,
-        message: "Server not running",
-      })
-    }
 
-    try {
-      // Try killing the process group first (negative PID)
-      process.kill(-pid, "SIGTERM")
-    } catch {
-      // If that fails, try killing just the process
+    // First try killing by stored PID
+    if (pid) {
       try {
-        process.kill(pid, "SIGTERM")
+        // Try killing the process group first (negative PID)
+        process.kill(-pid, "SIGTERM")
+        killed = true
       } catch {
-        // Process already dead
+        // If that fails, try killing just the process
+        try {
+          process.kill(pid, "SIGTERM")
+          killed = true
+        } catch {
+          // Process already dead
+        }
       }
+      clearPid()
     }
 
-    clearPid()
+    // Also try killing by port in case server was started externally
+    const killedByPort = await killProcessOnPort(3100)
+    killed = killed || killedByPort
+
+    // Wait a moment and verify it's stopped
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const stillRunning = await checkEmergentHealth()
+
+    if (stillRunning) {
+      // Force kill by port
+      await killProcessOnPort(3100)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
 
     return NextResponse.json({
       success: true,
-      message: "Server stopped",
+      message: killed ? "Server stopped" : "Server not running",
     })
   } catch (error) {
     console.error("[Emergent Stop] Error:", error)
