@@ -1,5 +1,13 @@
 # Claudia Coder
 
+## Demo Videos (click to view on youtube)
+
+### "Fractal Ideation Matrix" aka "Explore and Narrow Down"
+[![Video 1](https://img.youtube.com/vi/QdfJccavky8/hqdefault.jpg)](https://youtu.be/QdfJccavky8)
+
+### Initial public demo showing about 50% of features
+[![Video 2](https://img.youtube.com/vi/a5aENyZOQ_4/hqdefault.jpg)](https://youtu.be/a5aENyZOQ_4)
+
 > **The Future of End-to-End Agentic Application Development**
 
 ## 🚀 What is Claudia Coder?
