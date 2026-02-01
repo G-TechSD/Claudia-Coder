@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
-import { Play, Square, RefreshCw, Loader2, FileText, History, Shield, Radio, Zap, Users, PanelRight, PanelBottom, Layers, GripVertical, AlertTriangle } from "lucide-react"
+import { Play, Square, RefreshCw, Loader2, FileText, History, Shield, Radio, Zap, Users, PanelRight, PanelBottom, Layers, GripVertical, AlertTriangle, Mic, MicOff } from "lucide-react"
 import {
   Tooltip,
   TooltipContent,
@@ -15,6 +15,7 @@ import {
 import { MiniMePanel } from "./mini-me-panel"
 import { MiniMeAgent, MiniMeStatus } from "./mini-me"
 import { useAuth } from "@/components/auth/auth-provider"
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
 
 // LocalStorage key for persistent session settings
 const STORAGE_KEY_NEVER_LOSE_SESSION = "claude-code-never-lose-session"
@@ -432,6 +433,48 @@ export function ClaudeCodeTerminal({
       console.error("[Terminal] Failed to send input:", err)
     }
   }, []) // No dependencies - uses ref
+
+  // Speech recognition for voice input
+  const {
+    isListening,
+    isSupported: isSpeechSupported,
+    transcript,
+    interimTranscript,
+    startListening,
+    stopListening,
+    resetTranscript
+  } = useSpeechRecognition({
+    continuous: true,
+    interimResults: true,
+    onResult: (text, isFinal) => {
+      if (isFinal && text.trim()) {
+        if (xtermRef.current) {
+          xtermRef.current.write(`\r\n\x1b[1;35m🎤 Voice: ${text}\x1b[0m\r\n`)
+        }
+      }
+    }
+  })
+
+  // Handle stopping speech and sending to terminal
+  const handleMicClick = useCallback(() => {
+    if (isListening) {
+      stopListening()
+      const textToSend = transcript.trim()
+      if (textToSend && sessionIdRef.current) {
+        sendInput(textToSend + "\n")
+        if (xtermRef.current) {
+          xtermRef.current.write(`\x1b[90m→ Sent to Claude\x1b[0m\r\n`)
+        }
+      }
+      resetTranscript()
+    } else {
+      resetTranscript()
+      startListening()
+      if (xtermRef.current) {
+        xtermRef.current.write(`\r\n\x1b[1;35m🎤 Listening... (click mic again to send)\x1b[0m\r\n`)
+      }
+    }
+  }, [isListening, transcript, startListening, stopListening, resetTranscript, sendInput])
 
   // Resize the terminal - uses ref to always have current sessionId
   const sendResize = useCallback(async (cols: number, rows: number) => {
@@ -1061,6 +1104,32 @@ export function ClaudeCodeTerminal({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Voice input microphone */}
+          {isSpeechSupported && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleMicClick}
+                    className={cn(
+                      "h-7 w-7 p-0",
+                      isListening
+                        ? "text-red-400 hover:text-red-300 hover:bg-red-500/10 animate-pulse"
+                        : "text-gray-400 hover:text-gray-300 hover:bg-gray-500/10"
+                    )}
+                  >
+                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>{isListening ? "Click to send voice input" : "Click to start voice input"}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
           {/* Session Options Toggle */}
           <Button
             variant="ghost"
