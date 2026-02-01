@@ -369,7 +369,18 @@ export async function generateWithLocalLLM(
 
   // Case-insensitive comparison (API uses lowercase, servers use capitalized)
   const preferredLower = preferredServer.toLowerCase()
-  const preferredServerObj = servers.find(s => s.name.toLowerCase() === preferredLower)
+
+  // First try to find server by name, then fall back to finding by type
+  // This handles cases where "lmstudio" or "ollama" is passed as provider type
+  let preferredServerObj = servers.find(s => s.name.toLowerCase() === preferredLower)
+
+  // If not found by name, try to find by server type (e.g., "lmstudio" -> first lmstudio server)
+  if (!preferredServerObj && (preferredLower === "lmstudio" || preferredLower === "ollama")) {
+    preferredServerObj = servers.find(s => s.type === preferredLower)
+    if (preferredServerObj) {
+      console.log(`[LLM] Mapped provider type "${preferredLower}" to server "${preferredServerObj.name}"`)
+    }
+  }
 
   // CRITICAL FIX: If user explicitly selected a server, ONLY try that server
   // Do NOT silently fall back to another server - that's confusing!
@@ -442,7 +453,9 @@ export async function generateWithLocalLLM(
 
     console.log(`[LLM] Server ${server.name} status: ${status.status}, model: ${status.currentModel}`)
 
-    if (status.status !== "online") {
+    // Accept both "online" and "busy" - busy means model is loaded but processing
+    // We can still queue our request
+    if (status.status !== "online" && status.status !== "busy") {
       console.log(`[LLM] Skipping ${server.name} - status: ${status.status}`)
       continue
     }
