@@ -222,12 +222,18 @@ export function EmbeddedTerminal({
     }
   })
 
+  // Keep transcript in ref for handleMicClick closure
+  const transcriptRef = useRef(transcript)
+  useEffect(() => {
+    transcriptRef.current = transcript
+  }, [transcript])
+
   // Handle stopping speech and sending to terminal
   const handleMicClick = useCallback(() => {
     if (isListening) {
       stopListening()
-      // Send accumulated transcript to the terminal
-      const textToSend = transcript.trim()
+      // Send accumulated transcript to the terminal (use ref to avoid stale closure)
+      const textToSend = transcriptRef.current.trim()
       if (textToSend && sessionIdRef.current) {
         sendInput(textToSend + "\n")
         if (xtermRef.current) {
@@ -242,7 +248,7 @@ export function EmbeddedTerminal({
         xtermRef.current.write(`\r\n\x1b[1;35m🎤 Listening... (click mic again to send)\x1b[0m\r\n`)
       }
     }
-  }, [isListening, transcript, startListening, stopListening, resetTranscript, sendInput])
+  }, [isListening, startListening, stopListening, resetTranscript, sendInput])
 
   // Resize the terminal
   const sendResize = useCallback(async (cols: number, rows: number) => {
