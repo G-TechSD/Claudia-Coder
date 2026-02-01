@@ -411,10 +411,10 @@ export default function ProjectDetailPage() {
   // Load packets and build plan status for this project
   // SERVER-SIDE ONLY - no localStorage for packets
   useEffect(() => {
-    if (!projectId) return
+    if (!projectId || !user?.id) return
 
     // Load build plan first (we may need its packets as fallback)
-    const buildPlan = getBuildPlanForProject(projectId)
+    const buildPlan = getBuildPlanForProject(projectId, user.id)
     if (buildPlan) {
       setHasBuildPlan(true)
       setBuildPlanApproved(buildPlan.status === "approved" || buildPlan.status === "locked")
@@ -484,7 +484,7 @@ export default function ProjectDetailPage() {
     }
 
     loadPacketsFromServer()
-  }, [projectId])
+  }, [projectId, user?.id])
 
   useEffect(() => {
     console.log(`[ProjectDetailPage] useEffect triggered - projectId: ${projectId}, authLoading: ${authLoading}, userId: ${user?.id}`)
@@ -1732,7 +1732,7 @@ export default function ProjectDetailPage() {
             repoCloned={project.repos.some(r => r.localPath)}
             hasBuildPlan={hasBuildPlan}
             onAnalysisComplete={async () => {
-              const buildPlan = getBuildPlanForProject(project.id)
+              const buildPlan = getBuildPlanForProject(project.id, user?.id)
               if (buildPlan) {
                 setHasBuildPlan(true)
                 setBuildPlanApproved(buildPlan.status === "approved" || buildPlan.status === "locked")
@@ -2828,7 +2828,7 @@ export default function ProjectDetailPage() {
                     console.log(`[project-page] Build plan approved`)
                     setBuildPlanApproved(true)
                     // Refresh the build plan state
-                    const buildPlan = getBuildPlanForProject(project.id)
+                    const buildPlan = getBuildPlanForProject(project.id, user?.id)
                     if (buildPlan) {
                       setCurrentBuildPlan(buildPlan)
                     }
