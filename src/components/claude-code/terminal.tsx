@@ -495,9 +495,16 @@ export function ClaudeCodeTerminal({
   }, [interimTranscript])
 
   // Handle stopping speech and sending to terminal
-  const handleMicClick = useCallback(() => {
+  // Handle stopping speech and sending to terminal
+  // Made async with delay to fix race condition where transcript isn't finalized yet
+  const handleMicClick = useCallback(async () => {
     if (isListening) {
       stopListening()
+      
+      // Wait for speech recognition to finalize transcript
+      // This fixes the race condition where we read transcript before final result arrives
+      await new Promise(resolve => setTimeout(resolve, 200))
+      
       // Combine finalized transcript with any interim text that hasn't been finalized yet
       const finalText = transcriptRef.current.trim()
       const interimText = interimRef.current.trim()
