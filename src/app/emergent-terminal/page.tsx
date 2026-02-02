@@ -33,6 +33,13 @@ import { getDefaultLaunchHost, setDefaultLaunchHost } from "@/lib/settings/globa
 
 const EMERGENT_PORT = 3100
 
+// Module-level singleton to prevent multiple polling instances across hot reloads
+let globalPollingInterval: NodeJS.Timeout | null = null
+let isPollingActive = false
+// Throttle tracking for checkServerStatus
+let lastCheckTime = 0
+const CHECK_THROTTLE_MS = 2000
+
 interface TokenInfo {
   exists: boolean
   token?: string
@@ -74,7 +81,16 @@ export default function EmergentTerminalPage() {
   }, [])
 
   // Check if emergent server is running (via backend to avoid mixed content issues)
+  // Throttled to prevent rapid calls even if invoked frequently
   const checkServerStatus = useCallback(async () => {
+    // Throttle: skip if called too recently
+    const now = Date.now()
+    if (now - lastCheckTime < CHECK_THROTTLE_MS) {
+      // Return cached result without making API call
+      return false // Don't know the actual status, but caller shouldn't care for throttled calls
+    }
+    lastCheckTime = now
+
     try {
       const response = await fetch("/api/emergent-terminal/start", {
         cache: "no-cache",
@@ -91,7 +107,7 @@ export default function EmergentTerminalPage() {
     }
     setServerStatus("offline")
     return false
-  }, [])
+  }, []) // No deps - throttle handles state consistency
 
   // Fetch token info
   const fetchTokenInfo = useCallback(async () => {
@@ -106,19 +122,44 @@ export default function EmergentTerminalPage() {
     }
   }, [])
 
-  // Initial load
+  // Initial load - runs only once per page session using module-level singleton
   useEffect(() => {
+    // Clear any existing polling interval (handles hot reload, multiple mounts, etc.)
+    if (globalPollingInterval) {
+      clearInterval(globalPollingInterval)
+      globalPollingInterval = null
+    }
+
+    // Prevent overlapping initialization
+    if (isPollingActive) {
+      console.log("[EmergentTerminal] Polling already active, skipping duplicate init")
+      setLoading(false)
+      return
+    }
+    isPollingActive = true
+
     const init = async () => {
       setLoading(true)
-      await Promise.all([checkServerStatus(), fetchTokenInfo()])
-      setLoading(false)
+      try {
+        await Promise.all([checkServerStatus(), fetchTokenInfo()])
+      } finally {
+        setLoading(false)
+      }
     }
     init()
 
-    // Poll server status every 3 seconds
-    const interval = setInterval(checkServerStatus, 3000)
-    return () => clearInterval(interval)
-  }, [checkServerStatus, fetchTokenInfo])
+    // Poll server status every 3 seconds (module-level to survive re-renders)
+    globalPollingInterval = setInterval(checkServerStatus, 3000)
+
+    return () => {
+      if (globalPollingInterval) {
+        clearInterval(globalPollingInterval)
+        globalPollingInterval = null
+      }
+      isPollingActive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Empty deps - init once on mount, callbacks are stable
 
   // Copy token to clipboard
   const handleCopyToken = useCallback(() => {

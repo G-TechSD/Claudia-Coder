@@ -40,6 +40,10 @@ const STORAGE_DIR = path.join(process.cwd(), ".local-storage")
 const PID_FILE = path.join(STORAGE_DIR, "emergent-server.pid")
 const LOG_FILE = path.join(STORAGE_DIR, "emergent-server.log")
 
+// Cache for status checks to prevent rapid polling (2 second cache to allow 3s polling interval)
+let lastStatusCheck: { time: number; result: { running: boolean; responding: boolean; pid: number | null } } | null = null
+const STATUS_CACHE_TTL_MS = 2000
+
 function ensureStorageDir(): void {
   if (!fs.existsSync(STORAGE_DIR)) {
     fs.mkdirSync(STORAGE_DIR, { recursive: true })
@@ -286,7 +290,7 @@ export async function DELETE(_request: NextRequest) {
   }
 }
 
-// GET - Check server status
+// GET - Check server status (with caching to prevent rapid polling)
 export async function GET(_request: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -294,16 +298,27 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Return cached result if still valid
+    const now = Date.now()
+    if (lastStatusCheck && (now - lastStatusCheck.time) < STATUS_CACHE_TTL_MS) {
+      return NextResponse.json(lastStatusCheck.result)
+    }
+
     const pid = getStoredPid()
 
     // Always check if server is actually responding (it may have been started externally)
     const serverResponding = await checkEmergentHealth()
 
-    return NextResponse.json({
+    const result = {
       running: pid !== null || serverResponding,
       responding: serverResponding,
       pid,
-    })
+    }
+
+    // Cache the result
+    lastStatusCheck = { time: now, result }
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error("[Emergent Status] Error:", error)
     return NextResponse.json({ error: "Failed to check status" }, { status: 500 })

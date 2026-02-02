@@ -745,6 +745,9 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
     }
 
     try {
+      // DEBUG: Log entry into execution block
+      console.log(`[ExecutionPanel] Entering execution block. readyPackets: ${readyPackets.length}, milestoneMode: ${milestoneMode}, phases: ${phases?.length || 0}`)
+
       // Track packet results to report correct status at the end
       const failedPackets: string[] = []
       const completedPackets: string[] = []
@@ -816,6 +819,7 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
       // =====================================================
       // MILESTONE-GROUPED EXECUTION MODE
       // =====================================================
+      console.log(`[ExecutionPanel] Checking execution mode: milestoneMode=${milestoneMode}, phases=${phases?.length || 0}`)
       if (milestoneMode && phases && phases.length > 0) {
         // Group packets by phase
         const packetsByPhase = groupPacketsByPhase(readyPackets, phases)
@@ -1057,9 +1061,11 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
         // =====================================================
         // STANDARD SEQUENTIAL EXECUTION MODE (original logic)
         // =====================================================
+        console.log(`[ExecutionPanel] Entering standard sequential mode. startIndex=${startIndex}, readyPackets.length=${readyPackets.length}`)
 
         // Process packets sequentially (starting from startIndex for resume support)
         for (let i = startIndex; i < readyPackets.length; i++) {
+          console.log(`[ExecutionPanel] Processing packet ${i}: ${readyPackets[i]?.title}`)
           const packet = readyPackets[i]
           const packetProgress = Math.round((i / readyPackets.length) * 100)
 
@@ -1096,10 +1102,13 @@ export const ExecutionPanel = React.forwardRef<ExecutionPanelRef, ExecutionPanel
         }
 
         // Call the Claudia execution API with abort signal for immediate cancellation
+        console.log(`[ExecutionPanel] About to fetch /api/claude-execute for packet: ${packet.title}`)
+        console.log(`[ExecutionPanel] AbortController signal aborted: ${abortControllerRef.current?.signal?.aborted}`)
         let response: Response
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let result: any
         try {
+          console.log(`[ExecutionPanel] Making fetch call now...`)
           response = await fetch("/api/claude-execute", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
