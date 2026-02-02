@@ -761,6 +761,12 @@ export function EmbeddedTerminal({
           setTimeout(() => {
             reconnectToSession(storedSessionId)
           }, 500)
+        } else if (reconnectToTmux && currentWorkingDirectory) {
+          // Auto-reconnect to existing tmux session (persistent session across navigation)
+          term.write("\x1b[1;36m● Reconnecting to tmux session: " + reconnectToTmux + "\x1b[0m\r\n")
+          setTimeout(() => {
+            startSession()
+          }, 500)
         } else {
           // Show ready message
           term.write("\x1b[1;36m● Ready to start Claude Code session\x1b[0m\r\n")
